@@ -5,7 +5,7 @@
   "title": "在水里，把想法变成机器人",
   "summary": "浙江大学海洋机器人协会招新文章结构示例。",
   "blocks": [
-    {"type": "hero", "component": "core.hero", "eyebrow": "ZJU OCEAN ROBOT", "title": "在水里，把想法变成机器人", "subtitle": "从设计、制作到调试，和一群人让系统真正下水。", "cta": "一起动手"},
+    {"type": "hero", "component": "core.hero", "eyebrow": "ZJU OCEAN ROBOT", "title": "在水里，把想法变成机器人", "subtitle": "从设计、制作到调试，和一群人让系统真正下水。", "cta": "一起动手", "background": "visual.hero-ocean-engineering", "background_alt": "浅色水下环境中的海洋机器人插画"},
     {"type": "lead", "component": "core.lead", "paragraphs": ["海洋机器人不只是一台机器，它需要机械、电子、控制、感知与协作共同工作。", "这里关心的是真实问题：如何密封，如何稳定推进，如何在水下感知和定位。"]},
     {"type": "statement", "component": "core.statement", "label": "WHY JOIN", "title": "不只学会一个工具，而是参与一条完整的工程链路。", "body": "从问题拆解到现场测试，每一环都可以找到具体的参与位置。"},
     {"type": "section", "component": "core.section", "number": "01", "title": "你可以从哪里开始"},

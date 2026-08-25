@@ -49,7 +49,7 @@ Choose a default only after user confirmation or when the organization already h
 
 ## First article as calibration
 
-Use the first real article to test:
+Create the first real article as a 390 px native Ardot board and use it to test:
 
 - whether the voice sounds like the organization rather than a generic campaign;
 - whether verified facts remain distinguishable from promotional interpretation;
@@ -58,3 +58,5 @@ Use the first real article to test:
 - whether the component recommendations suit the article’s actual information.
 
 After review, update the organization pack instead of accumulating one-off prompt rules.
+
+Record the approved Ardot file, variable mode, page names, and component aliases in `ardot.json`. Preserve the first article as an editable example page for later migration checks.

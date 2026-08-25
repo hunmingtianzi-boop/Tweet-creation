@@ -1,6 +1,6 @@
 # Organization pack schema
 
-An organization pack is a reusable directory containing four JSON files:
+An organization pack is a reusable directory containing five JSON files:
 
 ```text
 organization-pack/
@@ -8,6 +8,7 @@ organization-pack/
 ├── sources.json
 ├── components.json
 ├── assets.json
+├── ardot.json
 └── assets/
     ├── official/       # Logo, QR, official identity files
     ├── photos/         # Real people, events, projects, venues
@@ -70,6 +71,17 @@ Recommended stable core IDs include:
 - `core.steps`, `core.image`, `core.cta`, `core.references`, `core.footer`.
 
 Organization packs may add custom IDs without changing the compiler when they map to a supported semantic block type.
+
+## `ardot.json`
+
+Connects the portable organization pack to its editable visual system. It records:
+
+- link status and Ardot design-file URL/ID;
+- semantic variable set and organization mode;
+- foundation, component, and example page names;
+- exact native component aliases for route variants.
+
+New packs start as `not-linked`. Set `linked` only after a real Ardot file, variable mode, and first visual calibration exist. This file contains no account secret.
 
 ## `assets.json`
 

@@ -24,6 +24,16 @@ The compiler accepts UTF-8 JSON:
 
 `organization_id` must match the organization pack. `article_type` must exist in `organization.json`. Omit `route` to use the article type’s configured route.
 
+The same JSON drives both Ardot assembly and the final WeChat adapter. Ardot is the visual source of truth. A block may set optional `variant`; otherwise the selected route supplies the variant and `ardot.json` maps it to an exact native component.
+
+Generate the Ardot assembly manifest before visual authoring:
+
+```bash
+python3 scripts/build_ardot_manifest.py article.json \
+  --org organizations/<organization-id> \
+  --output output/<organization-id>/<slug>/ardot-manifest.json
+```
+
 ## Supported blocks
 
 - `hero`: `title`, optional `subtitle`, `eyebrow`, `background`, `background_alt`, `cta`.
@@ -44,6 +54,8 @@ The compiler accepts UTF-8 JSON:
 - `footer`: optional `name`, `tagline`, `logo`, and `credits`.
 
 Relative image paths resolve from the article JSON. The compiler copies local images into the output `assets/` directory. Remote WeChat URLs remain unchanged.
+
+Asset registry IDs such as `visual.hero-example` resolve from the organization pack for both Ardot upload and final transport. Keep generated visuals text-free; copy remains editable in Ardot text nodes.
 
 ## Evidence checks
 

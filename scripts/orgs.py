@@ -14,7 +14,13 @@ from typing import Any
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
 SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-PACK_FILES = ("organization.json", "sources.json", "components.json", "assets.json")
+PACK_FILES = (
+    "organization.json",
+    "sources.json",
+    "components.json",
+    "assets.json",
+    "ardot.json",
+)
 AXES = ("authority", "technical", "warmth", "experimental", "action")
 TOKENS = (
     "ink",
@@ -57,6 +63,7 @@ def load_pack(pack_dir: Path) -> dict[str, Any]:
         "sources": read_json(pack_dir / "sources.json"),
         "components": read_json(pack_dir / "components.json"),
         "assets": read_json(pack_dir / "assets.json"),
+        "ardot": read_json(pack_dir / "ardot.json"),
     }
 
 
@@ -97,6 +104,7 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
     sources_doc = require_dict(pack["sources"], "sources.json", errors)
     components_doc = require_dict(pack["components"], "components.json", errors)
     assets_doc = require_dict(pack["assets"], "assets.json", errors)
+    ardot_doc = require_dict(pack["ardot"], "ardot.json", errors)
 
     org_id = org.get("id")
     if not isinstance(org_id, str) or not SLUG.fullmatch(org_id):
@@ -105,6 +113,7 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
         ("sources", sources_doc),
         ("components", components_doc),
         ("assets", assets_doc),
+        ("ardot", ardot_doc),
     ):
         if doc.get("organization_id") != org_id:
             errors.append(f"{label}.organization_id must match organization.id")
@@ -113,6 +122,7 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
         ("sources", sources_doc),
         ("components", components_doc),
         ("assets", assets_doc),
+        ("ardot", ardot_doc),
     ):
         if doc.get("schema_version") != 1:
             errors.append(f"{label}.schema_version must be 1")
@@ -250,6 +260,20 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
         if source_id not in source_ids:
             errors.append(f"organization.provenance references unknown source: {source_id}")
 
+    ardot_status = ardot_doc.get("status")
+    if ardot_status not in {"not-linked", "linked"}:
+        errors.append("ardot.status must be not-linked or linked")
+    for field in ("variable_set", "variable_mode"):
+        if not isinstance(ardot_doc.get(field), str) or not ardot_doc.get(field, "").strip():
+            errors.append(f"ardot.{field} must be a non-empty string")
+    design_file = require_dict(ardot_doc.get("design_file"), "ardot.design_file", errors)
+    if ardot_status == "linked":
+        file_url = design_file.get("url")
+        if not isinstance(file_url, str) or not re.match(r"^https?://", file_url):
+            errors.append("linked ardot.design_file.url must be an http(s) URL")
+    require_dict(ardot_doc.get("page_names"), "ardot.page_names", errors)
+    require_dict(ardot_doc.get("component_aliases"), "ardot.component_aliases", errors)
+
     return {
         "ok": not errors,
         "path": str(pack_dir.resolve()),
@@ -341,7 +365,7 @@ def scaffold(org_id: str, name: str) -> dict[str, Any]:
             "generation": "text-free-illustrative-only",
         },
         "publishing": {
-            "authoring": "structured-json",
+            "authoring": "ardot-native",
             "delivery": "wechat-inline-html",
             "default_action": "draft-only",
             "formal_publish_requires_confirmation": True,
@@ -377,7 +401,27 @@ def scaffold(org_id: str, name: str) -> dict[str, Any]:
         },
     }
     assets = {"schema_version": 1, "organization_id": org_id, "assets": []}
-    return {"organization.json": organization, "sources.json": sources, "components.json": components, "assets.json": assets}
+    ardot = {
+        "schema_version": 1,
+        "organization_id": org_id,
+        "status": "not-linked",
+        "design_file": {"url": None, "file_id": None},
+        "variable_set": "Org WeChat Brand",
+        "variable_mode": org_id,
+        "page_names": {
+            "foundations": "00 Foundations",
+            "components": "01 Components",
+            "example": f"Example / {name}",
+        },
+        "component_aliases": {},
+    }
+    return {
+        "organization.json": organization,
+        "sources.json": sources,
+        "components.json": components,
+        "assets.json": assets,
+        "ardot.json": ardot,
+    }
 
 
 def command_init(args: argparse.Namespace) -> None:

@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from compile_wechat import compile_article  # noqa: E402
+from build_ardot_manifest import build_manifest  # noqa: E402
 from orgs import (  # noqa: E402
     build_asset_plan,
     command_init,
@@ -51,6 +52,9 @@ class OrganizationPackTests(unittest.TestCase):
             pack = Path(temp) / "example-org"
             for folder in ("official", "photos", "generated", "derived"):
                 self.assertTrue((pack / "assets" / folder).is_dir())
+            ardot = json.loads((pack / "ardot.json").read_text(encoding="utf-8"))
+            self.assertEqual(ardot["status"], "not-linked")
+            self.assertEqual(ardot["variable_mode"], "example-org")
 
     def test_asset_plan_uses_organization_route_and_asset_boundaries(self) -> None:
         ocean = build_asset_plan(
@@ -185,6 +189,26 @@ class CompilerTests(unittest.TestCase):
             )
             self.assertFalse(report["ok"])
             self.assertTrue(any("placeholders" in error for error in report["errors"]))
+
+
+class ArdotManifestTests(unittest.TestCase):
+    def test_examples_build_distinct_ardot_assemblies(self) -> None:
+        ocean = build_manifest(
+            ROOT / "examples" / "ocean-recruitment.json",
+            ROOT / "organizations" / "zju-ocean-robot-association",
+        )
+        tuozhe = build_manifest(
+            ROOT / "examples" / "tuozhe-tutorial.json",
+            ROOT / "organizations" / "tuozhe-ai-ecosystem",
+        )
+        self.assertEqual(ocean["handoff"]["source_of_truth"], "ardot-native")
+        self.assertEqual(ocean["design_target"]["variable_mode"], "Ocean")
+        self.assertEqual(tuozhe["design_target"]["variable_mode"], "Tuozhe")
+        self.assertNotEqual(ocean["variables"]["Ink"], tuozhe["variables"]["Ink"])
+        self.assertEqual(ocean["blocks"][0]["ardot_component"], "WeChat/Hero/ImageStage/Ocean")
+        self.assertEqual(tuozhe["blocks"][0]["ardot_component"], "WeChat/Hero/PosterStage/Tuozhe")
+        self.assertFalse(ocean["qa"]["unresolved_assets"])
+        self.assertFalse(tuozhe["qa"]["unresolved_assets"])
 
 
 if __name__ == "__main__":

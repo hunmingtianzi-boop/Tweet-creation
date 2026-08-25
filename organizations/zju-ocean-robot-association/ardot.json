@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "organization_id": "zju-ocean-robot-association",
+  "status": "linked",
+  "design_file": {
+    "url": "https://ardot.tencent.com/file/718644779257522",
+    "file_id": "718644779257522"
+  },
+  "variable_set": "Org WeChat Brand",
+  "variable_mode": "Ocean",
+  "page_names": {
+    "foundations": "00 Foundations",
+    "components": "01 Components",
+    "example": "02 Ocean Example"
+  },
+  "component_aliases": {
+    "hero.image-stage": "WeChat/Hero/ImageStage/Ocean",
+    "section.soft-marker": "WeChat/Section/SoftMarker/Ocean",
+    "statement.editorial-pullout": "WeChat/Statement/EditorialPullout/Ocean",
+    "steps.journey-path": "WeChat/Steps/JourneyPath/Ocean",
+    "cta.launch-pad": "WeChat/CTA/LaunchPad/Ocean"
+  }
+}

@@ -18,12 +18,14 @@
 
 ## Mobile layout
 
-- Inspect `index.html` at approximately 390–430 px width.
+- Inspect the native Ardot article and its high-impact component screenshots at 390 px before creating transport files.
 - Body type remains readable and paragraphs are not dense walls of text.
 - Covers and transitions have intentional overlay space.
 - Galleries show a visible next-card edge and a swipe cue.
 - Long articles vary section rhythm and do not repeat identical cards throughout.
 - Images have useful alt text and important subjects remain legible on a phone.
+- No clipped text, overflow, accidental large empty region, or component instance with the wrong organization mode remains.
+- `index.html` may be used only to debug the final transport adapter; it does not replace Ardot visual review.
 
 ## WeChat handoff
 

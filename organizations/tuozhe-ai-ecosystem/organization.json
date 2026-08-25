@@ -46,6 +46,7 @@
         "uses": ["recruitment", "community"],
         "layout": "editorial",
         "dominant_style": "campus-architecture-editorial",
+        "component_variants": {"hero": "image-stage", "section": "editorial-head", "statement": "editorial-pullout", "metrics": "number-field", "roles": "role-bands", "gallery": "photo-story", "cta": "action-gate"},
         "rationale": "以校园场景和杂志层级建立所属感，避免泛化 AI 展会视觉。"
       },
       {
@@ -54,6 +55,7 @@
         "uses": ["hackathon", "event"],
         "layout": "poster",
         "dominant_style": "hard-edge-poster",
+        "component_variants": {"hero": "poster-stage", "section": "poster-band", "statement": "poster-callout", "metrics": "number-field", "timeline": "action-line", "cta": "poster-gate"},
         "rationale": "用高对比层级承载时间、任务和报名行动。"
       },
       {
@@ -62,6 +64,7 @@
         "uses": ["tutorial", "project-showcase"],
         "layout": "technical",
         "dominant_style": "native-technical-line",
+        "component_variants": {"hero": "image-stage", "section": "index-rail", "statement": "open-rule", "steps": "process-rail", "case": "process-strip", "cta": "action-gate"},
         "rationale": "用流程、案例与线稿呈现真实的 AI 工具和项目逻辑。"
       },
       {
@@ -70,6 +73,7 @@
         "uses": ["partner", "annual-review"],
         "layout": "institutional",
         "dominant_style": "verified-data-editorial",
+        "component_variants": {"hero": "quiet-editorial", "section": "editorial-head", "statement": "open-rule", "metrics": "ledger", "timeline": "report-line", "case": "evidence-ledger", "cta": "quiet-gate"},
         "rationale": "用克制结构和可核验数据支撑合作与成果叙事。"
       }
     ]
@@ -91,7 +95,7 @@
     "generation": "text-free-backgrounds-or-illustrative-technical-assets"
   },
   "publishing": {
-    "authoring": "ardot-native-when-available",
+    "authoring": "ardot-native",
     "delivery": "wechat-inline-html",
     "default_action": "draft-only",
     "formal_publish_requires_confirmation": true

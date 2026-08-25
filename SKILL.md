@@ -1,6 +1,6 @@
 ---
 name: org-wechat-studio
-description: Research an organization, create or update its reusable organization pack, and produce brand-specific WeChat Official Account articles with structured content, reusable components, WeChat-safe HTML, QA, and draft handoff. Use for any organization’s recruitment, event, project, educational, partnership, recap, or announcement article. Do not use for unrelated social posts or generic research with no WeChat deliverable.
+description: Research an organization, create or update its reusable organization pack, and produce brand-specific WeChat Official Account articles with Ardot-native design components, structured content, visual QA, WeChat-safe transport, and draft handoff. Use for any organization’s recruitment, event, project, educational, partnership, recap, or announcement article. Do not use for unrelated social posts or generic research with no WeChat deliverable.
 ---
 
 # Organization WeChat Studio
@@ -26,12 +26,16 @@ For the complete operator guide, commands, file locations, and migration example
    python3 scripts/orgs.py init ORGANIZATION_ID --name "Organization name" --root organizations
    ```
 
-5. For an article, read [references/article-schema.md](references/article-schema.md), create an article JSON beside its source materials, then compile and check it:
+5. For an article, read [references/article-schema.md](references/article-schema.md) and [references/ardot-workflow.md](references/ardot-workflow.md), then create an article JSON beside its source materials.
+6. Build the deterministic Ardot assembly manifest before editing the design:
 
    ```bash
-   python3 scripts/compile_wechat.py article.json --org path/to/organization-pack --output output/article-slug
-   python3 scripts/compile_wechat.py article.json --org path/to/organization-pack --output output/article-slug --check
+   python3 scripts/build_ardot_manifest.py article.json \
+     --org path/to/organization-pack \
+     --output output/article-slug/ardot-manifest.json
    ```
+
+7. Use the manifest to assemble and visually review the native Ardot article. Generate WeChat transport files only after the Ardot design passes review.
 
 ## Organization model
 
@@ -80,8 +84,16 @@ For the complete operator guide, commands, file locations, and migration example
 ## Authoring and delivery
 
 - Treat the structured article JSON as the portable content source.
-- When an editable design surface such as Ardot is available and requested, build native frames/components using the same semantic component IDs as the article JSON. Do not make a flattened long image the editable source of truth.
-- Use generated `index.html` for preview and `wechat.html` as the inline-style handoff fragment.
+- Treat Ardot as the visual source of truth. Build native frames and reusable components using the same semantic component IDs as the article JSON. Never make HTML or a flattened long image the editable design source.
+- Read `ardot.json`, apply the organization variable mode, fetch components by exact name, create missing route-specific variants, and assemble one 390 px article root in block order.
+- Capture and inspect Hero, section, statement, process/case, CTA, and other high-impact sections before handoff. Iterate on composition in Ardot; do not polish the hidden transport renderer as a substitute for visual authoring.
+- After visual approval, run the hidden final adapter when a WeChat draft or portable handoff is required:
+
+  ```bash
+  python3 scripts/compile_wechat.py article.json --org path/to/organization-pack --output output/article-slug --check
+  ```
+
+- `index.html` and `wechat.html` are transport/debug artifacts, not the design source.
 - Before creating a WeChat draft, upload body images to the organization’s connected account and replace local paths with returned WeChat URLs. Upload the cover through the account’s supported cover-material flow.
 - Default to draft creation only. Formal publication always requires a separate explicit confirmation.
 

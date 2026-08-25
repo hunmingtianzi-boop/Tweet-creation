@@ -1,8 +1,16 @@
 # Tweet Creation / Organization WeChat Studio
 
-一套可迁移到不同组织和公众号的 Codex 工作流。它把稳定的微信编译机制、每个组织的品牌资料，以及单篇文章事实分开管理。
+一套可迁移到不同组织和公众号的 Codex + Ardot 工作流。它把可编辑视觉组件、每个组织的品牌资料、单篇文章事实和最终微信投递适配分开管理。
 
 不是“换 Logo 和颜色”的统一模板。新公众号会先建立组织包，再按该组织的受众、语气、视觉母题、文章类型和真实资料生成文章与文件资产。
+
+## Ardot 效果样稿
+
+Ocean 招新与拓浙教程使用相同的内容职责，但 Hero 构图、留白、边角、图像策略与阅读节奏不同：
+
+![Ocean 招新 Ardot Hero](docs/previews/ocean-recruitment-hero.png)
+
+![拓浙教程 Ardot Hero](docs/previews/tuozhe-tutorial-hero.png)
 
 ## 能力
 
@@ -10,7 +18,9 @@
 - 语气、品牌色、视觉路线、文章类型与事实来源建模。
 - 按公众号与文章类型生成资产计划。
 - 封面背景、章节视觉、透明插画、技术解释图与照片派生资产的生成和注册。
-- 16 类语义区块与微信内联 HTML 编译。
+- Ardot 语义变量模式、原生组件、390 px 长文画板和分段视觉 QA。
+- 由文章 JSON 生成可执行的 Ardot 装配清单。
+- 16 类语义区块与隐藏的微信内联 HTML 投递适配。
 - 事实来源、占位符、图片、Logo、二维码和微信安全格式校验。
 - 默认只生成草稿交付物，正式发布需要单独确认。
 
@@ -38,7 +48,15 @@ python3 scripts/orgs.py asset-plan \
   --output output/new-account-id/recruitment-asset-plan.json
 ```
 
-编译文章：
+生成 Ardot 装配清单：
+
+```bash
+python3 scripts/build_ardot_manifest.py article.json \
+  --org organizations/new-account-id \
+  --output output/new-account-id/article-slug/ardot-manifest.json
+```
+
+按清单在 Ardot 中完成原生组件装配、截图检查和视觉确认后，才生成微信投递文件：
 
 ```bash
 python3 scripts/compile_wechat.py article.json \
@@ -63,6 +81,11 @@ python3 scripts/compile_wechat.py article.json \
 ```
 
 `organizations/` 内包含两个迁移样本：浙江大学海洋机器人协会和拓浙 AI 生态。它们的状态为 `migrated-draft`，代表需组织审核后才能转为正式品牌包。
+
+当前共享 Ardot 组件系统与两篇效果样稿：
+[Org WeChat Studio｜公众号组件系统](https://ardot.tencent.com/file/718644779257522)
+
+`article.json` 是内容源，Ardot 是视觉源；`wechat.html` 只是最终传输文件。
 
 ## 安全边界
 

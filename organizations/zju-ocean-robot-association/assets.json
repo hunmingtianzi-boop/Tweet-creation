@@ -3,6 +3,7 @@
   "organization_id": "zju-ocean-robot-association",
   "assets": [
     {"id": "brand.logo", "kind": "logo", "title": "Association logo", "location": "assets/official/association-logo.jpg", "style": "canonical", "uses": ["footer", "cover"], "origin": "user-supplied", "source_id": "legacy-ocean-skill"},
+    {"id": "visual.hero-ocean-engineering", "kind": "background", "title": "Light ocean engineering hero", "location": "assets/generated/hero-ocean-engineering-v1.png", "style": "light-ocean-engineering", "uses": ["recruitment", "training", "popular-science"], "origin": "generated-illustrative", "source_id": "legacy-ocean-visual-system"},
     {"id": "spot.auv", "kind": "illustration", "title": "AUV spot illustration", "location": "assets/generated/spot-auv.png", "style": "watercolor-cutout", "uses": ["recruitment", "popular-science", "navigation"], "origin": "generated-illustrative", "source_id": "legacy-ocean-components"},
     {"id": "spot.thruster", "kind": "illustration", "title": "Thruster spot illustration", "location": "assets/generated/spot-thruster.png", "style": "watercolor-cutout", "uses": ["training", "hardware", "recruitment"], "origin": "generated-illustrative", "source_id": "legacy-ocean-components"},
     {"id": "visual.sonar-opener", "kind": "illustration", "title": "Sonar section opener", "location": "assets/generated/sonar-section-opener.png", "style": "technical-editorial", "uses": ["popular-science", "sensing"], "origin": "generated-illustrative", "source_id": "legacy-ocean-components"}

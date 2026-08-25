@@ -125,6 +125,39 @@ class CompileContext:
             self.warnings.append(f"unregistered component ID: {component_id}")
         return component_id
 
+    def variant(self, block: dict[str, Any], block_type: str) -> str:
+        explicit = block.get("variant")
+        if isinstance(explicit, str) and explicit.strip():
+            return explicit.strip()
+        configured = self.route.get("component_variants", {}).get(block_type)
+        if isinstance(configured, str) and configured.strip():
+            return configured.strip()
+        defaults = {
+            "warm-community": {
+                "hero": "soft-stage", "section": "soft-marker", "statement": "editorial-pullout",
+                "roles": "role-bands", "steps": "journey-path", "cta": "launch-pad",
+            },
+            "technical": {
+                "hero": "technical-stage", "section": "index-rail", "statement": "open-rule",
+                "metrics": "number-field", "timeline": "mission-line", "case": "process-strip",
+                "steps": "process-rail", "cta": "action-gate",
+            },
+            "poster": {
+                "hero": "poster-stage", "section": "poster-band", "statement": "poster-callout",
+                "metrics": "number-field", "timeline": "action-line", "cta": "poster-gate",
+            },
+            "institutional": {
+                "hero": "quiet-editorial", "section": "editorial-head", "statement": "open-rule",
+                "metrics": "ledger", "timeline": "report-line", "case": "evidence-ledger",
+                "cta": "quiet-gate",
+            },
+            "editorial": {
+                "hero": "image-stage", "section": "editorial-head", "statement": "editorial-pullout",
+                "gallery": "photo-story", "cta": "action-gate",
+            },
+        }
+        return defaults.get(self.route.get("layout", "editorial"), {}).get(block_type, "standard")
+
     def asset_src(self, source: Any, label: str) -> str:
         if not isinstance(source, str) or not source.strip():
             self.errors.append(f"{label} requires a non-empty image src")
@@ -186,6 +219,7 @@ def route_shape(ctx: CompileContext) -> dict[str, str]:
 def hero(ctx: CompileContext, block: dict[str, Any], component: str) -> str:
     t = ctx.tokens
     layout = ctx.route["layout"]
+    variant = ctx.variant(block, "hero")
     background = block.get("background")
     background_style = ""
     if background:
@@ -197,22 +231,25 @@ def hero(ctx: CompileContext, block: dict[str, Any], component: str) -> str:
             background_size="cover",
             background_position="center",
         )
-    if layout == "poster":
-        section_bg, panel_bg, title_color, accent = t["accent"], t["accent"], t.get("on_accent", t["white"]), t["accent_alt"]
-    elif layout == "technical":
-        section_bg, panel_bg, title_color, accent = t["ink"], t["ink"], t["white"], t["accent_alt"]
-    elif layout == "institutional":
-        section_bg, panel_bg, title_color, accent = t["surface_alt"], t["surface"], t["ink"], t["accent"]
-    else:
-        section_bg, panel_bg, title_color, accent = t["surface_alt"], t["surface"], t["ink"], t["accent"]
+    dark_stage = layout in {"poster", "technical"}
+    section_bg = t["ink"] if dark_stage else t["surface_alt"]
+    panel_bg = t["ink"] if dark_stage else t["surface"]
+    title_color = t.get("on_accent", t["white"]) if dark_stage else t["ink"]
+    body_color = t.get("on_accent", t["white"]) if dark_stage else t["body"]
+    accent = t["accent_alt"] if dark_stage else t["accent"]
+    if background:
+        panel_bg = "rgba(10,13,18,.88)" if dark_stage else "rgba(255,255,255,.91)"
     cta = ""
     if block.get("cta"):
         cta = f'<div style="display:inline-block;margin-top:18px;padding:9px 13px;background:{accent};color:{t.get("on_accent_alt", t["ink"])};font-size:13px;font-weight:800;">{esc(block["cta"])}</div>'
-    return f'''<section data-component="{esc(component)}" aria-label="{esc(block.get("background_alt", ""))}" style="min-height:510px;padding:24px;background:{section_bg};{background_style}display:flex;align-items:flex-end;">
-<div style="width:100%;padding:22px;background:{panel_bg};border-top:6px solid {accent};">
-<div style="font-size:11px;font-weight:800;letter-spacing:.12em;color:{accent};">{esc(block.get("eyebrow", ctx.organization["identity"]["short_name"]))}</div>
-<h1 style="margin:12px 0 0;font-size:38px;line-height:1.16;letter-spacing:-.035em;color:{title_color};font-weight:900;">{esc(block["title"])}</h1>
-<p style="margin:14px 0 0;font-size:17px;line-height:1.7;color:{t["body"]};font-weight:600;">{esc(block.get("subtitle", ""))}</p>{cta}
+    panel_width = "88%" if layout in {"editorial", "warm-community"} else "100%"
+    panel_margin = "0 0 0 auto" if layout == "editorial" else "0"
+    panel_border = f"border-left:7px solid {accent};" if layout in {"technical", "institutional"} else f"border-top:7px solid {accent};"
+    return f'''<section data-component="{esc(component)}" data-variant="{esc(variant)}" aria-label="{esc(block.get("background_alt", ""))}" style="min-height:560px;padding:26px;background:{section_bg};{background_style}display:flex;align-items:flex-end;">
+<div style="width:{panel_width};margin:{panel_margin};padding:25px 23px;background:{panel_bg};{panel_border}">
+<div style="font-size:10px;font-weight:900;letter-spacing:.14em;color:{accent};">{esc(block.get("eyebrow", ctx.organization["identity"]["short_name"]))}</div>
+<h1 style="margin:13px 0 0;font-size:40px;line-height:1.12;letter-spacing:-.04em;color:{title_color};font-weight:900;">{esc(block["title"])}</h1>
+<p style="margin:15px 0 0;max-width:28em;font-size:16px;line-height:1.72;color:{body_color};font-weight:650;">{esc(block.get("subtitle", ""))}</p>{cta}
 </div></section>'''
 
 
@@ -222,6 +259,7 @@ def render_block(ctx: CompileContext, block: dict[str, Any], index: int) -> str:
         ctx.errors.append(f"block {index} has unsupported type: {kind}")
         return ""
     component = ctx.component(block)
+    variant = ctx.variant(block, str(kind))
     t = ctx.tokens
     shape = route_shape(ctx)
 
@@ -233,18 +271,38 @@ def render_block(ctx: CompileContext, block: dict[str, Any], index: int) -> str:
         if not isinstance(items, list) or not items:
             ctx.errors.append(f"block {index} ({kind}) requires paragraphs")
             items = []
-        lead_style = "font-weight:600;" if kind == "lead" else ""
-        return f'<section data-component="{esc(component)}" style="padding:26px 25px;background:{t["surface"]};{lead_style}">{paragraphs(items, t["body"])}</section>'
+        if kind == "lead":
+            rendered_paragraphs = "".join(
+                f'<p style="margin:0 0 {18 if item_index == 0 else 13}px;font-size:{19 if item_index == 0 else 15}px;line-height:{1.72 if item_index == 0 else 1.82};font-weight:{750 if item_index == 0 else 450};color:{t["ink"] if item_index == 0 else t["body"]};">{esc(item)}</p>'
+                for item_index, item in enumerate(items)
+            )
+            return f'<section data-component="{esc(component)}" data-variant="lead-open" style="padding:38px 28px 31px;background:{t["surface"]};border-bottom:1px solid {t["border"]};">{rendered_paragraphs}</section>'
+        return f'<section data-component="{esc(component)}" data-variant="text-open" style="padding:24px 28px 34px;background:{t["surface"]};">{paragraphs(items, t["body"])}</section>'
 
     if kind == "section":
         number = block.get("number")
-        badge = f'<div style="flex:0 0 58px;font-size:31px;line-height:1;font-weight:900;color:{t["accent"]};">{esc(number)}</div>' if number is not None else ""
+        badge = f'<div style="flex:0 0 62px;font-size:34px;line-height:1;font-weight:900;color:{t["accent"]};">{esc(number)}</div>' if number is not None else ""
         kicker = f'<div style="margin-bottom:6px;font-size:10px;font-weight:800;letter-spacing:.1em;color:{t["accent"]};">{esc(block["kicker"])}</div>' if block.get("kicker") else ""
+        if variant == "poster-band":
+            return f'''<section data-component="{esc(component)}" data-variant="{esc(variant)}" style="padding:30px 25px;background:{t["accent"]};border-top:8px solid {t["accent_alt"]};">
+<div style="font-size:11px;font-weight:900;letter-spacing:.12em;color:{t["accent_alt"]};">{esc(number if number is not None else block.get("kicker", ""))}</div><h2 style="margin:11px 0 0;font-size:29px;line-height:1.2;color:{t.get("on_accent", t["white"])};">{esc(block["title"])}</h2></section>'''
+        if variant in {"index-rail", "editorial-head"}:
+            return f'''<section data-component="{esc(component)}" data-variant="{esc(variant)}" style="display:flex;gap:16px;padding:40px 26px 18px;background:{t["surface"]};border-top:3px solid {t["ink"]};">
+{badge}<div style="flex:1;">{kicker}<h2 style="margin:0;font-size:27px;line-height:1.28;letter-spacing:-.02em;color:{t["ink"]};">{esc(block["title"])}</h2></div></section>'''
         return f'''<section data-component="{esc(component)}" style="display:flex;gap:12px;padding:34px 24px 14px;background:{t["surface"]};border-top:{shape["border_width"]} solid {t["border"]};">
 {badge}<div style="flex:1;">{kicker}<h2 style="margin:0;font-size:25px;line-height:1.35;color:{t["ink"]};">{esc(block["title"])}</h2></div></section>'''
 
     if kind == "statement":
         body = f'<p style="margin:13px 0 0;font-size:14px;line-height:1.75;color:{t["body"]};">{esc(block["body"])}</p>' if block.get("body") else ""
+        if variant in {"open-rule", "editorial-pullout"}:
+            align = "right" if variant == "editorial-pullout" else "left"
+            inset = "42px 25px 46px 58px" if variant == "editorial-pullout" else "35px 28px"
+            return f'''<section data-component="{esc(component)}" data-variant="{esc(variant)}" style="padding:{inset};background:{t["surface_alt"]};text-align:{align};border-left:9px solid {t["accent"]};">
+<div style="font-size:10px;font-weight:900;letter-spacing:.14em;color:{t["accent"]};">{esc(block.get("label", "KEY MESSAGE"))}</div>
+<h3 style="margin:12px 0 0;font-size:27px;line-height:1.38;letter-spacing:-.02em;color:{t["ink"]};">{esc(block["title"])}</h3>{body}</section>'''
+        if variant == "poster-callout":
+            return f'''<section data-component="{esc(component)}" data-variant="{esc(variant)}" style="padding:34px 26px;background:{t["ink"]};border-bottom:10px solid {t["accent_alt"]};">
+<div style="font-size:10px;font-weight:900;letter-spacing:.14em;color:{t["accent_alt"]};">{esc(block.get("label", "KEY MESSAGE"))}</div><h3 style="margin:12px 0 0;font-size:29px;line-height:1.3;color:{t["white"]};">{esc(block["title"])}</h3></section>'''
         return f'''<section data-component="{esc(component)}" style="padding:22px 24px;background:{t["surface_alt"]};">
 <div style="padding:20px;background:{t["surface"]};border:{shape["border_width"]} solid {t["border"]};border-radius:{shape["radius"]};box-shadow:{shape["shadow"]};">
 <div style="font-size:10px;font-weight:800;letter-spacing:.1em;color:{t["accent"]};">{esc(block.get("label", "KEY MESSAGE"))}</div>
@@ -261,12 +319,20 @@ def render_block(ctx: CompileContext, block: dict[str, Any], index: int) -> str:
                 ctx.errors.append(f"metric {item_index} must be an object")
                 continue
             ctx.use_source(item.get("source_id"), f"metric {item_index}", required=True)
-            cards.append(
-                f'<div style="display:inline-block;vertical-align:top;width:47%;min-height:114px;margin:0 1.5% 10px;padding:14px 12px;background:{t["surface_alt"]};border:{shape["border_width"]} solid {t["border"]};border-radius:{shape["radius"]};">'
-                f'<div style="font-size:28px;line-height:1.08;font-weight:900;color:{t["accent"]};">{esc(item.get("value", ""))}</div>'
-                f'<div style="margin-top:8px;font-size:12px;line-height:1.5;font-weight:700;color:{t["ink"]};">{esc(item.get("label", ""))}</div></div>'
-            )
-        return f'<section data-component="{esc(component)}" style="padding:12px 18px 24px;background:{t["surface"]};">{"".join(cards)}</section>'
+            if variant in {"number-field", "ledger"}:
+                cards.append(
+                    f'<div style="display:inline-block;vertical-align:top;width:50%;min-height:132px;padding:21px 16px;background:{t["surface"]};border-top:2px solid {t["ink"]};">'
+                    f'<div style="font-size:38px;line-height:1;font-weight:900;letter-spacing:-.04em;color:{t["accent"]};">{esc(item.get("value", ""))}</div>'
+                    f'<div style="margin-top:12px;max-width:12em;font-size:12px;line-height:1.55;font-weight:750;color:{t["ink"]};">{esc(item.get("label", ""))}</div></div>'
+                )
+            else:
+                cards.append(
+                    f'<div style="display:inline-block;vertical-align:top;width:47%;min-height:114px;margin:0 1.5% 10px;padding:14px 12px;background:{t["surface_alt"]};border:{shape["border_width"]} solid {t["border"]};border-radius:{shape["radius"]};">'
+                    f'<div style="font-size:28px;line-height:1.08;font-weight:900;color:{t["accent"]};">{esc(item.get("value", ""))}</div>'
+                    f'<div style="margin-top:8px;font-size:12px;line-height:1.5;font-weight:700;color:{t["ink"]};">{esc(item.get("label", ""))}</div></div>'
+                )
+        padding = "24px 18px 32px" if variant not in {"number-field", "ledger"} else "18px 24px 36px"
+        return f'<section data-component="{esc(component)}" data-variant="{esc(variant)}" style="padding:{padding};background:{t["surface"]};">{"".join(cards)}</section>'
 
     if kind == "timeline":
         rows = []

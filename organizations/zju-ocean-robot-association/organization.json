@@ -46,6 +46,7 @@
         "uses": ["popular-science", "project-update", "competition"],
         "layout": "technical",
         "dominant_style": "technical-line-or-hard-tech",
+        "component_variants": {"hero": "image-stage", "section": "index-rail", "statement": "open-rule", "metrics": "number-field", "timeline": "mission-line", "case": "process-strip", "steps": "process-rail", "cta": "action-gate"},
         "rationale": "保留工程精度，用浅色水域与技术线稿避免沉重的深蓝科技套路。"
       },
       {
@@ -54,6 +55,7 @@
         "uses": ["recruitment", "training", "event"],
         "layout": "warm-community",
         "dominant_style": "watercolor-cutout-or-clay-miniature",
+        "component_variants": {"hero": "image-stage", "section": "soft-marker", "statement": "editorial-pullout", "roles": "role-bands", "steps": "journey-path", "cta": "launch-pad"},
         "rationale": "用真实合作、制作和水池测试体现协会的参与感。"
       },
       {
@@ -62,6 +64,7 @@
         "uses": ["event", "competition", "project-update"],
         "layout": "editorial",
         "dominant_style": "real-photography-or-paper-cut",
+        "component_variants": {"hero": "image-stage", "section": "editorial-head", "statement": "editorial-pullout", "timeline": "field-notes", "gallery": "photo-story", "cta": "action-gate"},
         "rationale": "以任务过程和现场证据组织故事，适合测试与竞赛回顾。"
       }
     ]
@@ -82,7 +85,7 @@
     "generation": "text-free-and-clearly-illustrative"
   },
   "publishing": {
-    "authoring": "ardot-native-when-available",
+    "authoring": "ardot-native",
     "delivery": "wechat-inline-html",
     "default_action": "draft-only",
     "formal_publish_requires_confirmation": true

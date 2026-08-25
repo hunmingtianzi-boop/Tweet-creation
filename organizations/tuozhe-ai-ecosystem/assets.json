@@ -1,5 +1,7 @@
 {
   "schema_version": 1,
   "organization_id": "tuozhe-ai-ecosystem",
-  "assets": []
+  "assets": [
+    {"id": "visual.hero-campus-editorial", "kind": "background", "title": "Campus editorial hero", "location": "assets/generated/hero-campus-editorial-v1.png", "style": "campus-architecture-editorial", "uses": ["recruitment", "community", "tutorial", "project-showcase"], "origin": "generated-illustrative", "source_id": "legacy-tuozhe-visual-system"}
+  ]
 }

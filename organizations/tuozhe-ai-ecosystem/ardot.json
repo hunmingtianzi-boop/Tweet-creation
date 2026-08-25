@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "organization_id": "tuozhe-ai-ecosystem",
+  "status": "linked",
+  "design_file": {
+    "url": "https://ardot.tencent.com/file/718644779257522",
+    "file_id": "718644779257522"
+  },
+  "variable_set": "Org WeChat Brand",
+  "variable_mode": "Tuozhe",
+  "page_names": {
+    "foundations": "00 Foundations",
+    "components": "01 Components",
+    "example": "03 Tuozhe Example"
+  },
+  "component_aliases": {
+    "hero.image-stage": "WeChat/Hero/PosterStage/Tuozhe",
+    "section.index-rail": "WeChat/Section/IndexRail/Tuozhe",
+    "statement.open-rule": "WeChat/Statement/SignalBlock/Tuozhe",
+    "steps.process-rail": "WeChat/Steps/BuildProtocol/Tuozhe",
+    "cta.action-gate": "WeChat/CTA/ActionPoster/Tuozhe"
+  }
+}

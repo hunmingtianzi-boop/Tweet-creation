@@ -5,7 +5,7 @@
   "title": "别只收藏工具，用一个小项目跑完 AI 工作流",
   "summary": "拓浙 AI 生态教程型文章结构示例。",
   "blocks": [
-    {"type": "hero", "component": "core.hero", "eyebrow": "TUOZHE AI / LEARNING BY BUILDING", "title": "别只收藏工具", "subtitle": "用一个小项目，跑完从问题到交付的 AI 工作流。"},
+    {"type": "hero", "component": "core.hero", "eyebrow": "TUOZHE AI / LEARNING BY BUILDING", "title": "别只收藏工具", "subtitle": "用一个小项目，跑完从问题到交付的 AI 工作流。", "background": "visual.hero-campus-editorial", "background_alt": "校园建筑与项目共创桌面的钔蓝编辑拼贴"},
     {"type": "lead", "component": "core.lead", "paragraphs": ["真正学会一个 AI 工具，不在于看过多少功能清单，而在于它是否帮你解决了一个具体问题。", "这篇示例用可复用的项目路径组织教程，把输入、验证和交付放在同一条链路上。"]},
     {"type": "section", "component": "core.section", "number": "01", "kicker": "START WITH A REAL QUESTION", "title": "先定义一个可验证的问题"},
     {"type": "text", "component": "core.text", "paragraphs": ["把“学会 AI”改写为一个可交付的小任务：有清晰输入、明确用户和可检查输出。"]},
