@@ -23,9 +23,9 @@ WeChat adapter     → 图片上传、内联样式、草稿创建
 组件命名使用 `WeChat/<Block>/<Variant>/<Mode>`，例如：
 
 - `WeChat/Hero/ImageStage/Ocean`
-- `WeChat/Section/IndexRail/Tuozhe`
+- `WeChat/Section/IndexRail/<Mode>`
 - `WeChat/Statement/EditorialPullout/Ocean`
-- `WeChat/Steps/BuildProtocol/Tuozhe`
+- `WeChat/Steps/BuildProtocol/<Mode>`
 
 `components.json` 记录内容职责，`ardot.json` 把“区块 + 变体”映射到真实 Ardot 组件名。
 

@@ -6,11 +6,9 @@
 
 ## Ardot 效果样稿
 
-Ocean 招新与拓浙教程使用相同的内容职责，但 Hero 构图、留白、边角、图像策略与阅读节奏不同：
+当前保留 Ocean 招新作为组件、构图、留白和手机阅读节奏的基准样稿：
 
 ![Ocean 招新 Ardot Hero](docs/previews/ocean-recruitment-hero.png)
-
-![拓浙教程 Ardot Hero](docs/previews/tuozhe-tutorial-hero.png)
 
 ## 能力
 
@@ -80,9 +78,9 @@ python3 scripts/compile_wechat.py article.json \
 └── tests/
 ```
 
-`organizations/` 内包含两个迁移样本：浙江大学海洋机器人协会和拓浙 AI 生态。它们的状态为 `migrated-draft`，代表需组织审核后才能转为正式品牌包。
+`organizations/` 内包含浙江大学海洋机器人协会迁移样本。状态为 `migrated-draft`，代表需组织审核后才能转为正式品牌包。其他公众号应通过调研新增独立组织包与 Ardot 品牌模式。
 
-当前共享 Ardot 组件系统与两篇效果样稿：
+当前共享 Ardot 组件系统与 Ocean 效果样稿：
 [Org WeChat Studio｜公众号组件系统](https://ardot.tencent.com/file/718644779257522)
 
 `article.json` 是内容源，Ardot 是视觉源；`wechat.html` 只是最终传输文件。

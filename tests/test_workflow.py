@@ -57,22 +57,20 @@ class OrganizationPackTests(unittest.TestCase):
             self.assertEqual(ardot["variable_mode"], "example-org")
 
     def test_asset_plan_uses_organization_route_and_asset_boundaries(self) -> None:
-        ocean = build_asset_plan(
+        recruitment = build_asset_plan(
             ROOT / "organizations" / "zju-ocean-robot-association", "recruitment"
         )
-        tuozhe = build_asset_plan(
-            ROOT / "organizations" / "tuozhe-ai-ecosystem", "tutorial"
+        technical = build_asset_plan(
+            ROOT / "organizations" / "zju-ocean-robot-association", "popular-science"
         )
-        self.assertEqual(ocean["route"]["id"], "hands-on-community")
-        self.assertEqual(tuozhe["route"]["id"], "technical-editorial")
+        self.assertEqual(recruitment["route"]["id"], "hands-on-community")
+        self.assertEqual(technical["route"]["id"], "light-engineering")
         self.assertNotEqual(
-            ocean["slots"][0]["prompt_blueprint"],
-            tuozhe["slots"][0]["prompt_blueprint"],
+            recruitment["slots"][0]["prompt_blueprint"],
+            technical["slots"][0]["prompt_blueprint"],
         )
-        ocean_logo = next(slot for slot in ocean["slots"] if slot["id"] == "brand.logo")
-        tuozhe_logo = next(slot for slot in tuozhe["slots"] if slot["id"] == "brand.logo")
-        self.assertEqual(ocean_logo["status"], "reuse-available")
-        self.assertEqual(tuozhe_logo["status"], "user-or-official-asset-required")
+        logo = next(slot for slot in recruitment["slots"] if slot["id"] == "brand.logo")
+        self.assertEqual(logo["status"], "reuse-available")
 
     def test_register_asset_updates_registry_and_preserves_identity_policy(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -124,7 +122,6 @@ class CompilerTests(unittest.TestCase):
     def test_bundled_examples_compile(self) -> None:
         cases = (
             ("ocean-recruitment.json", "zju-ocean-robot-association"),
-            ("tuozhe-tutorial.json", "tuozhe-ai-ecosystem"),
         )
         with tempfile.TemporaryDirectory() as temp:
             for article_name, org_id in cases:
@@ -144,11 +141,11 @@ class CompilerTests(unittest.TestCase):
                     self.assertEqual(report["article"]["organization_id"], org_id)
 
     def test_metric_without_source_fails_final_check(self) -> None:
-        org_id = "tuozhe-ai-ecosystem"
+        org_id = "zju-ocean-robot-association"
         article = {
             "schema_version": 1,
             "organization_id": org_id,
-            "article_type": "project-showcase",
+            "article_type": "project-update",
             "title": "Metric check",
             "blocks": [
                 {"type": "hero", "title": "Metric check"},
@@ -169,11 +166,11 @@ class CompilerTests(unittest.TestCase):
             self.assertTrue(any("requires source_id" in error for error in report["errors"]))
 
     def test_placeholder_fails_final_check(self) -> None:
-        org_id = "tuozhe-ai-ecosystem"
+        org_id = "zju-ocean-robot-association"
         article = {
             "schema_version": 1,
             "organization_id": org_id,
-            "article_type": "tutorial",
+            "article_type": "recruitment",
             "title": "待确认标题",
             "blocks": [{"type": "hero", "title": "待确认标题"}],
         }
@@ -192,23 +189,15 @@ class CompilerTests(unittest.TestCase):
 
 
 class ArdotManifestTests(unittest.TestCase):
-    def test_examples_build_distinct_ardot_assemblies(self) -> None:
+    def test_ocean_example_builds_linked_ardot_assembly(self) -> None:
         ocean = build_manifest(
             ROOT / "examples" / "ocean-recruitment.json",
             ROOT / "organizations" / "zju-ocean-robot-association",
         )
-        tuozhe = build_manifest(
-            ROOT / "examples" / "tuozhe-tutorial.json",
-            ROOT / "organizations" / "tuozhe-ai-ecosystem",
-        )
         self.assertEqual(ocean["handoff"]["source_of_truth"], "ardot-native")
         self.assertEqual(ocean["design_target"]["variable_mode"], "Ocean")
-        self.assertEqual(tuozhe["design_target"]["variable_mode"], "Tuozhe")
-        self.assertNotEqual(ocean["variables"]["Ink"], tuozhe["variables"]["Ink"])
         self.assertEqual(ocean["blocks"][0]["ardot_component"], "WeChat/Hero/ImageStage/Ocean")
-        self.assertEqual(tuozhe["blocks"][0]["ardot_component"], "WeChat/Hero/PosterStage/Tuozhe")
         self.assertFalse(ocean["qa"]["unresolved_assets"])
-        self.assertFalse(tuozhe["qa"]["unresolved_assets"])
 
 
 if __name__ == "__main__":
