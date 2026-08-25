@@ -1,0 +1,7 @@
+interface:
+  display_name: "Organization WeChat Studio"
+  short_description: "Research organizations and create distinctive WeChat articles"
+  brand_color: "#1648C8"
+  default_prompt: "Use $org-wechat-studio to research this organization and create a reusable, brand-specific WeChat article workflow."
+policy:
+  allow_implicit_invocation: true

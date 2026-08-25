@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "organization_id": "tuozhe-ai-ecosystem",
+  "sources": [
+    {"id": "legacy-tuozhe-skill", "title": "AI Ecosystem WeChat specialized workflow", "kind": "installed-workflow", "locator": "plugin:ai-ecosystem-wechat@0.1.0/SKILL.md", "notes": "迁移参考，不代替组织官方事实资料。"},
+    {"id": "legacy-tuozhe-components", "title": "AI Ecosystem component registry", "kind": "installed-registry", "locator": "plugin:ai-ecosystem-wechat@0.1.0/references/components.json"},
+    {"id": "legacy-tuozhe-visual-system", "title": "AI Ecosystem visual system", "kind": "installed-style-guide", "locator": "plugin:ai-ecosystem-wechat@0.1.0/references/visual-system.md"}
+  ],
+  "facts": []
+}

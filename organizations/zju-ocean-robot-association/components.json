@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "organization_id": "zju-ocean-robot-association",
+  "components": [
+    {"id": "core.hero", "kind": "hero", "title": "Hero", "uses": ["all"]},
+    {"id": "core.lead", "kind": "lead", "title": "Lead", "uses": ["all"]},
+    {"id": "core.section", "kind": "section", "title": "Section header", "uses": ["all"]},
+    {"id": "core.text", "kind": "text", "title": "Open text", "uses": ["all"]},
+    {"id": "core.statement", "kind": "statement", "title": "Key statement", "uses": ["all"]},
+    {"id": "core.metrics", "kind": "metrics", "title": "Verified metrics", "uses": ["project-update", "competition", "hardware-deep-dive"]},
+    {"id": "core.timeline", "kind": "timeline", "title": "Timeline", "uses": ["project-update", "competition", "event"]},
+    {"id": "core.gallery", "kind": "gallery", "title": "Swipe gallery", "uses": ["recruitment", "competition", "event"]},
+    {"id": "core.case", "kind": "case", "title": "Engineering case", "uses": ["project-update", "hardware-deep-dive"]},
+    {"id": "core.roles", "kind": "roles", "title": "Team roles", "uses": ["recruitment"]},
+    {"id": "core.quote", "kind": "quote", "title": "Attributed quote", "uses": ["competition", "event"]},
+    {"id": "core.steps", "kind": "steps", "title": "Ordered steps", "uses": ["recruitment", "training"]},
+    {"id": "core.image", "kind": "image", "title": "Evidence image", "uses": ["all"]},
+    {"id": "core.cta", "kind": "cta", "title": "Call to action", "uses": ["recruitment", "event"]},
+    {"id": "core.references", "kind": "references", "title": "References", "uses": ["popular-science", "project-update", "hardware-deep-dive"]},
+    {"id": "core.footer", "kind": "footer", "title": "Organization footer", "uses": ["all"]}
+  ],
+  "recommendations": {
+    "recruitment": ["core.hero", "core.lead", "core.statement", "core.gallery", "core.roles", "core.steps", "core.cta", "core.footer"],
+    "training": ["core.hero", "core.lead", "core.section", "core.steps", "core.image", "core.references", "core.footer"],
+    "popular-science": ["core.hero", "core.lead", "core.section", "core.text", "core.statement", "core.image", "core.references", "core.footer"],
+    "project-update": ["core.hero", "core.lead", "core.metrics", "core.timeline", "core.case", "core.gallery", "core.references", "core.footer"],
+    "competition": ["core.hero", "core.lead", "core.metrics", "core.timeline", "core.gallery", "core.quote", "core.footer"],
+    "event": ["core.hero", "core.lead", "core.timeline", "core.gallery", "core.cta", "core.footer"],
+    "hardware-deep-dive": ["core.hero", "core.lead", "core.section", "core.case", "core.metrics", "core.image", "core.references", "core.footer"]
+  }
+}

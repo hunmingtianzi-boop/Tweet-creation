@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "organization_id": "zju-ocean-robot-association",
+  "sources": [
+    {"id": "legacy-ocean-skill", "title": "Ocean Robot WeChat specialized workflow", "kind": "local-workflow", "locator": "../../../ocean-robot-wechat/SKILL.md", "notes": "迁移参考，不代替组织官方事实资料。"},
+    {"id": "legacy-ocean-components", "title": "Ocean Robot component registry", "kind": "local-registry", "locator": "../../../ocean-robot-wechat/references/components.json"},
+    {"id": "legacy-ocean-visual-system", "title": "Ocean Robot visual system", "kind": "local-style-guide", "locator": "../../../ocean-robot-wechat/references/visual-system.md"}
+  ],
+  "facts": []
+}

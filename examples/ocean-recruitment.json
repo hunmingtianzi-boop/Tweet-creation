@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "organization_id": "zju-ocean-robot-association",
+  "article_type": "recruitment",
+  "title": "在水里，把想法变成机器人",
+  "summary": "浙江大学海洋机器人协会招新文章结构示例。",
+  "blocks": [
+    {"type": "hero", "component": "core.hero", "eyebrow": "ZJU OCEAN ROBOT", "title": "在水里，把想法变成机器人", "subtitle": "从设计、制作到调试，和一群人让系统真正下水。", "cta": "一起动手"},
+    {"type": "lead", "component": "core.lead", "paragraphs": ["海洋机器人不只是一台机器，它需要机械、电子、控制、感知与协作共同工作。", "这里关心的是真实问题：如何密封，如何稳定推进，如何在水下感知和定位。"]},
+    {"type": "statement", "component": "core.statement", "label": "WHY JOIN", "title": "不只学会一个工具，而是参与一条完整的工程链路。", "body": "从问题拆解到现场测试，每一环都可以找到具体的参与位置。"},
+    {"type": "section", "component": "core.section", "number": "01", "title": "你可以从哪里开始"},
+    {"type": "roles", "component": "core.roles", "items": [{"name": "机械与制造", "description": "结构、密封、推进和快速迭代。"}, {"name": "电子与控制", "description": "硬件联调、传感器、通信与算法实现。"}, {"name": "记录与传播", "description": "把复杂的工程过程讲清楚，留下可复用的知识。"}]},
+    {"type": "steps", "component": "core.steps", "items": ["了解团队与当前项目", "选择一个可以开始的具体任务", "在训练和调试中完成第一次迭代"]},
+    {"type": "cta", "component": "core.cta", "title": "准备好让它下水了吗？", "body": "报名时间、地点与入口请使用组织当期官方信息。", "button": "查看当期招新通知"},
+    {"type": "references", "component": "core.references", "items": [{"label": "组织与视觉资料迁移来源", "source_id": "legacy-ocean-skill"}]},
+    {"type": "footer", "component": "core.footer", "name": "浙江大学海洋机器人协会", "tagline": "设计、制造、调试，然后下水。", "logo": {"src": "brand.logo", "alt": "浙江大学海洋机器人协会标识"}}
+  ]
+}

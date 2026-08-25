@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "id": "tuozhe-ai-ecosystem",
+  "status": "migrated-draft",
+  "identity": {
+    "name": "拓浙 AI 生态",
+    "short_name": "拓浙 AI 生态",
+    "summary": "面向校园 AI 学习、项目共创、活动竞赛与生态合作的青年社群。",
+    "category": "高校 AI 共创社群",
+    "audiences": ["对 AI 学习与实践感兴趣的高校学生", "项目发起人与开发者", "校园与产业合作伙伴"],
+    "content_pillars": ["招新与成长路径", "Hackathon 与活动", "AI 工具与教程", "项目展示", "合作伙伴故事"]
+  },
+  "personality": {
+    "authority": 46,
+    "technical": 72,
+    "warmth": 68,
+    "experimental": 84,
+    "action": 86
+  },
+  "voice": {
+    "traits": ["校园编辑感", "年轻直接", "鼓励行动", "以真实项目证据说话"],
+    "headline_patterns": ["用具体行动或成果作标题", "强调在校园中学习、共创与交付"],
+    "preferred_terms": ["共创", "项目", "学习路径", "交付", "伙伴", "实践"],
+    "avoid_terms": ["AI 革命颠覆一切", "泛化智能体口号", "紫蓝渐变科幻文案", "无来源的项目成果"]
+  },
+  "visual": {
+    "tokens": {
+      "ink": "#0A0D12",
+      "body": "#4B5260",
+      "accent": "#1648C8",
+      "accent_alt": "#C8FF16",
+      "surface": "#FFFFFF",
+      "surface_alt": "#F3EEDB",
+      "border": "#0A0D12",
+      "white": "#FFFFFF",
+      "on_accent": "#FFFFFF",
+      "on_accent_alt": "#0A0D12"
+    },
+    "motifs": ["浙大校园建筑线稿", "瑞士编辑层级", "硬边界照片窗", "项目路径", "节点与终端符号"],
+    "avoid": ["紫蓝渐变", "玻璃拟态", "漂浮立方体", "电路大脑", "铬色机器人", "生成中文"],
+    "default_route": "campus-editorial",
+    "routes": [
+      {
+        "id": "campus-editorial",
+        "label": "校园建筑编辑",
+        "uses": ["recruitment", "community"],
+        "layout": "editorial",
+        "dominant_style": "campus-architecture-editorial",
+        "rationale": "以校园场景和杂志层级建立所属感，避免泛化 AI 展会视觉。"
+      },
+      {
+        "id": "cobalt-poster",
+        "label": "钴蓝行动海报",
+        "uses": ["hackathon", "event"],
+        "layout": "poster",
+        "dominant_style": "hard-edge-poster",
+        "rationale": "用高对比层级承载时间、任务和报名行动。"
+      },
+      {
+        "id": "technical-editorial",
+        "label": "技术编辑",
+        "uses": ["tutorial", "project-showcase"],
+        "layout": "technical",
+        "dominant_style": "native-technical-line",
+        "rationale": "用流程、案例与线稿呈现真实的 AI 工具和项目逻辑。"
+      },
+      {
+        "id": "swiss-data",
+        "label": "瑞士数据编辑",
+        "uses": ["partner", "annual-review"],
+        "layout": "institutional",
+        "dominant_style": "verified-data-editorial",
+        "rationale": "用克制结构和可核验数据支撑合作与成果叙事。"
+      }
+    ]
+  },
+  "article_types": {
+    "recruitment": {"label": "招新", "route": "campus-editorial", "recommended_blocks": ["hero", "lead", "statement", "metrics", "steps", "roles", "gallery", "cta", "footer"]},
+    "community": {"label": "社群故事", "route": "campus-editorial", "recommended_blocks": ["hero", "lead", "gallery", "quote", "case", "footer"]},
+    "hackathon": {"label": "Hackathon", "route": "cobalt-poster", "recommended_blocks": ["hero", "statement", "metrics", "timeline", "gallery", "cta", "footer"]},
+    "event": {"label": "活动", "route": "cobalt-poster", "recommended_blocks": ["hero", "lead", "timeline", "gallery", "cta", "footer"]},
+    "tutorial": {"label": "教程", "route": "technical-editorial", "recommended_blocks": ["hero", "lead", "section", "text", "steps", "case", "references", "footer"]},
+    "project-showcase": {"label": "项目展示", "route": "technical-editorial", "recommended_blocks": ["hero", "lead", "case", "metrics", "gallery", "references", "footer"]},
+    "partner": {"label": "合作伙伴", "route": "swiss-data", "recommended_blocks": ["hero", "lead", "metrics", "case", "quote", "references", "footer"]},
+    "annual-review": {"label": "年度回顾", "route": "swiss-data", "recommended_blocks": ["hero", "lead", "metrics", "timeline", "gallery", "quote", "references", "footer"]}
+  },
+  "asset_policy": {
+    "logo": "official-or-user-supplied-only",
+    "qr": "official-or-user-supplied-only",
+    "photography": "real-photos-for-people-events-and-projects",
+    "generation": "text-free-backgrounds-or-illustrative-technical-assets"
+  },
+  "publishing": {
+    "authoring": "ardot-native-when-available",
+    "delivery": "wechat-inline-html",
+    "default_action": "draft-only",
+    "formal_publish_requires_confirmation": true
+  },
+  "provenance": {
+    "source_ids": ["legacy-tuozhe-skill", "legacy-tuozhe-components", "legacy-tuozhe-visual-system"],
+    "reviewed_at": null,
+    "notes": "由现有专用工作流迁移，需组织确认后转为 confirmed。"
+  }
+}

@@ -1,0 +1,802 @@
+#!/usr/bin/env python3
+"""Initialize, inspect, search, recommend, and validate organization packs."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+from pathlib import Path
+from typing import Any
+
+
+SKILL_ROOT = Path(__file__).resolve().parent.parent
+HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
+SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+PACK_FILES = ("organization.json", "sources.json", "components.json", "assets.json")
+AXES = ("authority", "technical", "warmth", "experimental", "action")
+TOKENS = (
+    "ink",
+    "body",
+    "accent",
+    "accent_alt",
+    "surface",
+    "surface_alt",
+    "border",
+    "white",
+)
+LAYOUTS = {"editorial", "poster", "technical", "institutional", "warm-community"}
+SAFE_IDENTITY_ORIGINS = {"user-supplied", "official"}
+ASSET_ORIGINS = SAFE_IDENTITY_ORIGINS | {
+    "photographed",
+    "generated-illustrative",
+    "derived",
+}
+ASSET_KINDS = {"logo", "qr", "photo", "illustration", "background", "decoration"}
+
+
+def read_json(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise ValueError(f"missing file: {path}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid JSON: {path}: {exc}") from exc
+
+
+def write_json(path: Path, value: Any) -> None:
+    path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def load_pack(pack_dir: Path) -> dict[str, Any]:
+    pack_dir = pack_dir.resolve()
+    return {
+        "path": pack_dir,
+        "organization": read_json(pack_dir / "organization.json"),
+        "sources": read_json(pack_dir / "sources.json"),
+        "components": read_json(pack_dir / "components.json"),
+        "assets": read_json(pack_dir / "assets.json"),
+    }
+
+
+def require_dict(value: Any, label: str, errors: list[str]) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        errors.append(f"{label} must be an object")
+        return {}
+    return value
+
+
+def require_list(value: Any, label: str, errors: list[str]) -> list[Any]:
+    if not isinstance(value, list):
+        errors.append(f"{label} must be an array")
+        return []
+    return value
+
+
+def duplicate_ids(items: list[Any]) -> list[str]:
+    ids = [item.get("id") for item in items if isinstance(item, dict) and item.get("id")]
+    return sorted({item_id for item_id in ids if ids.count(item_id) > 1})
+
+
+def validate_pack(pack_dir: Path) -> dict[str, Any]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    for filename in PACK_FILES:
+        if not (pack_dir / filename).exists():
+            errors.append(f"missing file: {filename}")
+    if errors:
+        return {"ok": False, "path": str(pack_dir), "errors": errors, "warnings": warnings}
+
+    try:
+        pack = load_pack(pack_dir)
+    except ValueError as exc:
+        return {"ok": False, "path": str(pack_dir), "errors": [str(exc)], "warnings": []}
+
+    org = require_dict(pack["organization"], "organization.json", errors)
+    sources_doc = require_dict(pack["sources"], "sources.json", errors)
+    components_doc = require_dict(pack["components"], "components.json", errors)
+    assets_doc = require_dict(pack["assets"], "assets.json", errors)
+
+    org_id = org.get("id")
+    if not isinstance(org_id, str) or not SLUG.fullmatch(org_id):
+        errors.append("organization.id must be a lowercase hyphenated slug")
+    for label, doc in (
+        ("sources", sources_doc),
+        ("components", components_doc),
+        ("assets", assets_doc),
+    ):
+        if doc.get("organization_id") != org_id:
+            errors.append(f"{label}.organization_id must match organization.id")
+    for label, doc in (
+        ("organization", org),
+        ("sources", sources_doc),
+        ("components", components_doc),
+        ("assets", assets_doc),
+    ):
+        if doc.get("schema_version") != 1:
+            errors.append(f"{label}.schema_version must be 1")
+
+    if org.get("status") not in {"provisional", "confirmed", "migrated-draft"}:
+        errors.append("organization.status must be provisional, confirmed, or migrated-draft")
+    elif org.get("status") != "confirmed":
+        warnings.append(f"organization pack status is {org.get('status')}; confirm before external delivery")
+
+    identity = require_dict(org.get("identity"), "organization.identity", errors)
+    for field in ("name", "short_name", "summary", "category"):
+        if not isinstance(identity.get(field), str) or not identity.get(field, "").strip():
+            errors.append(f"organization.identity.{field} must be a non-empty string")
+    for field in ("audiences", "content_pillars"):
+        if not require_list(identity.get(field), f"organization.identity.{field}", errors):
+            errors.append(f"organization.identity.{field} must not be empty")
+
+    personality = require_dict(org.get("personality"), "organization.personality", errors)
+    for axis in AXES:
+        value = personality.get(axis)
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or not 0 <= value <= 100:
+            errors.append(f"organization.personality.{axis} must be a number from 0 to 100")
+
+    voice = require_dict(org.get("voice"), "organization.voice", errors)
+    for field in ("traits", "headline_patterns", "preferred_terms", "avoid_terms"):
+        require_list(voice.get(field), f"organization.voice.{field}", errors)
+
+    visual = require_dict(org.get("visual"), "organization.visual", errors)
+    tokens = require_dict(visual.get("tokens"), "organization.visual.tokens", errors)
+    for token in TOKENS:
+        value = tokens.get(token)
+        if not isinstance(value, str) or not HEX_COLOR.fullmatch(value):
+            errors.append(f"organization.visual.tokens.{token} must be a #RRGGBB color")
+    require_list(visual.get("motifs"), "organization.visual.motifs", errors)
+    require_list(visual.get("avoid"), "organization.visual.avoid", errors)
+    routes = require_list(visual.get("routes"), "organization.visual.routes", errors)
+    for duplicate in duplicate_ids(routes):
+        errors.append(f"duplicate visual route id: {duplicate}")
+    route_ids: set[str] = set()
+    for index, route_raw in enumerate(routes):
+        route = require_dict(route_raw, f"organization.visual.routes[{index}]", errors)
+        route_id = route.get("id")
+        if not isinstance(route_id, str) or not SLUG.fullmatch(route_id):
+            errors.append(f"visual route {index} has invalid id")
+            continue
+        route_ids.add(route_id)
+        if route.get("layout") not in LAYOUTS:
+            errors.append(f"visual route {route_id} has unsupported layout: {route.get('layout')}")
+        for field in ("label", "dominant_style", "rationale"):
+            if not isinstance(route.get(field), str) or not route.get(field, "").strip():
+                errors.append(f"visual route {route_id} missing {field}")
+        require_list(route.get("uses"), f"visual route {route_id}.uses", errors)
+    default_route = visual.get("default_route")
+    if default_route not in route_ids:
+        errors.append("organization.visual.default_route must reference a registered route")
+
+    article_types = require_dict(org.get("article_types"), "organization.article_types", errors)
+    for article_type, config_raw in article_types.items():
+        config = require_dict(config_raw, f"article type {article_type}", errors)
+        if config.get("route") not in route_ids:
+            errors.append(f"article type {article_type} references unknown route: {config.get('route')}")
+        blocks = require_list(config.get("recommended_blocks"), f"article type {article_type}.recommended_blocks", errors)
+        if not blocks:
+            errors.append(f"article type {article_type} needs recommended_blocks")
+
+    sources = require_list(sources_doc.get("sources"), "sources.sources", errors)
+    facts = require_list(sources_doc.get("facts"), "sources.facts", errors)
+    for duplicate in duplicate_ids(sources):
+        errors.append(f"duplicate source id: {duplicate}")
+    for duplicate in duplicate_ids(facts):
+        errors.append(f"duplicate fact id: {duplicate}")
+    source_ids = {
+        item.get("id") for item in sources if isinstance(item, dict) and item.get("id")
+    }
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        for field in ("id", "title", "kind", "locator"):
+            if not source.get(field):
+                errors.append(f"source entry missing {field}: {source}")
+    for fact in facts:
+        if not isinstance(fact, dict):
+            continue
+        fact_id = fact.get("id", "<missing-id>")
+        if not fact.get("claim"):
+            errors.append(f"fact missing claim: {fact_id}")
+        refs = require_list(fact.get("source_ids"), f"fact {fact_id}.source_ids", errors)
+        if not refs:
+            errors.append(f"fact has no sources: {fact_id}")
+        for source_id in refs:
+            if source_id not in source_ids:
+                errors.append(f"fact {fact_id} references unknown source: {source_id}")
+        if fact.get("confidence") not in {"verified", "reported", "provisional"}:
+            errors.append(f"fact {fact_id} has invalid confidence")
+
+    components = require_list(components_doc.get("components"), "components.components", errors)
+    for duplicate in duplicate_ids(components):
+        errors.append(f"duplicate component id: {duplicate}")
+    component_ids = {
+        item.get("id") for item in components if isinstance(item, dict) and item.get("id")
+    }
+    recommendations = require_dict(
+        components_doc.get("recommendations"), "components.recommendations", errors
+    )
+    for article_type, ids_raw in recommendations.items():
+        if article_type not in article_types:
+            errors.append(f"component recommendations use unknown article type: {article_type}")
+        ids = require_list(ids_raw, f"recommendations.{article_type}", errors)
+        for component_id in ids:
+            if component_id not in component_ids:
+                errors.append(f"recommendations.{article_type} references unknown component: {component_id}")
+
+    assets = require_list(assets_doc.get("assets"), "assets.assets", errors)
+    for duplicate in duplicate_ids(assets):
+        errors.append(f"duplicate asset id: {duplicate}")
+    for asset in assets:
+        if not isinstance(asset, dict):
+            continue
+        asset_id = asset.get("id", "<missing-id>")
+        for field in ("id", "kind", "title", "location", "origin"):
+            if not asset.get(field):
+                errors.append(f"asset {asset_id} missing {field}")
+        if asset.get("kind") in {"logo", "qr"} and asset.get("origin") not in SAFE_IDENTITY_ORIGINS:
+            errors.append(f"asset {asset_id} is {asset.get('kind')} but origin is not official/user-supplied")
+        location = asset.get("location")
+        if isinstance(location, str) and location and not re.match(r"^(?:https?://|data:)", location):
+            if not (pack_dir / location).resolve().exists():
+                errors.append(f"missing local asset: {asset_id} -> {location}")
+        source_id = asset.get("source_id")
+        if source_id and source_id not in source_ids:
+            errors.append(f"asset {asset_id} references unknown source: {source_id}")
+
+    provenance = require_dict(org.get("provenance"), "organization.provenance", errors)
+    for source_id in require_list(provenance.get("source_ids"), "organization.provenance.source_ids", errors):
+        if source_id not in source_ids:
+            errors.append(f"organization.provenance references unknown source: {source_id}")
+
+    return {
+        "ok": not errors,
+        "path": str(pack_dir.resolve()),
+        "organization_id": org_id,
+        "status": org.get("status"),
+        "counts": {
+            "routes": len(routes),
+            "article_types": len(article_types),
+            "sources": len(sources),
+            "facts": len(facts),
+            "components": len(components),
+            "assets": len(assets),
+        },
+        "errors": errors,
+        "warnings": warnings,
+    }
+
+
+def scaffold(org_id: str, name: str) -> dict[str, Any]:
+    organization = {
+        "schema_version": 1,
+        "id": org_id,
+        "status": "provisional",
+        "identity": {
+            "name": name,
+            "short_name": name,
+            "summary": "待调研确认的组织简介",
+            "category": "待确认",
+            "audiences": ["待确认核心受众"],
+            "content_pillars": ["待确认内容支柱"],
+        },
+        "personality": {
+            "authority": 50,
+            "technical": 50,
+            "warmth": 50,
+            "experimental": 50,
+            "action": 50,
+        },
+        "voice": {
+            "traits": ["待调研确认"],
+            "headline_patterns": [],
+            "preferred_terms": [],
+            "avoid_terms": ["夸大且无证据的表达"],
+        },
+        "visual": {
+            "tokens": {
+                "ink": "#111111",
+                "body": "#4A4A4A",
+                "accent": "#1F5EFF",
+                "accent_alt": "#FFD84D",
+                "surface": "#FFFFFF",
+                "surface_alt": "#F4F2EC",
+                "border": "#111111",
+                "white": "#FFFFFF",
+            },
+            "motifs": ["待调研确认"],
+            "avoid": ["通用科技光效", "生成中文", "虚假仪表盘"],
+            "default_route": "provisional-editorial",
+            "routes": [
+                {
+                    "id": "provisional-editorial",
+                    "label": "待确认编辑路线",
+                    "uses": ["introduction"],
+                    "layout": "editorial",
+                    "dominant_style": "evidence-led-editorial",
+                    "rationale": "仅作为调研期间的中性起点，不代表组织最终品牌。",
+                }
+            ],
+        },
+        "article_types": {
+            "introduction": {
+                "label": "组织介绍",
+                "route": "provisional-editorial",
+                "recommended_blocks": [
+                    "hero",
+                    "lead",
+                    "section",
+                    "text",
+                    "gallery",
+                    "cta",
+                    "footer",
+                ],
+            }
+        },
+        "asset_policy": {
+            "logo": "official-or-user-supplied-only",
+            "qr": "official-or-user-supplied-only",
+            "photography": "prefer-real-for-real-people-and-events",
+            "generation": "text-free-illustrative-only",
+        },
+        "publishing": {
+            "authoring": "structured-json",
+            "delivery": "wechat-inline-html",
+            "default_action": "draft-only",
+            "formal_publish_requires_confirmation": True,
+        },
+        "provenance": {"source_ids": [], "reviewed_at": None, "notes": "待完成首次组织调研"},
+    }
+    sources = {"schema_version": 1, "organization_id": org_id, "sources": [], "facts": []}
+    components = {
+        "schema_version": 1,
+        "organization_id": org_id,
+        "components": [
+            {"id": f"core.{kind}", "kind": kind, "title": kind.replace("-", " ").title(), "uses": ["all"]}
+            for kind in (
+                "hero",
+                "lead",
+                "section",
+                "text",
+                "gallery",
+                "cta",
+                "footer",
+            )
+        ],
+        "recommendations": {
+            "introduction": [
+                "core.hero",
+                "core.lead",
+                "core.section",
+                "core.text",
+                "core.gallery",
+                "core.cta",
+                "core.footer",
+            ]
+        },
+    }
+    assets = {"schema_version": 1, "organization_id": org_id, "assets": []}
+    return {"organization.json": organization, "sources.json": sources, "components.json": components, "assets.json": assets}
+
+
+def command_init(args: argparse.Namespace) -> None:
+    if not SLUG.fullmatch(args.organization_id):
+        raise SystemExit("organization ID must be a lowercase hyphenated slug")
+    destination = (args.root / args.organization_id).resolve()
+    if destination.exists() and any(destination.iterdir()):
+        raise SystemExit(f"destination already exists and is not empty: {destination}")
+    destination.mkdir(parents=True, exist_ok=True)
+    for filename, value in scaffold(args.organization_id, args.name).items():
+        write_json(destination / filename, value)
+    asset_directories = [
+        destination / "assets" / "official",
+        destination / "assets" / "photos",
+        destination / "assets" / "generated",
+        destination / "assets" / "derived",
+    ]
+    for directory in asset_directories:
+        directory.mkdir(parents=True, exist_ok=True)
+    print(
+        json.dumps(
+            {
+                "created": str(destination),
+                "status": "provisional",
+                "asset_directories": [str(path) for path in asset_directories],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def command_list(args: argparse.Namespace) -> None:
+    roots = args.root or [Path.cwd() / "organizations", SKILL_ROOT / "organizations"]
+    results: list[dict[str, Any]] = []
+    seen: set[Path] = set()
+    for root in roots:
+        root = root.resolve()
+        if root in seen or not root.exists():
+            continue
+        seen.add(root)
+        for org_file in sorted(root.glob("*/organization.json")):
+            org = read_json(org_file)
+            results.append(
+                {
+                    "id": org.get("id"),
+                    "name": org.get("identity", {}).get("name"),
+                    "status": org.get("status"),
+                    "path": str(org_file.parent),
+                }
+            )
+    print(json.dumps(results, ensure_ascii=False, indent=2))
+
+
+def command_validate(args: argparse.Namespace) -> None:
+    report = validate_pack(args.pack)
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    if not report["ok"]:
+        raise SystemExit(1)
+
+
+def command_show(args: argparse.Namespace) -> None:
+    pack = load_pack(args.pack)
+    org = pack["organization"]
+    print(
+        json.dumps(
+            {
+                "path": str(pack["path"]),
+                "id": org["id"],
+                "status": org["status"],
+                "identity": org["identity"],
+                "personality": org["personality"],
+                "default_route": org["visual"]["default_route"],
+                "routes": org["visual"]["routes"],
+                "article_types": org["article_types"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def command_recommend(args: argparse.Namespace) -> None:
+    pack = load_pack(args.pack)
+    org = pack["organization"]
+    article_types = org["article_types"]
+    if args.article_type not in article_types:
+        available = ", ".join(sorted(article_types))
+        raise SystemExit(f"unknown article type: {args.article_type}; available: {available}")
+    article_config = article_types[args.article_type]
+    route_map = {route["id"]: route for route in org["visual"]["routes"]}
+    component_map = {item["id"]: item for item in pack["components"]["components"]}
+    recommendation_ids = pack["components"].get("recommendations", {}).get(args.article_type, [])
+    print(
+        json.dumps(
+            {
+                "organization_id": org["id"],
+                "article_type": args.article_type,
+                "article_config": article_config,
+                "route": route_map.get(article_config["route"]),
+                "components": [component_map[item_id] for item_id in recommendation_ids if item_id in component_map],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def searchable_text(item: dict[str, Any]) -> str:
+    values: list[str] = []
+    for key in ("id", "kind", "title", "style", "origin", "location"):
+        value = item.get(key)
+        if value is not None:
+            values.append(str(value))
+    for key in ("uses", "subjects", "tags"):
+        value = item.get(key)
+        if isinstance(value, list):
+            values.extend(str(part) for part in value)
+    return " ".join(values).lower()
+
+
+def command_search(args: argparse.Namespace) -> None:
+    pack = load_pack(args.pack)
+    terms = [term.lower() for term in args.query.split() if term.strip()]
+    results: list[dict[str, Any]] = []
+    for registry_name in ("components", "assets"):
+        for item in pack[registry_name][registry_name]:
+            haystack = searchable_text(item)
+            if all(term in haystack for term in terms):
+                results.append({"registry": registry_name, **item})
+    print(json.dumps(results, ensure_ascii=False, indent=2))
+
+
+def matching_assets(
+    pack: dict[str, Any], article_type: str, kinds: set[str]
+) -> list[dict[str, Any]]:
+    matches: list[dict[str, Any]] = []
+    for item in pack["assets"].get("assets", []):
+        if not isinstance(item, dict) or item.get("kind") not in kinds:
+            continue
+        uses = item.get("uses", [])
+        if article_type in uses or "all" in uses or item.get("kind") in {"logo", "qr"}:
+            matches.append(item)
+    return matches
+
+
+def prompt_blueprint(
+    org: dict[str, Any],
+    route: dict[str, Any],
+    article_type: str,
+    slot: str,
+    aspect_ratio: str,
+) -> str:
+    tokens = org["visual"]["tokens"]
+    palette = ", ".join(
+        f"{name} {tokens[name]}"
+        for name in ("ink", "accent", "accent_alt", "surface", "surface_alt")
+    )
+    motifs = "、".join(org["visual"].get("motifs", []))
+    avoid = "、".join(org["visual"].get("avoid", []))
+    return (
+        f"Create a text-free {slot} bitmap for {org['identity']['name']} and its "
+        f"{article_type} WeChat article. Use the {route['dominant_style']} route; "
+        f"motifs: {motifs}; palette: {palette}; aspect ratio {aspect_ratio}; "
+        f"keep a deliberate empty overlay zone and make the subject readable on a phone. "
+        f"Avoid: {avoid}. No letters, numbers, watermark, logo, or QR code."
+    )
+
+
+def build_asset_plan(pack_dir: Path, article_type: str) -> dict[str, Any]:
+    pack = load_pack(pack_dir)
+    org = pack["organization"]
+    article_types = org.get("article_types", {})
+    if article_type not in article_types:
+        available = ", ".join(sorted(article_types))
+        raise ValueError(f"unknown article type: {article_type}; available: {available}")
+    article_config = article_types[article_type]
+    route_map = {route["id"]: route for route in org["visual"]["routes"]}
+    route = route_map[article_config["route"]]
+    blocks = set(article_config.get("recommended_blocks", []))
+    slots: list[dict[str, Any]] = []
+
+    def add_slot(
+        slot_id: str,
+        purpose: str,
+        kinds: set[str],
+        policy: str,
+        aspect_ratio: str,
+        required: bool,
+        generate_allowed: bool,
+    ) -> None:
+        candidates = matching_assets(pack, article_type, kinds)
+        if candidates:
+            status = "reuse-available"
+        elif generate_allowed:
+            status = "generate-or-source"
+        else:
+            status = "user-or-official-asset-required"
+        if generate_allowed:
+            suggested_directory = "assets/generated"
+        elif kinds & {"logo", "qr"}:
+            suggested_directory = "assets/official"
+        else:
+            suggested_directory = "assets/photos"
+        slot: dict[str, Any] = {
+            "id": slot_id,
+            "purpose": purpose,
+            "required": required,
+            "status": status,
+            "policy": policy,
+            "aspect_ratio": aspect_ratio,
+            "existing_candidates": [item["id"] for item in candidates],
+            "suggested_directory": suggested_directory,
+        }
+        if generate_allowed:
+            slot["prompt_blueprint"] = prompt_blueprint(
+                org, route, article_type, purpose, aspect_ratio
+            )
+        slots.append(slot)
+
+    add_slot(
+        "visual.hero",
+        "cover or opening background",
+        {"background", "illustration"},
+        "Reuse a registered visual first; generated art must be text-free and illustrative.",
+        "2:3 portrait",
+        required=False,
+        generate_allowed=True,
+    )
+    if "image" in blocks or "section" in blocks:
+        add_slot(
+            "visual.section",
+            "major section visual",
+            {"background", "illustration", "decoration"},
+            "Use real evidence for real projects; otherwise a text-free explanatory visual is allowed.",
+            "3:2 landscape",
+            required=False,
+            generate_allowed=True,
+        )
+    if "gallery" in blocks:
+        add_slot(
+            "photo.gallery",
+            "people, event, project, or process gallery",
+            {"photo"},
+            "Use supplied or officially sourced photographs for real people, events, and projects.",
+            "3:2 landscape",
+            required=True,
+            generate_allowed=False,
+        )
+    if "case" in blocks:
+        add_slot(
+            "photo.case-evidence",
+            "project or case evidence",
+            {"photo"},
+            "Prefer real project evidence; generated imagery cannot stand in for claimed results.",
+            "3:2 landscape",
+            required=False,
+            generate_allowed=False,
+        )
+    add_slot(
+        "brand.logo",
+        "canonical organization identity",
+        {"logo"},
+        "Official or user-supplied only; never redraw or generate.",
+        "original",
+        required=True,
+        generate_allowed=False,
+    )
+    if "cta" in blocks:
+        add_slot(
+            "brand.qr",
+            "registration or follow call to action",
+            {"qr"},
+            "Official or user-supplied only; never create or replace a QR code.",
+            "1:1",
+            required=False,
+            generate_allowed=False,
+        )
+    return {
+        "schema_version": 1,
+        "organization_id": org["id"],
+        "organization_name": org["identity"]["name"],
+        "article_type": article_type,
+        "route": route,
+        "visual_tokens": org["visual"]["tokens"],
+        "motifs": org["visual"].get("motifs", []),
+        "avoid": org["visual"].get("avoid", []),
+        "slots": slots,
+        "rules": [
+            "Search assets.json before generating anything.",
+            "Generated images must not contain Chinese copy, dates, metrics, logos, or QR codes.",
+            "Inspect every generated asset before registration.",
+            "Register approved files in assets.json before article compilation.",
+        ],
+    }
+
+
+def command_asset_plan(args: argparse.Namespace) -> None:
+    plan = build_asset_plan(args.pack, args.article_type)
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        write_json(args.output, plan)
+        print(
+            json.dumps(
+                {"created": str(args.output.resolve()), "slots": len(plan["slots"])},
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+    else:
+        print(json.dumps(plan, ensure_ascii=False, indent=2))
+
+
+def command_register_asset(args: argparse.Namespace) -> None:
+    if args.kind in {"logo", "qr"} and args.origin not in SAFE_IDENTITY_ORIGINS:
+        raise SystemExit("logo and QR assets must be official or user-supplied")
+    location = args.location
+    if not re.match(r"^(?:https?://|data:)", location):
+        candidate = (args.pack / location).resolve()
+        if not candidate.exists() or not candidate.is_file():
+            raise SystemExit(f"asset file does not exist: {candidate}")
+    assets_path = args.pack / "assets.json"
+    document = read_json(assets_path)
+    items = document.setdefault("assets", [])
+    if any(item.get("id") == args.asset_id for item in items if isinstance(item, dict)):
+        raise SystemExit(f"asset ID already exists: {args.asset_id}")
+    item = {
+        "id": args.asset_id,
+        "kind": args.kind,
+        "title": args.title,
+        "location": location,
+        "style": args.style,
+        "uses": args.use or ["all"],
+        "origin": args.origin,
+    }
+    if args.source_id:
+        item["source_id"] = args.source_id
+    items.append(item)
+    write_json(assets_path, document)
+    report = validate_pack(args.pack)
+    if not report["ok"]:
+        items.pop()
+        write_json(assets_path, document)
+        raise SystemExit(
+            "asset registration failed validation: " + "; ".join(report["errors"])
+        )
+    print(
+        json.dumps(
+            {"registered": item, "asset_count": len(items)},
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    init_parser = subparsers.add_parser("init", help="Create a provisional organization pack")
+    init_parser.add_argument("organization_id")
+    init_parser.add_argument("--name", required=True)
+    init_parser.add_argument("--root", type=Path, default=Path.cwd() / "organizations")
+    init_parser.set_defaults(func=command_init)
+
+    list_parser = subparsers.add_parser("list", help="List discoverable organization packs")
+    list_parser.add_argument("--root", action="append", type=Path)
+    list_parser.set_defaults(func=command_list)
+
+    validate_parser = subparsers.add_parser("validate", help="Validate an organization pack")
+    validate_parser.add_argument("pack", type=Path)
+    validate_parser.set_defaults(func=command_validate)
+
+    show_parser = subparsers.add_parser("show", help="Show organization identity and routes")
+    show_parser.add_argument("pack", type=Path)
+    show_parser.set_defaults(func=command_show)
+
+    recommend_parser = subparsers.add_parser("recommend", help="Recommend a route and components")
+    recommend_parser.add_argument("pack", type=Path)
+    recommend_parser.add_argument("article_type")
+    recommend_parser.set_defaults(func=command_recommend)
+
+    search_parser = subparsers.add_parser("search", help="Search components and assets")
+    search_parser.add_argument("pack", type=Path)
+    search_parser.add_argument("query")
+    search_parser.set_defaults(func=command_search)
+
+    plan_parser = subparsers.add_parser(
+        "asset-plan", help="Build a route-specific asset plan for an article type"
+    )
+    plan_parser.add_argument("pack", type=Path)
+    plan_parser.add_argument("article_type")
+    plan_parser.add_argument("--output", type=Path)
+    plan_parser.set_defaults(func=command_asset_plan)
+
+    register_parser = subparsers.add_parser(
+        "register-asset", help="Register an approved asset in an organization pack"
+    )
+    register_parser.add_argument("pack", type=Path)
+    register_parser.add_argument("--id", dest="asset_id", required=True)
+    register_parser.add_argument("--kind", choices=sorted(ASSET_KINDS), required=True)
+    register_parser.add_argument("--title", required=True)
+    register_parser.add_argument("--location", required=True)
+    register_parser.add_argument("--origin", choices=sorted(ASSET_ORIGINS), required=True)
+    register_parser.add_argument("--style", required=True)
+    register_parser.add_argument("--use", action="append")
+    register_parser.add_argument("--source-id")
+    register_parser.set_defaults(func=command_register_asset)
+    return parser
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+    try:
+        args.func(args)
+    except ValueError as exc:
+        print(json.dumps({"ok": False, "errors": [str(exc)]}, ensure_ascii=False, indent=2))
+        raise SystemExit(1) from exc
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "id": "zju-ocean-robot-association",
+  "status": "migrated-draft",
+  "identity": {
+    "name": "浙江大学海洋机器人协会",
+    "short_name": "浙大海洋机器人协会",
+    "summary": "围绕海洋机器人、水下感知、制造调试与实践活动展开学生技术协作。",
+    "category": "高校学生技术协会",
+    "audiences": ["浙江大学学生", "海洋机器人与工程实践兴趣者", "潜在合作者"],
+    "content_pillars": ["招新与培训", "项目与竞赛", "硬件与调试", "海洋科普", "活动与测试记录"]
+  },
+  "personality": {
+    "authority": 58,
+    "technical": 91,
+    "warmth": 63,
+    "experimental": 70,
+    "action": 76
+  },
+  "voice": {
+    "traits": ["工程感", "真实动手", "青年社群", "清晰不夸张"],
+    "headline_patterns": ["从问题或任务出发", "用动词呈现制造、下水和调试"],
+    "preferred_terms": ["下水", "调试", "实验", "系统", "传感", "推进"],
+    "avoid_terms": ["颠覆世界", "黑科技震撼来袭", "无证据的性能宣称"]
+  },
+  "visual": {
+    "tokens": {
+      "ink": "#2E4148",
+      "body": "#53666C",
+      "accent": "#6DA7CF",
+      "accent_alt": "#F2D6A2",
+      "surface": "#FFFFFF",
+      "surface_alt": "#EAF7F8",
+      "border": "#8CCCD3",
+      "white": "#FFFFFF",
+      "on_accent": "#FFFFFF",
+      "on_accent_alt": "#2E4148"
+    },
+    "motifs": ["声呐环", "海洋等深线", "波浪", "推进器几何", "ROV 与 AUV", "实验与野外测试照片"],
+    "avoid": ["深蓝大面积背景", "泛化 AI 光效", "科幻潜艇", "虚假参数仪表盘", "生成中文"],
+    "default_route": "light-engineering",
+    "routes": [
+      {
+        "id": "light-engineering",
+        "label": "轻盈海洋工程",
+        "uses": ["popular-science", "project-update", "competition"],
+        "layout": "technical",
+        "dominant_style": "technical-line-or-hard-tech",
+        "rationale": "保留工程精度，用浅色水域与技术线稿避免沉重的深蓝科技套路。"
+      },
+      {
+        "id": "hands-on-community",
+        "label": "动手社群编辑",
+        "uses": ["recruitment", "training", "event"],
+        "layout": "warm-community",
+        "dominant_style": "watercolor-cutout-or-clay-miniature",
+        "rationale": "用真实合作、制作和水池测试体现协会的参与感。"
+      },
+      {
+        "id": "field-story",
+        "label": "外场任务叙事",
+        "uses": ["event", "competition", "project-update"],
+        "layout": "editorial",
+        "dominant_style": "real-photography-or-paper-cut",
+        "rationale": "以任务过程和现场证据组织故事，适合测试与竞赛回顾。"
+      }
+    ]
+  },
+  "article_types": {
+    "recruitment": {"label": "招新", "route": "hands-on-community", "recommended_blocks": ["hero", "lead", "statement", "gallery", "roles", "steps", "cta", "footer"]},
+    "training": {"label": "培训", "route": "hands-on-community", "recommended_blocks": ["hero", "lead", "section", "steps", "image", "references", "footer"]},
+    "popular-science": {"label": "科普", "route": "light-engineering", "recommended_blocks": ["hero", "lead", "section", "text", "statement", "image", "references", "footer"]},
+    "project-update": {"label": "项目进展", "route": "light-engineering", "recommended_blocks": ["hero", "lead", "metrics", "timeline", "case", "gallery", "references", "footer"]},
+    "competition": {"label": "竞赛", "route": "field-story", "recommended_blocks": ["hero", "lead", "metrics", "timeline", "gallery", "quote", "footer"]},
+    "event": {"label": "活动", "route": "field-story", "recommended_blocks": ["hero", "lead", "timeline", "gallery", "cta", "footer"]},
+    "hardware-deep-dive": {"label": "硬件深挖", "route": "light-engineering", "recommended_blocks": ["hero", "lead", "section", "case", "metrics", "image", "references", "footer"]}
+  },
+  "asset_policy": {
+    "logo": "official-or-user-supplied-only",
+    "qr": "official-or-user-supplied-only",
+    "photography": "prefer-real-for-real-people-projects-and-field-tests",
+    "generation": "text-free-and-clearly-illustrative"
+  },
+  "publishing": {
+    "authoring": "ardot-native-when-available",
+    "delivery": "wechat-inline-html",
+    "default_action": "draft-only",
+    "formal_publish_requires_confirmation": true
+  },
+  "provenance": {
+    "source_ids": ["legacy-ocean-skill", "legacy-ocean-components", "legacy-ocean-visual-system"],
+    "reviewed_at": null,
+    "notes": "由现有专用工作流迁移，需组织确认后转为 confirmed。"
+  }
+}
