@@ -21,8 +21,31 @@ REQUIRED_VISUAL_CHECKS = {
     "editorial_rhythm",
     "mobile_legibility",
     "open_composition",
+    "information_density",
+    "background_family_coherence",
 }
 REQUIRED_SCREENSHOT_ROLES = {"hero", "chapter", "evidence", "complex-section", "cta"}
+ALLOWED_DENSITY_MODES = {"compact-editorial", "standard", "spacious-feature"}
+DENSITY_BANDS = {
+    "compact-editorial": {
+        "body_font_px": (15.0, 17.0),
+        "body_line_height_ratio": (1.45, 1.62),
+        "letter_spacing_px": (-0.2, 0.0),
+        "paragraph_gap_px": (8.0, 14.0),
+    },
+    "standard": {
+        "body_font_px": (15.0, 17.0),
+        "body_line_height_ratio": (1.50, 1.68),
+        "letter_spacing_px": (-0.1, 0.0),
+        "paragraph_gap_px": (10.0, 16.0),
+    },
+    "spacious-feature": {
+        "body_font_px": (16.0, 18.0),
+        "body_line_height_ratio": (1.55, 1.72),
+        "letter_spacing_px": (0.0, 0.1),
+        "paragraph_gap_px": (12.0, 20.0),
+    },
+}
 ALLOWED_COMPOSITION_ROLES = {"anchor", "motion", "connector", "punctuation"}
 GENERIC_VISUAL_SUBJECTS = {
     "ai",
@@ -172,6 +195,53 @@ def validate_visual_review(
                 errors.append(f"visual review screenshot is missing: {location}")
     if len(node_ids) < 5:
         errors.append("visual review requires at least 5 distinct Ardot node screenshots")
+    density = review.get("density")
+    if not isinstance(density, dict):
+        density = {}
+        errors.append("visual review density must be an object")
+    density_mode = density.get("mode")
+    if density_mode not in ALLOWED_DENSITY_MODES:
+        errors.append("visual review density.mode is invalid")
+        density_mode = "compact-editorial"
+    samples = density.get("samples")
+    sample_items = [item for item in samples if isinstance(item, dict)] if isinstance(samples, list) else []
+    density_node_ids: set[str] = set()
+    band = DENSITY_BANDS[density_mode]
+    for index, sample in enumerate(sample_items):
+        node_id = sample.get("node_id")
+        if not isinstance(node_id, str) or node_id not in node_ids:
+            errors.append(f"density sample {index} must reference a screenshot node_id")
+        else:
+            density_node_ids.add(node_id)
+        for metric, (minimum, maximum) in band.items():
+            value = sample.get(metric)
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                errors.append(f"density sample {index} requires numeric {metric}")
+            elif not minimum <= float(value) <= maximum:
+                errors.append(
+                    f"density sample {index} {metric} must be between {minimum} and {maximum} for {density_mode}"
+                )
+        intentional = sample.get("intentional_whitespace") is True
+        occupancy = sample.get("content_occupancy_ratio")
+        occupancy_minimum = 0.45 if intentional else 0.68
+        if not isinstance(occupancy, (int, float)) or isinstance(occupancy, bool):
+            errors.append(f"density sample {index} requires numeric content_occupancy_ratio")
+        elif not occupancy_minimum <= float(occupancy) <= 0.90:
+            errors.append(
+                f"density sample {index} content_occupancy_ratio must be between {occupancy_minimum} and 0.9"
+            )
+        largest_empty = sample.get("largest_empty_region_ratio")
+        empty_maximum = 0.40 if intentional else 0.20
+        if not isinstance(largest_empty, (int, float)) or isinstance(largest_empty, bool):
+            errors.append(f"density sample {index} requires numeric largest_empty_region_ratio")
+        elif not 0 <= float(largest_empty) <= empty_maximum:
+            errors.append(
+                f"density sample {index} largest_empty_region_ratio must be at most {empty_maximum}"
+            )
+        if intentional and not sample.get("intentional_whitespace_reason"):
+            errors.append(f"density sample {index} intentional whitespace requires a reason")
+    if len(density_node_ids) < 5:
+        errors.append("visual review requires density samples for at least 5 distinct screenshot nodes")
     checks = review.get("checks")
     if not isinstance(checks, dict):
         checks = {}
@@ -189,6 +259,8 @@ def validate_visual_review(
         "screenshot_count": len(screenshot_items),
         "screenshot_roles": sorted(role for role in roles if role),
         "node_count": len(node_ids),
+        "density_mode": density_mode,
+        "density_sample_count": len(sample_items),
         "passed_checks": sorted(
             check for check in REQUIRED_VISUAL_CHECKS if checks.get(check) == "pass"
         ),

@@ -115,7 +115,8 @@ For the complete operator guide, commands, file locations, and migration example
 - Keep closed boxes at or below 20% of content sections, never place two boxed sections consecutively, and include at least three asymmetric or edge-breaking visual moments.
 - Judge openness, rhythm, clipping, scale variation, photo/illustration harmony, mobile legibility, and subject relevance from real Ardot screenshots. Never let article JSON self-certify its own visual quality.
 - Vary long-article rhythm through open text, generated micro illustrations, continuous paths, full-width transitions, image breaks, and quiet whitespace. Never solve missing visual rhythm by adding cards.
-- Optimize for phone reading: short paragraphs, clear hierarchy, 15–17 px body text, generous line height, and visible swipe affordance.
+- Optimize for phone reading with an explicit density mode. Default to `compact-editorial`: 15–17 px body text, 1.45–1.62 body line-height, -0.2–0 px Chinese letter spacing, 8–14 px paragraph spacing, and 24–40 px major intra-section gaps. Do not use “generous whitespace” as an excuse for low information density.
+- Before full layout, calibrate any AI background as one master artwork plus 1–3 same-family companion crops/variants. Keep copy-safe areas near-solid, vary crop and opacity across chapters, and never generate unrelated backgrounds chapter by chapter.
 - Record selected organization ID, route ID, component IDs, source IDs, and unresolved warnings in the compile report.
 
 ## Authoring and delivery
@@ -148,11 +149,14 @@ Treat any of the following as blocking for final delivery:
 - missing or incomplete narrative storyboard;
 - a visual-kit item without grounded source copy, a specific subject/action, or a chapter/composition role;
 - missing or failing screenshot-backed `visual_review_file` before final transport;
+- missing `information_density` / `background_family_coherence` screenshot checks, fewer than five density samples, body line-height outside the selected mode, or an accidental empty region larger than 20% of a sampled section;
 - a metric without a source ID;
 - a quote without attribution or source ID;
 - mismatched organization IDs across registries;
 - generated or unverified QR/logo assets;
 - scripts, forms, or non-inline stylesheet dependencies in `wechat.html`;
 - `compile-report.json` with `ok: false`.
+
+Detailed density bands and AI-background continuity rules are in [references/information-density.md](references/information-density.md).
 
 Read [references/qa.md](references/qa.md) before a final draft handoff or when diagnosing a failed check.

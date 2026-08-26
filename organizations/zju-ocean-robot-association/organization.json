@@ -41,6 +41,11 @@
     "default_route": "light-engineering",
     "calibration": {
       "status": "approved",
+      "density_mode": "compact-editorial",
+      "background_family": {
+        "id": "ocean-hydrographic-editorial",
+        "strategy": "illustration-led-no-ai-background"
+      },
       "approved_routes": ["light-engineering", "hands-on-community", "field-story"],
       "benchmark": {
         "file_url": "https://ardot.tencent.com/file/718358960022995",

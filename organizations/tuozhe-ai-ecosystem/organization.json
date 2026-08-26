@@ -41,6 +41,11 @@
     "default_route": "open-workbench",
     "calibration": {
       "status": "approved",
+      "density_mode": "compact-editorial",
+      "background_family": {
+        "id": "tuozhe-campus-workbench-v1",
+        "strategy": "one-master-plus-one-companion-with-section-crops"
+      },
       "approved_routes": ["open-workbench"],
       "benchmark": {
         "file_url": "https://ardot.tencent.com/file/719045826140352",

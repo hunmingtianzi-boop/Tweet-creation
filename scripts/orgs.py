@@ -46,6 +46,7 @@ VISUAL_KIT_ROLES = {
     "inline-explainer",
     "closing-motif",
 }
+DENSITY_MODES = {"compact-editorial", "standard", "spacious-feature"}
 
 
 def read_json(path: Path) -> Any:
@@ -211,6 +212,18 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
                 errors.append(f"approved visual calibration benchmark requires {field}")
         if not approved_routes:
             errors.append("approved visual calibration requires at least one approved route")
+        if calibration.get("density_mode") not in DENSITY_MODES:
+            errors.append("approved visual calibration requires a valid density_mode")
+        background_family = calibration.get("background_family")
+        if background_family is not None:
+            background_family = require_dict(
+                background_family,
+                "organization.visual.calibration.background_family",
+                errors,
+            )
+            for field in ("id", "strategy"):
+                if not isinstance(background_family.get(field), str) or not background_family.get(field, "").strip():
+                    errors.append(f"approved visual calibration background_family requires {field}")
     elif org.get("status") == "confirmed":
         warnings.append("confirmed organization lacks approved visual calibration; full article production is blocked")
 
@@ -441,6 +454,7 @@ def scaffold(org_id: str, name: str) -> dict[str, Any]:
         }],
         "calibration": {
             "status": "not-started", "approved_routes": [], "benchmark": None,
+            "density_mode": "compact-editorial", "background_family": None,
             "reviewed_at": None, "review_basis": [],
         },
     }

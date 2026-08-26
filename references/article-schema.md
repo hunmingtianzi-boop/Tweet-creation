@@ -20,6 +20,7 @@ The compiler accepts UTF-8 JSON:
         "thesis": "One reader-facing idea",
         "composition": "image-led-opening",
         "visual_intent": "A concrete subject enters from open space",
+        "density_intent": "Intentional hero pause; body sections return to compact-editorial density",
         "block_indices": [0]
       }
     ]
@@ -80,7 +81,7 @@ python3 scripts/build_ardot_manifest.py article.json \
   --output output/<organization-id>/<slug>/ardot-manifest.json
 ```
 
-After assembly, create a separate screenshot-backed visual review and store its path in `visual_review_file`. It must cover five distinct Ardot nodes and pass every check in [visual-review.md](visual-review.md). A Boolean or count written inside the article cannot self-approve the design.
+Every storyboard chapter must declare `density_intent`; ordinary chapters default to `compact-editorial`, while intentional open space is reserved for Hero, transition, or ending moments. After assembly, create a separate screenshot-backed visual review and store its path in `visual_review_file`. It must cover five distinct Ardot nodes, include five density samples, and pass every check in [visual-review.md](visual-review.md). A Boolean or count written inside the article cannot self-approve the design.
 
 ## Supported blocks
 

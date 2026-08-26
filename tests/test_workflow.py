@@ -177,6 +177,35 @@ class CompilerTests(unittest.TestCase):
             self.assertFalse((temp_path / "output" / "wechat.html").exists())
             self.assertIsNone(report["outputs"]["wechat"])
 
+    def test_low_information_density_blocks_final_check(self) -> None:
+        org_id = "zju-ocean-robot-association"
+        source = json.loads(
+            (ROOT / "examples" / "ocean-recruitment.json").read_text(encoding="utf-8")
+        )
+        review = json.loads(
+            (ROOT / "examples" / "ocean-recruitment-visual-review.json").read_text(encoding="utf-8")
+        )
+        review["density"]["samples"][1]["body_line_height_ratio"] = 1.82
+        review["density"]["samples"][1]["content_occupancy_ratio"] = 0.51
+        review["density"]["samples"][1]["largest_empty_region_ratio"] = 0.31
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            spec = temp_path / "article.json"
+            review_path = temp_path / "visual-review.json"
+            source["visual_review_file"] = str(review_path)
+            spec.write_text(json.dumps(source, ensure_ascii=False), encoding="utf-8")
+            review_path.write_text(json.dumps(review, ensure_ascii=False), encoding="utf-8")
+            report = compile_article(
+                spec,
+                ROOT / "organizations" / org_id,
+                temp_path / "output",
+                check=True,
+            )
+            self.assertFalse(report["ok"])
+            self.assertTrue(any("body_line_height_ratio" in error for error in report["errors"]))
+            self.assertTrue(any("content_occupancy_ratio" in error for error in report["errors"]))
+            self.assertTrue(any("largest_empty_region_ratio" in error for error in report["errors"]))
+
     def test_metric_without_source_fails_final_check(self) -> None:
         org_id = "zju-ocean-robot-association"
         article = {
@@ -300,6 +329,18 @@ class ArdotManifestTests(unittest.TestCase):
         self.assertGreaterEqual(storyboard["composition_count"], 3)
         self.assertGreaterEqual(len(directions["directions"]), 2)
         self.assertTrue(directions["full_article_allowed"])
+
+    def test_storyboard_requires_density_intent_for_every_chapter(self) -> None:
+        source = json.loads(
+            (ROOT / "examples" / "ocean-recruitment.json").read_text(encoding="utf-8")
+        )
+        source["storyboard"]["chapters"][2].pop("density_intent")
+        with tempfile.TemporaryDirectory() as temp:
+            article = Path(temp) / "article.json"
+            article.write_text(json.dumps(source, ensure_ascii=False), encoding="utf-8")
+            storyboard = build_storyboard_plan(article)
+            self.assertFalse(storyboard["ready_for_visual_kit"])
+            self.assertTrue(any("density_intent" in item for item in storyboard["errors"]))
 
     def test_provisional_org_is_blocked_before_full_article(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

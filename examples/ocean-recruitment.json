@@ -8,11 +8,11 @@
   "storyboard": {
     "status": "approved",
     "chapters": [
-      {"id": "opening", "label": "入水", "thesis": "把想法变成可以下水的系统。", "composition": "image-led-opening", "visual_intent": "AUV 从留白中进入画面，水流带动阅读方向。", "block_indices": [0]},
-      {"id": "why", "label": "为什么", "thesis": "海洋机器人是一条真实的工程链路。", "composition": "open-editorial-with-anchor", "visual_intent": "一个小型 AUV 锚定开放文字，不使用外框。", "block_indices": [1, 2]},
-      {"id": "entry-points", "label": "从哪里开始", "thesis": "每个人都能找到可以上手的具体任务。", "composition": "staggered-role-bands", "visual_intent": "声呐扫描带连接章节，角色文字高低错落。", "block_indices": [3, 4]},
-      {"id": "first-build", "label": "第一次迭代", "thesis": "从一个小任务开始，在调试中完成首次迭代。", "composition": "continuous-journey", "visual_intent": "推进器和连线沿路径推进，而不是三张步骤卡。", "block_indices": [5]},
-      {"id": "join", "label": "下水", "thesis": "用一个明确行动结束文章。", "composition": "illustrated-ending", "visual_intent": "AUV 驶向水面发射点，CTA 是结尾而非黑色按钮卡。", "block_indices": [6]}
+      {"id": "opening", "label": "入水", "thesis": "把想法变成可以下水的系统。", "composition": "image-led-opening", "visual_intent": "AUV 从留白中进入画面，水流带动阅读方向。", "density_intent": "Hero 保留一次有意停顿，正文回到 compact-editorial。", "block_indices": [0]},
+      {"id": "why", "label": "为什么", "thesis": "海洋机器人是一条真实的工程链路。", "composition": "open-editorial-with-anchor", "visual_intent": "一个小型 AUV 锚定开放文字，不使用外框。", "density_intent": "两段正文与观点连续出现，压缩无意义段间空白。", "block_indices": [1, 2]},
+      {"id": "entry-points", "label": "从哪里开始", "thesis": "每个人都能找到可以上手的具体任务。", "composition": "staggered-role-bands", "visual_intent": "声呐扫描带连接章节，角色文字高低错落。", "density_intent": "角色带保持 68% 以上内容占用率。", "block_indices": [3, 4]},
+      {"id": "first-build", "label": "第一次迭代", "thesis": "从一个小任务开始，在调试中完成首次迭代。", "composition": "continuous-journey", "visual_intent": "推进器和连线沿路径推进，而不是三张步骤卡。", "density_intent": "步骤间距紧凑但保留连续路径的节奏。", "block_indices": [5]},
+      {"id": "join", "label": "下水", "thesis": "用一个明确行动结束文章。", "composition": "illustrated-ending", "visual_intent": "AUV 驶向水面发射点，CTA 是结尾而非黑色按钮卡。", "density_intent": "结尾允许有意留白，行动信息保持一屏内闭合。", "block_indices": [6]}
     ]
   },
   "visual_kit": {

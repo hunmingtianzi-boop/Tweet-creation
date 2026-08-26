@@ -6,47 +6,48 @@
     "段落依靠留白、尺度、色带和连续路径组织，不把每段装进卡片",
     "两张同系列 AI 底图以不同裁切、缩放和透明度交替贯穿六个章节",
     "底图保持瓷白阅读区，以校园蓝图线、工作台和项目路径形成变化；不使用脏米黄或紫色科技渐变",
-    "组件必须先有明确语义再进入版面"
+    "组件必须先有明确语义再进入版面",
+    "默认使用 compact-editorial 密度：正文 15–17 px、1.45–1.62 行高、-0.2–0 px 字距，先压缩无意义空隙而不是加框填空"
   ],
   "chapters": [
     {
       "id": "hero",
-      "height": 930,
+      "height": 870,
       "title": "收藏教程，不如开始",
       "composition": "大幅真实现场照片压住第一屏，标题与浮动工作台插图在开放留白中错位出现",
       "visuals": ["hackathon-wide.jpg", "floating-workbench-alpha.png"]
     },
     {
       "id": "identity",
-      "height": 980,
+      "height": 850,
       "title": "不同专业，同一张工作台",
       "composition": "横向蓝色铅笔线贯穿专业关键词与学习路径，纸张边缘保持开放",
       "visuals": ["cross-discipline-assembly-alpha.png", "learning-to-project-trail-alpha.png"]
     },
     {
       "id": "evidence",
-      "height": 1600,
+      "height": 1500,
       "title": "我们真的在做",
       "composition": "指标用大字穿插在照片之间，照片宽窄不一、边缘错位，形成真实活动连拍",
       "visuals": ["hackathon-focus.jpg", "hackathon-exchange.jpg", "hackathon-group.jpg", "ai-x-beauty-group.jpg"]
     },
     {
       "id": "possibilities",
-      "height": 1080,
+      "height": 930,
       "title": "从我想试试，到我做出来了",
       "composition": "五种行动沿一条连续电缆展开，不使用五张卡片",
       "visuals": ["learning-to-project-trail-alpha.png"]
     },
     {
       "id": "roles",
-      "height": 1220,
+      "height": 1040,
       "title": "你可以站在这里",
       "composition": "岗位方向像贴在工作台上的纸条自由错落，统一由一个跨学科原型插图联结",
       "visuals": ["cross-discipline-assembly-alpha.png"]
     },
     {
       "id": "join",
-      "height": 1220,
+      "height": 1160,
       "title": "让第一个想法真正发生",
       "composition": "信息沿四步流程落下，二维码占位保持克制，双手交付原型插图作为结尾",
       "visuals": ["project-handoff-alpha.png"]

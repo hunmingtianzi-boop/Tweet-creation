@@ -37,7 +37,7 @@ def build_storyboard_plan(article_path: Path) -> dict[str, Any]:
             errors.append(f"duplicate storyboard chapter id: {chapter_id}")
         else:
             chapter_ids.add(chapter_id)
-        for field in ("label", "thesis", "composition", "visual_intent"):
+        for field in ("label", "thesis", "composition", "visual_intent", "density_intent"):
             if not isinstance(chapter.get(field), str) or not chapter.get(field, "").strip():
                 errors.append(f"storyboard chapter {chapter_id or index} requires {field}")
         composition = chapter.get("composition")

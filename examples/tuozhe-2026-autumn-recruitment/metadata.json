@@ -14,6 +14,9 @@
   },
   "qa": {
     "visual_review": "passed",
+    "density_mode": "compact-editorial",
+    "article_height_before_density_pass": 7030,
+    "article_height_after_density_pass": 6350,
     "reviewed_sections": ["3:11", "3:12", "3:13", "3:14", "3:15", "3:16"],
     "final_review_images": [
       "qa/hero.png",
@@ -23,7 +26,7 @@
       "qa/roles.png",
       "qa/join.png"
     ],
-    "intentional_layout_features": ["两张同系列 AI 底图以不同裁切和透明度贯穿六章", "底图中央保留正文阅读区", "透明组件跨区", "真实照片承担活动证据", "结尾进入蓝色色带"]
+    "intentional_layout_features": ["两张同系列 AI 底图以不同裁切和透明度贯穿六章", "底图中央保留正文阅读区", "默认正文采用 15–17 px、1.45–1.62 行高和轻微负字距", "普通正文区最大无意空洞不超过 20%", "透明组件跨区", "真实照片承担活动证据", "结尾进入蓝色色带"]
   },
   "missing_content": ["报名起止时间", "报名二维码", "咨询群二维码或联系方式"],
   "asset_source": "用户提供的拓浙数据包；透明组件与 AI 底图由 OpenAI 内置 ImageGen 制作。"
