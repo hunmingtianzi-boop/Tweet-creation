@@ -83,6 +83,6 @@ WeChat/Ornament/ClosingMotif/<Mode>
 - 不能让每个语义区块都拥有自己的背景、边框或圆角容器。
 - 长文中要交替出现开放文本、图片/插图、连续路径、全宽转场和安静留白。
 
-分段截图复核后，把 `content_sections`、`boxed_sections`、`maximum_consecutive_boxed_sections`、`asymmetric_or_edge_breaking_moments`、`every_block_has_container` 和 `visual_reviewed` 写入 `article.layout_review`。最终适配器会按这些值阻断不合格稿；这些数字必须来自实际 Ardot 画板，不能预填。
+分段截图复核后，把 Hero、章节、证据、复杂区块与 CTA 五个不同 Ardot 节点写入独立 `visual-review.json`。文章 JSON 不允许通过自填数字或 `visual_reviewed: true` 绕过真实截图验收。
 
 若截图第一眼看到的是“框”，而不是标题、插图、节奏或内容关系，视为未通过。

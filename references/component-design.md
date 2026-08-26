@@ -65,4 +65,4 @@ python3 scripts/build_ardot_manifest.py article.json \
   --output output/ORG_ID/article/ardot-manifest.json
 ```
 
-Inspect high-impact sections with Ardot screenshots at 390 px. Confirm that route families differ in composition, not only color; boxes do not exceed 20%; no two boxes are consecutive; and at least three moments visibly break symmetry or the text edge. Record the measured result in `article.layout_review`. Keep the gallery and example article editable as native components and instances.
+Inspect high-impact sections with Ardot screenshots at 390 px. Confirm that route families differ in composition, not only color; boxes do not exceed 20%; no two boxes are consecutive; and at least three moments visibly break symmetry or the text edge. Record five distinct Ardot nodes and all required checks in the separate screenshot-backed visual review. Keep the gallery and example article editable as native components and instances.

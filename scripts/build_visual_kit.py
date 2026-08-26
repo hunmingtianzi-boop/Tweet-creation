@@ -9,7 +9,15 @@ import re
 from pathlib import Path
 from typing import Any
 
+from build_storyboard import build_storyboard_plan
 from orgs import load_pack, validate_pack
+from workflow_quality import (
+    ALLOWED_COMPOSITION_ROLES,
+    article_texts,
+    calibration_state,
+    concrete_subject_is_specific,
+    source_text_is_grounded,
+)
 
 
 KIT_ROLES = (
@@ -64,21 +72,6 @@ def choose_route(article: dict[str, Any], organization: dict[str, Any]) -> dict[
     raise ValueError(f"unknown visual route: {route_id}")
 
 
-def collect_material(value: Any) -> list[str]:
-    collected: list[str] = []
-    if isinstance(value, str):
-        if value.strip() and not re.match(r"^(?:core\.|visual\.|brand\.|legacy-)", value):
-            collected.append(value.strip())
-    elif isinstance(value, list):
-        for item in value:
-            collected.extend(collect_material(item))
-    elif isinstance(value, dict):
-        for key, item in value.items():
-            if key not in {"source_id", "component", "src", "background", "alt", "background_alt"}:
-                collected.extend(collect_material(item))
-    return collected
-
-
 def visual_kit_assets(article: dict[str, Any]) -> list[dict[str, Any]]:
     visual_kit = article.get("visual_kit")
     if not isinstance(visual_kit, dict):
@@ -100,6 +93,11 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
     if not isinstance(article_id, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", article_id):
         raise ValueError("article.article_id must be a lowercase hyphenated slug")
     route = choose_route(article, organization)
+    calibration = calibration_state(organization, route["id"])
+    storyboard = build_storyboard_plan(article_path)
+    storyboard_by_id = {
+        item.get("id"): item for item in storyboard["chapters"] if item.get("id")
+    }
     registered = {
         item.get("id"): item
         for item in pack["assets"].get("assets", [])
@@ -116,8 +114,7 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
         for item in approved_assets
         if isinstance(item.get("role"), str) and isinstance(item.get("id"), str)
     }
-    material = "；".join(dict.fromkeys(collect_material(article.get("blocks", []))))
-    material = material[:700]
+    grounded_texts = article_texts(article)
     motifs = "、".join(organization.get("visual", {}).get("motifs", []))
     avoid = "、".join(organization.get("visual", {}).get("avoid", []))
     tokens = organization["visual"]["tokens"]
@@ -127,11 +124,33 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
     )
     slots: list[dict[str, Any]] = []
     missing_roles: list[str] = []
+    semantic_errors: list[str] = []
+    composition_roles: set[str] = set()
     registered_generated_ids: set[str] = set()
     for definition in KIT_ROLES:
         role = definition["role"]
         approved = by_role.get(role)
         asset_id = approved.get("id") if approved else None
+        chapter_id = approved.get("storyboard_chapter") if approved else None
+        source_text = approved.get("source_text") if approved else None
+        concrete_subject = approved.get("concrete_subject") if approved else None
+        action = approved.get("action") if approved else None
+        composition_role = approved.get("composition_role") if approved else None
+        placement = approved.get("placement") if approved else definition["placement"]
+        chapter = storyboard_by_id.get(chapter_id)
+        if approved:
+            if not chapter:
+                semantic_errors.append(f"visual role {role} references unknown storyboard chapter: {chapter_id}")
+            if not source_text_is_grounded(source_text, grounded_texts):
+                semantic_errors.append(f"visual role {role} source_text is not grounded in article copy")
+            if not concrete_subject_is_specific(concrete_subject):
+                semantic_errors.append(f"visual role {role} concrete_subject is generic or missing")
+            if not isinstance(action, str) or len(action.strip()) < 2:
+                semantic_errors.append(f"visual role {role} action is missing")
+            if composition_role not in ALLOWED_COMPOSITION_ROLES:
+                semantic_errors.append(f"visual role {role} has invalid composition_role: {composition_role}")
+            else:
+                composition_roles.add(composition_role)
         registered_asset = registered.get(asset_id) if asset_id else None
         ready = bool(
             registered_asset
@@ -143,9 +162,13 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
         if not ready:
             missing_roles.append(role)
         prompt = (
-            f"Create one text-free {definition['purpose']} for the article “{article.get('title', '')}” "
-            f"by {organization['identity']['name']}. Derive the visual from these concrete article "
-            f"materials: {material}. Follow the {route['dominant_style']} direction with motifs "
+            f"Create one text-free {definition['purpose']} for {organization['identity']['name']}. "
+            f"Concrete subject: {concrete_subject or '[choose from the named chapter]'}. "
+            f"Depict this action: {action or '[define a visible action]'}. "
+            f"Ground it only in this approved copy: {source_text or '[quote one exact article sentence]'}. "
+            f"Chapter visual intent: {(chapter or {}).get('visual_intent', '[bind to an approved storyboard chapter]')}. "
+            f"Its composition job is {composition_role or '[anchor/motion/connector/punctuation]'} at {placement}. "
+            f"Follow the calibrated {route['dominant_style']} direction with motifs "
             f"{motifs} and palette {palette}. Aspect ratio {definition['aspect_ratio']}. Use a "
             f"transparent background or an irregular/open edge; keep generous negative space. "
             f"Do not create a rectangle, card, UI panel, border, poster, generic blob, letters, "
@@ -156,6 +179,12 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
                 **definition,
                 "status": "approved-and-registered" if ready else "generate-required",
                 "asset_id": asset_id,
+                "storyboard_chapter": chapter_id,
+                "source_text": source_text,
+                "concrete_subject": concrete_subject,
+                "action": action,
+                "composition_role": composition_role,
+                "placement": placement,
                 "prompt": prompt,
                 "registration": {
                     "origin": "generated-illustrative",
@@ -167,16 +196,26 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
         )
     minimum_unique_assets = 3
     ready_for_layout = (
-        visual_kit_status == "approved"
+        calibration["ready"]
+        and storyboard["ready_for_visual_kit"]
+        and visual_kit_status == "approved"
         and not missing_roles
+        and not semantic_errors
+        and len(composition_roles) >= 3
         and len(registered_generated_ids) >= minimum_unique_assets
     )
-    blocking_reasons = [f"missing visual role: {role}" for role in missing_roles]
+    blocking_reasons = calibration["blocking_reasons"] + storyboard["errors"]
+    blocking_reasons.extend(f"missing visual role: {role}" for role in missing_roles)
+    blocking_reasons.extend(semantic_errors)
     if visual_kit_status != "approved":
         blocking_reasons.append("article.visual_kit.status must be approved after image inspection")
     if len(registered_generated_ids) < minimum_unique_assets:
         blocking_reasons.append(
             f"needs at least {minimum_unique_assets} unique generated micro assets; found {len(registered_generated_ids)}"
+        )
+    if len(composition_roles) < 3:
+        blocking_reasons.append(
+            f"visual kit needs at least 3 composition roles; found {len(composition_roles)}"
         )
     return {
         "schema_version": 1,
@@ -186,14 +225,19 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
         "article_title": article.get("title"),
         "article_type": article.get("article_type"),
         "route_id": route["id"],
+        "calibration": calibration,
+        "storyboard": storyboard,
         "minimum_micro_component_roles": len(KIT_ROLES),
         "minimum_unique_generated_micro_assets": minimum_unique_assets,
         "visual_kit_status": visual_kit_status,
         "ready_for_layout": ready_for_layout,
         "missing_roles": missing_roles,
         "blocking_reasons": blocking_reasons,
+        "semantic_errors": semantic_errors,
         "slots": slots,
         "required_sequence": [
+            "STOP if the organization route has no approved Ardot calibration benchmark",
+            "STOP if the narrative storyboard is not approved and complete",
             "generate every missing slot before any article layout",
             "inspect each image and reject rectangular, framed, generic, or text-bearing results",
             f"save and register approved images as generated-illustrative assets with generated_for_articles={article_id}",

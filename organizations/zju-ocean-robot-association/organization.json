@@ -39,6 +39,17 @@
     "motifs": ["声呐环", "海洋等深线", "波浪", "推进器几何", "ROV 与 AUV", "实验与野外测试照片"],
     "avoid": ["深蓝大面积背景", "泛化 AI 光效", "科幻潜艇", "虚假参数仪表盘", "生成中文"],
     "default_route": "light-engineering",
+    "calibration": {
+      "status": "approved",
+      "approved_routes": ["light-engineering", "hands-on-community", "field-story"],
+      "benchmark": {
+        "file_url": "https://ardot.tencent.com/file/718358960022995",
+        "page_name": "招新推文｜灵动丰富版 2026",
+        "article_node_id": "51:2"
+      },
+      "reviewed_at": "2026-08-26",
+      "review_basis": ["用户认可的 Ocean 灵动丰富版", "专用工作流的逐章 Ardot 截图与资产库"]
+    },
     "routes": [
       {
         "id": "light-engineering",

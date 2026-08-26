@@ -13,6 +13,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from compile_wechat import compile_article  # noqa: E402
 from build_ardot_manifest import build_manifest  # noqa: E402
 from build_visual_kit import build_visual_kit_plan  # noqa: E402
+from build_storyboard import build_storyboard_plan  # noqa: E402
+from build_visual_directions import build_directions  # noqa: E402
 from orgs import (  # noqa: E402
     build_asset_plan,
     command_init,
@@ -145,25 +147,24 @@ class CompilerTests(unittest.TestCase):
                     self.assertNotIn("<style", fragment.lower())
                     self.assertEqual(report["article"]["organization_id"], org_id)
                     self.assertTrue(report["visual_kit"]["ready"])
-                    self.assertTrue(report["layout_review"]["ready"])
+                    self.assertTrue(report["visual_review"]["ready"])
 
-    def test_boxed_ardot_layout_fails_final_check(self) -> None:
+    def test_failed_ardot_screenshot_review_blocks_final_check(self) -> None:
         org_id = "zju-ocean-robot-association"
         source = json.loads(
             (ROOT / "examples" / "ocean-recruitment.json").read_text(encoding="utf-8")
         )
-        source["layout_review"].update(
-            {
-                "boxed_sections": 5,
-                "maximum_consecutive_boxed_sections": 2,
-                "asymmetric_or_edge_breaking_moments": 1,
-                "every_block_has_container": True,
-            }
+        review = json.loads(
+            (ROOT / "examples" / "ocean-recruitment-visual-review.json").read_text(encoding="utf-8")
         )
+        review["checks"]["editorial_rhythm"] = "fail"
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
             spec = temp_path / "article.json"
+            review_path = temp_path / "visual-review.json"
+            source["visual_review_file"] = str(review_path)
             spec.write_text(json.dumps(source, ensure_ascii=False), encoding="utf-8")
+            review_path.write_text(json.dumps(review, ensure_ascii=False), encoding="utf-8")
             report = compile_article(
                 spec,
                 ROOT / "organizations" / org_id,
@@ -171,9 +172,10 @@ class CompilerTests(unittest.TestCase):
                 check=True,
             )
             self.assertFalse(report["ok"])
-            self.assertFalse(report["layout_review"]["ready"])
-            self.assertTrue(any("too many boxed" in error for error in report["errors"]))
-            self.assertTrue(any("consecutive boxed" in error for error in report["errors"]))
+            self.assertFalse(report["visual_review"]["ready"])
+            self.assertTrue(any("editorial_rhythm" in error for error in report["errors"]))
+            self.assertFalse((temp_path / "output" / "wechat.html").exists())
+            self.assertIsNone(report["outputs"]["wechat"])
 
     def test_metric_without_source_fails_final_check(self) -> None:
         org_id = "zju-ocean-robot-association"
@@ -233,6 +235,9 @@ class ArdotManifestTests(unittest.TestCase):
         self.assertEqual(ocean["design_target"]["variable_mode"], "Ocean")
         self.assertEqual(ocean["blocks"][0]["ardot_component"], "WeChat/Hero/ImageStage/Ocean")
         self.assertTrue(ocean["visual_kit"]["ready_for_layout"])
+        self.assertTrue(ocean["calibration"]["ready"])
+        self.assertTrue(ocean["storyboard"]["ready_for_visual_kit"])
+        self.assertEqual(len(ocean["chapters"]), 5)
         self.assertTrue(ocean["qa"]["ready_for_layout"])
         self.assertEqual(ocean["qa"]["layout_policy"]["maximum_boxed_section_ratio"], 0.2)
         self.assertTrue(all(block["container_policy"] == "open-by-default" for block in ocean["blocks"]))
@@ -257,6 +262,54 @@ class ArdotManifestTests(unittest.TestCase):
                 "inline-explainer",
                 "closing-motif",
             })
+
+    def test_visual_prompts_are_chapter_grounded_not_article_dumps(self) -> None:
+        article = ROOT / "examples" / "ocean-recruitment.json"
+        plan = build_visual_kit_plan(
+            article, ROOT / "organizations" / "zju-ocean-robot-association"
+        )
+        self.assertTrue(plan["ready_for_layout"], plan["blocking_reasons"])
+        self.assertFalse(plan["semantic_errors"])
+        self.assertGreaterEqual(
+            len({slot["composition_role"] for slot in plan["slots"]}), 3
+        )
+        for slot in plan["slots"]:
+            self.assertIn(slot["concrete_subject"], slot["prompt"])
+            self.assertIn(slot["source_text"], slot["prompt"])
+            self.assertLess(len(slot["prompt"]), 1400)
+
+    def test_generic_ai_subject_cannot_unlock_visual_layout(self) -> None:
+        source = json.loads(
+            (ROOT / "examples" / "ocean-recruitment.json").read_text(encoding="utf-8")
+        )
+        source["visual_kit"]["assets"][0]["concrete_subject"] = "AI装饰"
+        with tempfile.TemporaryDirectory() as temp:
+            article = Path(temp) / "article.json"
+            article.write_text(json.dumps(source, ensure_ascii=False), encoding="utf-8")
+            plan = build_visual_kit_plan(
+                article, ROOT / "organizations" / "zju-ocean-robot-association"
+            )
+            self.assertFalse(plan["ready_for_layout"])
+            self.assertTrue(any("concrete_subject" in item for item in plan["semantic_errors"]))
+
+    def test_storyboard_and_visual_directions_are_explicit_gates(self) -> None:
+        org = ROOT / "organizations" / "zju-ocean-robot-association"
+        storyboard = build_storyboard_plan(ROOT / "examples" / "ocean-recruitment.json")
+        directions = build_directions(org, "recruitment")
+        self.assertTrue(storyboard["ready_for_visual_kit"], storyboard["errors"])
+        self.assertGreaterEqual(storyboard["composition_count"], 3)
+        self.assertGreaterEqual(len(directions["directions"]), 2)
+        self.assertTrue(directions["full_article_allowed"])
+
+    def test_provisional_org_is_blocked_before_full_article(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            pack = Path(temp) / "example-org"
+            pack.mkdir()
+            for filename, value in scaffold("example-org", "示例组织").items():
+                write_json(pack / filename, value)
+            directions = build_directions(pack, "introduction")
+            self.assertFalse(directions["full_article_allowed"])
+            self.assertTrue(any("provisional" in item for item in directions["blocking_reasons"]))
 
 
 if __name__ == "__main__":

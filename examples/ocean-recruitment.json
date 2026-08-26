@@ -5,25 +5,27 @@
   "article_type": "recruitment",
   "title": "在水里，把想法变成机器人",
   "summary": "浙江大学海洋机器人协会招新文章结构示例。",
+  "storyboard": {
+    "status": "approved",
+    "chapters": [
+      {"id": "opening", "label": "入水", "thesis": "把想法变成可以下水的系统。", "composition": "image-led-opening", "visual_intent": "AUV 从留白中进入画面，水流带动阅读方向。", "block_indices": [0]},
+      {"id": "why", "label": "为什么", "thesis": "海洋机器人是一条真实的工程链路。", "composition": "open-editorial-with-anchor", "visual_intent": "一个小型 AUV 锚定开放文字，不使用外框。", "block_indices": [1, 2]},
+      {"id": "entry-points", "label": "从哪里开始", "thesis": "每个人都能找到可以上手的具体任务。", "composition": "staggered-role-bands", "visual_intent": "声呐扫描带连接章节，角色文字高低错落。", "block_indices": [3, 4]},
+      {"id": "first-build", "label": "第一次迭代", "thesis": "从一个小任务开始，在调试中完成首次迭代。", "composition": "continuous-journey", "visual_intent": "推进器和连线沿路径推进，而不是三张步骤卡。", "block_indices": [5]},
+      {"id": "join", "label": "下水", "thesis": "用一个明确行动结束文章。", "composition": "illustrated-ending", "visual_intent": "AUV 驶向水面发射点，CTA 是结尾而非黑色按钮卡。", "block_indices": [6]}
+    ]
+  },
   "visual_kit": {
     "status": "approved",
     "direction": "用水下航行器、推进器与声呐线条形成开放、流动的文章节奏，不为每段文字套框。",
     "assets": [
-      {"id": "spot.auv", "role": "floating-spot", "placement": ["lead-edge", "roles-break"]},
-      {"id": "visual.sonar-opener", "role": "section-transition", "placement": ["before-section-01"]},
-      {"id": "spot.thruster", "role": "inline-explainer", "placement": ["roles-to-steps"]},
-      {"id": "spot.auv", "role": "closing-motif", "placement": ["before-cta"]}
+      {"id": "spot.auv", "role": "floating-spot", "storyboard_chapter": "why", "source_text": "海洋机器人不只是一台机器，它需要机械、电子、控制、感知与协作共同工作。", "concrete_subject": "AUV 航行器与水流轨迹", "action": "沿流线进入正文", "composition_role": "anchor", "placement": "导语右侧留白边缘"},
+      {"id": "visual.sonar-opener", "role": "section-transition", "storyboard_chapter": "entry-points", "source_text": "这里关心的是真实问题：如何密封，如何稳定推进，如何在水下感知和定位。", "concrete_subject": "声呐扫描带与海底等深线", "action": "跨越章节并指向下一段", "composition_role": "connector", "placement": "01 章节标题之前"},
+      {"id": "spot.thruster", "role": "inline-explainer", "storyboard_chapter": "first-build", "source_text": "硬件联调、传感器、通信与算法实现。", "concrete_subject": "推进器剖面与控制连接线", "action": "旋转并连接控制链路", "composition_role": "motion", "placement": "角色与步骤之间"},
+      {"id": "spot.auv", "role": "closing-motif", "storyboard_chapter": "join", "source_text": "准备好让它下水了吗？", "concrete_subject": "AUV 与水面发射点", "action": "驶向报名行动", "composition_role": "punctuation", "placement": "CTA 标题上方留白"}
     ]
   },
-  "layout_review": {
-    "visual_reviewed": true,
-    "content_sections": 9,
-    "boxed_sections": 1,
-    "maximum_consecutive_boxed_sections": 1,
-    "asymmetric_or_edge_breaking_moments": 4,
-    "every_block_has_container": false,
-    "notes": "正文以开放文字、声呐转场、AUV 浮动插图和连续步骤路径组织；仅 CTA 使用一个明确边界。"
-  },
+  "visual_review_file": "ocean-recruitment-visual-review.json",
   "blocks": [
     {"type": "hero", "component": "core.hero", "eyebrow": "ZJU OCEAN ROBOT", "title": "在水里，把想法变成机器人", "subtitle": "从设计、制作到调试，和一群人让系统真正下水。", "cta": "一起动手", "background": "visual.hero-ocean-engineering", "background_alt": "浅色水下环境中的海洋机器人插画"},
     {"type": "lead", "component": "core.lead", "paragraphs": ["海洋机器人不只是一台机器，它需要机械、电子、控制、感知与协作共同工作。", "这里关心的是真实问题：如何密封，如何稳定推进，如何在水下感知和定位。"]},

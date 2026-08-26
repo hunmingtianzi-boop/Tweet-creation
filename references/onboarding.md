@@ -47,9 +47,9 @@ Propose two or three routes when the evidence permits multiple interpretations. 
 
 Choose a default only after user confirmation or when the organization already has a clear, consistently used system. Otherwise mark the pack `provisional`.
 
-## First article as calibration
+## Calibration strip, then first article
 
-Create the first real article as a 390 px native Ardot board and use it to test:
+First compare two or three four-part Ardot calibration strips and record the approved route plus benchmark file/page/node under `organization.visual.calibration`. Only then create the first real article as a 390 px native Ardot board and use it to test:
 
 - whether the voice sounds like the organization rather than a generic campaign;
 - whether verified facts remain distinguishable from promotional interpretation;
@@ -61,4 +61,4 @@ Create the first real article as a 390 px native Ardot board and use it to test:
 
 After review, update the organization pack instead of accumulating one-off prompt rules.
 
-Record the approved Ardot file, variable mode, page names, and component aliases in `ardot.json`. Record the inspected box count and asymmetric visual moments in the article’s `layout_review`. Preserve the first article as an editable example page for later migration checks.
+Preserve the approved strip and first article as editable examples. Use a separate screenshot-backed `visual_review_file` for each article; do not self-report layout quality inside the article JSON.

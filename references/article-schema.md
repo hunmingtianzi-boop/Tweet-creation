@@ -11,24 +11,36 @@ The compiler accepts UTF-8 JSON:
   "title": "Article title",
   "summary": "Optional draft summary",
   "route": "optional-route-override",
+  "storyboard": {
+    "status": "approved",
+    "chapters": [
+      {
+        "id": "opening",
+        "label": "Opening",
+        "thesis": "One reader-facing idea",
+        "composition": "image-led-opening",
+        "visual_intent": "A concrete subject enters from open space",
+        "block_indices": [0]
+      }
+    ]
+  },
   "visual_kit": {
     "status": "approved",
     "direction": "Short article-specific visual direction",
     "assets": [
-      {"id": "spot.example-a", "role": "floating-spot", "placement": ["lead-edge"]},
-      {"id": "visual.example-transition", "role": "section-transition", "placement": ["before-section-01"]},
-      {"id": "spot.example-b", "role": "inline-explainer", "placement": ["inside-process"]},
-      {"id": "spot.example-a", "role": "closing-motif", "placement": ["before-cta"]}
+      {
+        "id": "spot.example-a",
+        "role": "floating-spot",
+        "storyboard_chapter": "opening",
+        "source_text": "One exact sentence copied from the article",
+        "concrete_subject": "A named organization object",
+        "action": "enters along the reading direction",
+        "composition_role": "anchor",
+        "placement": "lead right edge"
+      }
     ]
   },
-  "layout_review": {
-    "visual_reviewed": true,
-    "content_sections": 8,
-    "boxed_sections": 1,
-    "maximum_consecutive_boxed_sections": 1,
-    "asymmetric_or_edge_breaking_moments": 3,
-    "every_block_has_container": false
-  },
+  "visual_review_file": "article-visual-review.json",
   "blocks": [
     {
       "type": "hero",
@@ -45,7 +57,14 @@ The compiler accepts UTF-8 JSON:
 
 The same JSON drives both Ardot assembly and the final WeChat adapter. Ardot is the visual source of truth. A block may set optional `variant`; otherwise the selected route supplies the variant and `ardot.json` maps it to an exact native component.
 
-Before visual authoring, generate and complete the mandatory article-specific visual kit:
+Before visual authoring, validate the 4–10 chapter storyboard:
+
+```bash
+python3 scripts/build_storyboard.py article.json \
+  --output output/<organization-id>/<slug>/storyboard-plan.json
+```
+
+Then generate and complete the mandatory article-specific visual kit:
 
 ```bash
 python3 scripts/build_visual_kit.py article.json \
@@ -53,7 +72,7 @@ python3 scripts/build_visual_kit.py article.json \
   --output output/<organization-id>/<slug>/visual-kit-plan.json
 ```
 
-The four required roles are `floating-spot`, `section-transition`, `inline-explainer`, and `closing-motif`. Use at least three distinct `generated-illustrative` registry assets across them. Every kit asset must include this `article_id` in its registry `generated_for_articles`, so old generic decoration cannot silently satisfy the gate. Then generate the Ardot assembly manifest:
+The four required roles are `floating-spot`, `section-transition`, `inline-explainer`, and `closing-motif`. Every entry must bind to exact article copy and one approved storyboard chapter, with a specific subject/action and a composition role of `anchor`, `motion`, `connector`, or `punctuation`. Use at least three different composition roles and three distinct generated assets. Then generate the Ardot assembly manifest:
 
 ```bash
 python3 scripts/build_ardot_manifest.py article.json \
@@ -61,7 +80,7 @@ python3 scripts/build_ardot_manifest.py article.json \
   --output output/<organization-id>/<slug>/ardot-manifest.json
 ```
 
-After visual review in Ardot, record the measured result in `layout_review`. Final transport is blocked unless closed boxes are at most 20% of content sections, no two boxes are consecutive, at least three asymmetric or edge-breaking moments are present, and the review confirms that the article is not a stack of containers.
+After assembly, create a separate screenshot-backed visual review and store its path in `visual_review_file`. It must cover five distinct Ardot nodes and pass every check in [visual-review.md](visual-review.md). A Boolean or count written inside the article cannot self-approve the design.
 
 ## Supported blocks
 
@@ -94,5 +113,5 @@ Asset registry IDs such as `visual.hero-example` resolve from the organization p
 - Placeholders such as `待补充`, `待确认`, `TBD`, and `PLACEHOLDER` block `--check`.
 - Missing local images block `--check`.
 - Missing visual-kit roles, fewer than three unique generated micro assets, or non-generated assets in the kit block `--check`.
-- A missing or failed `layout_review` blocks `--check`.
+- A missing organization/route calibration, incomplete storyboard, ungrounded visual subject, or failed `visual_review_file` blocks `--check`.
 - A QR image that is not explicitly official or user-supplied blocks `--check`.

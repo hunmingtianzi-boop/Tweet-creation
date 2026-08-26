@@ -32,8 +32,9 @@ WeChat adapter     → 图片上传、内联样式、草稿创建
 
 ## 每次生成文章
 
-1. 校验组织包与文章 JSON。
-2. 先生成文章专属微型视觉套件计划：
+1. 校验组织包与文章 JSON。若组织/route 未做 Ardot 小样校准，先运行 `build_visual_directions.py` 并停在小样审核。
+2. 完成 4–10 章叙事分镜，运行 `build_storyboard.py`。
+3. 再生成文章专属微型视觉套件计划：
 
    ```bash
    python3 scripts/build_visual_kit.py article.json \
@@ -41,7 +42,7 @@ WeChat adapter     → 图片上传、内联样式、草稿创建
      --output output/<organization-id>/<slug>/visual-kit-plan.json
    ```
 
-3. 逐张生成、检查并注册 `floating-spot`、`section-transition`、`inline-explainer`、`closing-motif`；至少三枚不同生成图。把 ID 写入 `article.visual_kit.assets`，并先在 Ardot 做成开放边缘的原生小组件。
+4. 逐张生成、检查并注册四类视觉。每张必须绑定正文原句、具体主体/动作、分镜章节与构图职责；至少三枚不同生成图和三种构图职责。
 4. 确认 `ready_for_layout: true` 后，生成装配清单：
 
    ```bash
@@ -56,8 +57,8 @@ WeChat adapter     → 图片上传、内联样式、草稿创建
 8. 真实照片、官方 Logo 和二维码使用登记资产；微型插画使用组件实例，不作为矩形卡片背景。
 9. 每次创建顶层 Frame 前定位空白区域；每批编辑不超过 25 个操作。
 10. 分段截图检查 Hero、章节、观点、步骤、案例和 CTA；超过 2000 px 的长文不要一次截图。
-11. 修正溢出、断行、空洞、方框占比和组织气质偏差，并把实测结果写入 `article.layout_review`。
-12. 只有 `visual_reviewed: true` 且量化门槛全部通过，才进入投递。
+11. 修正溢出、断行、空洞、方框化和组织气质偏差。
+12. 为 Hero、章节、证据、复杂区块和 CTA 建立独立截图验收 JSON，运行 `build_visual_review.py`。五类节点与十项检查全部通过才投递。
 
 ## 新公众号迁移
 
@@ -67,7 +68,7 @@ WeChat adapter     → 图片上传、内联样式、草稿创建
 2. 在现有组件系统中新建一个变量模式，或为完全独立的品牌建立新 Ardot 文件。
 3. 为 Hero、章节、观点、步骤/流程、案例、CTA 至少各选择一个构图变体。
 4. 把真实 Ardot 文件 URL、模式名、页面名和组件别名写入 `ardot.json`，将状态改为 `linked`。
-5. 生成一篇真实样稿做视觉校准；确认后再批量生产。
+5. 先生成 2–3 组四项小样做视觉校准；确认后再制作第一篇全文。
 
 迁移不是强制所有组织共用同一组件外观。语义职责可以共用，但 Hero、章节节奏、信息密度、边角语言和图片策略可以新增组织专属变体。
 
@@ -86,4 +87,4 @@ WeChat adapter     → 图片上传、内联样式、草稿创建
 
 ## 微信投递
 
-视觉定稿且 `article.layout_review` 通过后，才运行 `compile_wechat.py` 生成内部投递文件。适配层需要把 Ardot 审核后的组件语义映射为微信允许的内联样式，并将正文图片上传到目标公众号。默认只创建草稿；正式发布仍需单独确认。
+视觉定稿且 `article.visual_review_file` 通过后，才运行 `compile_wechat.py` 生成内部投递文件。适配层需要把 Ardot 审核后的组件语义映射为微信允许的内联样式，并将正文图片上传到目标公众号。默认只创建草稿；正式发布仍需单独确认。

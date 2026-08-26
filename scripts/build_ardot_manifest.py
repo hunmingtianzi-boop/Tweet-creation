@@ -10,7 +10,9 @@ from pathlib import Path
 from typing import Any
 
 from build_visual_kit import build_visual_kit_plan
+from build_storyboard import build_storyboard_plan
 from orgs import load_pack, validate_pack
+from workflow_quality import calibration_state
 
 
 TOKEN_NAMES = {
@@ -140,6 +142,8 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
     if article.get("organization_id") != organization.get("id"):
         raise ValueError("article organization_id does not match the organization pack")
     route = choose_route(article, organization)
+    calibration = calibration_state(organization, route["id"])
+    storyboard = build_storyboard_plan(article_path)
     visual_kit_plan = build_visual_kit_plan(article_path, org_dir)
     kit_asset_by_role = {
         item["role"]: item.get("asset_id")
@@ -200,6 +204,20 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
         for ref in dict.fromkeys(used_assets)
     ]
     unresolved = [item["ref"] for item in assets if not item.get("local_path") and not re.match(r"^https?://", str(item.get("location", "")))]
+    block_by_index = {item["index"]: item for item in blocks}
+    chapters = []
+    for chapter in storyboard["chapters"]:
+        chapter_blocks = [
+            block_by_index[index]
+            for index in chapter.get("block_indices", [])
+            if index in block_by_index
+        ]
+        chapters.append({
+            **chapter,
+            "blocks": chapter_blocks,
+            "assembly_policy": "bespoke-chapter-composition",
+            "component_policy": "reuse primitives selectively; do not wrap every semantic block",
+        })
     return {
         "schema_version": 1,
         "kind": "org-wechat-ardot-assembly",
@@ -229,24 +247,36 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
             "dominant_style": route["dominant_style"],
             "component_variants": route.get("component_variants", {}),
         },
+        "calibration": calibration,
+        "storyboard": storyboard,
         "variables": variables,
         "visual_kit": visual_kit_plan,
+        "chapters": chapters,
         "blocks": blocks,
         "assets": assets,
         "assembly": [
+            "STOP if calibration.ready is false",
+            "STOP if storyboard.ready_for_visual_kit is false",
             "STOP if visual_kit.ready_for_layout is false",
             "generate, inspect, register, and componentize the four micro illustrations before article layout",
             "apply or update the organization variable mode",
             "fetch reusable components by exact ardot_component name",
             "create missing semantic component variants before article assembly",
-            "create one 390px article root and insert blocks in manifest order",
+            "create one 390px article root and assemble approved storyboard chapters in narrative order",
+            "give each chapter a bespoke composition; reuse primitives selectively instead of instantiating one box per block",
             "place micro illustrations between and beside open text flows; never use them as card backgrounds",
             "upload registered image assets to their named image slots",
             "capture section screenshots and iterate before any WeChat handoff",
         ],
         "qa": {
-            "ready_for_layout": visual_kit_plan["ready_for_layout"],
+            "ready_for_layout": (
+                calibration["ready"]
+                and storyboard["ready_for_visual_kit"]
+                and visual_kit_plan["ready_for_layout"]
+            ),
             "blocking": [
+                "organization or selected route lacks an approved Ardot calibration benchmark",
+                "article lacks an approved narrative storyboard with complete block coverage",
                 "article-specific visual kit lacks any required role or has fewer than three unique generated micro assets",
                 "layout started before micro illustrations became native Ardot components",
                 "missing component variant",

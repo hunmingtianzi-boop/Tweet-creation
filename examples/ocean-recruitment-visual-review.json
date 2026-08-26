@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "article_id": "ocean-recruitment",
+  "organization_id": "zju-ocean-robot-association",
+  "status": "approved",
+  "reviewed_at": "2026-08-26",
+  "ardot": {
+    "file_url": "https://ardot.tencent.com/file/718358960022995",
+    "page_id": "51:1",
+    "article_node_id": "51:2"
+  },
+  "screenshots": [
+    {"role": "hero", "node_id": "51:3", "location": "ocean-recruitment-review/ardot-hero.png"},
+    {"role": "chapter", "node_id": "51:20", "location": "ocean-recruitment-review/ardot-learn.png"},
+    {"role": "evidence", "node_id": "51:55", "location": "ocean-recruitment-review/ardot-team.png"},
+    {"role": "complex-section", "node_id": "51:62", "location": "ocean-recruitment-review/ardot-build.png"},
+    {"role": "cta", "node_id": "51:70", "location": "ocean-recruitment-review/ardot-join2.png"}
+  ],
+  "checks": {
+    "subject_relevance": "pass",
+    "style_coherence": "pass",
+    "no_clipped_ornaments": "pass",
+    "scale_variation": "pass",
+    "photo_illustration_harmony": "pass",
+    "no_generic_ai_decoration": "pass",
+    "no_unexplained_labels": "pass",
+    "editorial_rhythm": "pass",
+    "mobile_legibility": "pass",
+    "open_composition": "pass"
+  },
+  "notes": "仓库示例使用用户认可的 Ocean 灵动丰富版作为基准。新文章必须替换为它自己的 5 类 Ardot 节点截图。"
+}

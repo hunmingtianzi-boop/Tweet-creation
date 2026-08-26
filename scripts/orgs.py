@@ -185,6 +185,35 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
     if default_route not in route_ids:
         errors.append("organization.visual.default_route must reference a registered route")
 
+    calibration = visual.get("calibration")
+    if not isinstance(calibration, dict):
+        calibration = {}
+        warnings.append("organization.visual.calibration is missing; full article production is blocked")
+    calibration_status = calibration.get("status", "missing")
+    if calibration_status not in {"not-started", "directions-ready", "approved", "missing"}:
+        errors.append("organization.visual.calibration.status is invalid")
+    approved_routes = require_list(
+        calibration.get("approved_routes", []),
+        "organization.visual.calibration.approved_routes",
+        errors,
+    )
+    for route_id in approved_routes:
+        if route_id not in route_ids:
+            errors.append(f"visual calibration references unknown route: {route_id}")
+    if calibration_status == "approved":
+        benchmark = require_dict(
+            calibration.get("benchmark"),
+            "organization.visual.calibration.benchmark",
+            errors,
+        )
+        for field in ("file_url", "page_name", "article_node_id"):
+            if not isinstance(benchmark.get(field), str) or not benchmark.get(field, "").strip():
+                errors.append(f"approved visual calibration benchmark requires {field}")
+        if not approved_routes:
+            errors.append("approved visual calibration requires at least one approved route")
+    elif org.get("status") == "confirmed":
+        warnings.append("confirmed organization lacks approved visual calibration; full article production is blocked")
+
     article_types = require_dict(org.get("article_types"), "organization.article_types", errors)
     for article_type, config_raw in article_types.items():
         config = require_dict(config_raw, f"article type {article_type}", errors)
@@ -299,6 +328,10 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
         "path": str(pack_dir.resolve()),
         "organization_id": org_id,
         "status": org.get("status"),
+        "visual_calibration": {
+            "status": calibration_status,
+            "approved_routes": approved_routes,
+        },
         "counts": {
             "routes": len(routes),
             "article_types": len(article_types),
@@ -391,6 +424,25 @@ def scaffold(org_id: str, name: str) -> dict[str, Any]:
             "formal_publish_requires_confirmation": True,
         },
         "provenance": {"source_ids": [], "reviewed_at": None, "notes": "待完成首次组织调研"},
+    }
+    organization["visual"] = {
+        "tokens": {
+            "ink": "#263238", "body": "#526269", "accent": "#527B8C",
+            "accent_alt": "#E9C46A", "surface": "#FFFFFF", "surface_alt": "#F4F7F8",
+            "border": "#CBD7DB", "white": "#FFFFFF",
+        },
+        "motifs": ["待调研组织物件与行动"],
+        "avoid": ["泛化 AI 光效", "与正文无关的装饰"],
+        "default_route": "provisional-editorial",
+        "routes": [{
+            "id": "provisional-editorial", "label": "待校准编辑方向", "uses": ["introduction"],
+            "layout": "editorial", "dominant_style": "organization-specific-editorial",
+            "component_variants": {}, "rationale": "仅用于生成校准样张，未批准前不得制作全文。",
+        }],
+        "calibration": {
+            "status": "not-started", "approved_routes": [], "benchmark": None,
+            "reviewed_at": None, "review_basis": [],
+        },
     }
     sources = {"schema_version": 1, "organization_id": org_id, "sources": [], "facts": []}
     components = {

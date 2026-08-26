@@ -28,7 +28,7 @@ Required top-level fields:
 - `identity`: name, short name, summary, category, audiences, content pillars.
 - `personality`: numeric `authority`, `technical`, `warmth`, `experimental`, and `action` values from 0 to 100.
 - `voice`: traits, headline patterns, preferred terms, and avoid terms.
-- `visual`: tokens, motifs, avoid rules, routes, and default route.
+- `visual`: tokens, motifs, avoid rules, routes, default route, and screenshot-backed route calibration metadata.
 - `article_types`: mapping of stable article-type IDs to route and block recommendations.
 - `asset_policy`: logo, QR, photography, and image-generation boundaries.
 - `publishing`: authoring and draft/publication policy.
@@ -50,6 +50,8 @@ Required visual tokens:
 ```
 
 Routes use a layout family from `editorial`, `poster`, `technical`, `institutional`, or `warm-community`. These are compositional behaviors, not fixed brands.
+
+`visual.calibration` records `status`, `approved_routes`, a benchmark with Ardot `file_url`, `page_name`, and `article_node_id`, plus review metadata. New organizations start at `not-started`; full-article production remains blocked until the chosen route is approved. See [visual-calibration.md](visual-calibration.md).
 
 ## `sources.json`
 

@@ -28,7 +28,7 @@
 - At least three moments visibly break symmetry or enter from the text edge.
 - Long articles vary section rhythm through open text, micro illustrations, continuous paths, image breaks, full-width transitions, and quiet whitespace.
 - Every semantic block does not own a background, border, radius, or shadow.
-- The measured counts are recorded in `article.layout_review` with `visual_reviewed: true`; unreviewed layouts cannot enter final transport.
+- A separate `visual_review_file` records five distinct Ardot node screenshots and all ten required visual checks; article JSON cannot self-certify the design.
 - Images have useful alt text and important subjects remain legible on a phone.
 - No clipped text, overflow, accidental large empty region, or component instance with the wrong organization mode remains.
 - `index.html` may be used only to debug the final transport adapter; it does not replace Ardot visual review.

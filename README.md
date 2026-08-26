@@ -6,13 +6,17 @@
 
 ## Ardot 效果样稿
 
-当前保留 Ocean 招新作为组件、构图、留白和手机阅读节奏的基准样稿：
+当前保留用户实际认可的 Ocean「灵动丰富版」作为构图方法、留白和手机阅读节奏的基准：
 
-![Ocean 招新 Ardot Hero](docs/previews/ocean-recruitment-hero.png)
+![Ocean 招新 Ardot Hero](examples/ocean-recruitment-review/ardot-hero.png)
+
+[Ardot 基准文件｜招新推文·灵动丰富版 2026](https://ardot.tencent.com/file/718358960022995)（文章根节点 `51:2`）。这是 Ocean 的效果基准，不是让其他组织照抄海洋风格。
 
 ## 能力
 
 - 新组织调研与组织包初始化。
+- 全文前先做 2–3 组 Ardot 小样校准，未批准路线不得开始整篇。
+- 先写 4–10 章叙事分镜，再选组件和生图，避免 block 直接变卡片。
 - 语气、品牌色、视觉路线、文章类型与事实来源建模。
 - 按公众号与文章类型生成资产计划。
 - 排版前强制生成文章专属的浮动插图、章节转场、行内解释图和收尾视觉，并先做成 Ardot 小组件。
@@ -40,12 +44,25 @@ python3 scripts/orgs.py init new-account-id \
   --root organizations
 ```
 
-生成资产计划：
+先生成组织视觉校准方向（只做小样，不做全文）：
+
+```bash
+python3 scripts/build_visual_directions.py \
+  organizations/new-account-id recruitment \
+  --output output/new-account-id/visual-directions.json
+```
+
+待用户批准 Ardot 小样并回写 `organization.visual.calibration` 后，生成资产计划与文章叙事分镜：
 
 ```bash
 python3 scripts/orgs.py asset-plan \
   organizations/new-account-id recruitment \
   --output output/new-account-id/recruitment-asset-plan.json
+```
+
+```bash
+python3 scripts/build_storyboard.py article.json \
+  --output output/new-account-id/article-slug/storyboard-plan.json
 ```
 
 为本篇文章生成小组件/小插图计划：
@@ -56,7 +73,7 @@ python3 scripts/build_visual_kit.py article.json \
   --output output/new-account-id/article-slug/visual-kit-plan.json
 ```
 
-逐张生图、验图，并用 `--role ... --generated-for ARTICLE_ID` 登记为本篇资产，再写入 `article.visual_kit`；只有计划中的 `ready_for_layout` 为 `true`，才生成 Ardot 装配清单：
+逐张生图、验图，每张都必须绑定正文原句、具体主体/动作、分镜章节和构图职责。只有 `ready_for_layout: true` 才生成 Ardot 装配清单：
 
 ```bash
 python3 scripts/build_ardot_manifest.py article.json \
@@ -64,7 +81,13 @@ python3 scripts/build_ardot_manifest.py article.json \
   --output output/new-account-id/article-slug/ardot-manifest.json
 ```
 
-先把四类小插图做成开放边缘的 Ardot 原生组件，再按清单完成长文装配。截图复核后把方框数量、不对称视觉次数等结果写入 `article.layout_review`，通过硬性检查后才生成微信投递文件：
+按分镜章节完成 Ardot 长文装配后，截取 Hero、章节、证据、复杂区块和 CTA 五类实际节点，建立独立验收文件：
+
+```bash
+python3 scripts/build_visual_review.py visual-review.json --article article.json
+```
+
+把路径写入 `article.visual_review_file`，通过后才生成微信投递文件：
 
 ```bash
 python3 scripts/compile_wechat.py article.json \
@@ -90,8 +113,7 @@ python3 scripts/compile_wechat.py article.json \
 
 `organizations/` 内包含浙江大学海洋机器人协会迁移样本。状态为 `migrated-draft`，代表需组织审核后才能转为正式品牌包。其他公众号应通过调研新增独立组织包与 Ardot 品牌模式。
 
-当前共享 Ardot 组件系统与 Ocean 效果样稿：
-[Org WeChat Studio｜公众号组件系统](https://ardot.tencent.com/file/718644779257522)
+共享的 [Org WeChat Studio 组件系统](https://ardot.tencent.com/file/718644779257522) 只用于语义基础和组织模式，不再作为效果基准。
 
 `article.json` 是内容源，Ardot 是视觉源；`wechat.html` 只是最终传输文件。
 

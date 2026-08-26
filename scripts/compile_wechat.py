@@ -13,6 +13,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from build_storyboard import build_storyboard_plan
+from build_visual_kit import build_visual_kit_plan
+from workflow_quality import calibration_state, validate_visual_review
+
 
 REMOTE_SRC = re.compile(r"^(?:https?://|data:)", re.I)
 PLACEHOLDERS = re.compile(r"(?:待补充|待确认|待提供|PLACEHOLDER|\bTBD\b|\bTODO\b)", re.I)
@@ -499,6 +503,20 @@ def load_context(spec_path: Path, org_dir: Path, output_dir: Path, check: bool) 
 
 def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: bool) -> dict[str, Any]:
     ctx, spec = load_context(spec_path, org_dir, output_dir, check)
+    calibration = calibration_state(ctx.organization, ctx.route.get("id"))
+    ctx.errors.extend(calibration["blocking_reasons"])
+    storyboard = build_storyboard_plan(spec_path)
+    ctx.errors.extend(storyboard["errors"])
+    try:
+        visual_kit_plan = build_visual_kit_plan(spec_path, org_dir)
+        ctx.errors.extend(visual_kit_plan["blocking_reasons"])
+    except ValueError as exc:
+        ctx.errors.append(str(exc))
+        visual_kit_plan = {
+            "ready_for_layout": False,
+            "semantic_errors": [str(exc)],
+            "blocking_reasons": [str(exc)],
+        }
     serialized = json.dumps(spec, ensure_ascii=False)
     markers = sorted(set(match.group(0) for match in PLACEHOLDERS.finditer(serialized)))
     if markers:
@@ -550,51 +568,24 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
         ctx.errors.append(
             f"article.visual_kit requires at least 3 unique assets freshly generated for this article; found {len(fresh_kit_asset_ids)}"
         )
-    layout_review = spec.get("layout_review")
-    layout_review_ready = False
-    if not isinstance(layout_review, dict):
-        ctx.errors.append("article requires an Ardot layout_review before final transport")
-        layout_review = {}
+    visual_review: dict[str, Any] = {}
+    visual_review_report = {"ready": False, "errors": ["visual review was not loaded"]}
+    visual_review_file = spec.get("visual_review_file")
+    if not isinstance(visual_review_file, str) or not visual_review_file.strip():
+        ctx.errors.append("article requires visual_review_file with real Ardot node screenshots")
     else:
-        total_sections = layout_review.get("content_sections")
-        boxed_sections = layout_review.get("boxed_sections")
-        consecutive_boxed = layout_review.get("maximum_consecutive_boxed_sections")
-        asymmetric_moments = layout_review.get("asymmetric_or_edge_breaking_moments")
-        reviewed = layout_review.get("visual_reviewed") is True
-        every_block_container = layout_review.get("every_block_has_container")
-        numeric_counts = all(
-            isinstance(value, int) and not isinstance(value, bool)
-            for value in (total_sections, boxed_sections, consecutive_boxed, asymmetric_moments)
-        )
-        if not numeric_counts:
-            ctx.errors.append("layout_review counts must be integers")
-        elif total_sections <= 0:
-            ctx.errors.append("layout_review.content_sections must be greater than 0")
-        else:
-            boxed_ratio = boxed_sections / total_sections
-            if boxed_sections < 0 or boxed_ratio > 0.2:
-                ctx.errors.append(
-                    f"Ardot layout uses too many boxed sections: {boxed_sections}/{total_sections} ({boxed_ratio:.0%}) > 20%"
-                )
-            if consecutive_boxed < 0 or consecutive_boxed > 1:
-                ctx.errors.append("Ardot layout contains consecutive boxed sections")
-            if asymmetric_moments < 3:
-                ctx.errors.append("Ardot layout requires at least 3 asymmetric or edge-breaking visual moments")
-        if every_block_container is not False:
-            ctx.errors.append("Ardot layout_review must confirm that not every block has a container")
-        if not reviewed:
-            ctx.errors.append("Ardot layout_review.visual_reviewed must be true")
-        layout_review_ready = (
-            numeric_counts
-            and total_sections > 0
-            and boxed_sections >= 0
-            and boxed_sections / total_sections <= 0.2
-            and consecutive_boxed >= 0
-            and consecutive_boxed <= 1
-            and asymmetric_moments >= 3
-            and every_block_container is False
-            and reviewed
-        )
+        review_path = Path(visual_review_file)
+        if not review_path.is_absolute():
+            review_path = (spec_path.parent / review_path).resolve()
+        try:
+            loaded_review = read_json(review_path)
+            if not isinstance(loaded_review, dict):
+                raise ValueError("visual review must be a JSON object")
+            visual_review = loaded_review
+            visual_review_report = validate_visual_review(visual_review, spec, spec_path)
+            ctx.errors.extend(visual_review_report["errors"])
+        except ValueError as exc:
+            ctx.errors.append(str(exc))
     blocks = spec.get("blocks")
     if not isinstance(blocks, list) or not blocks:
         ctx.errors.append("article.blocks must be a non-empty array")
@@ -627,8 +618,15 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
 </head><body><main>{fragment}</main></body></html>'''
 
     ctx.output_dir.mkdir(parents=True, exist_ok=True)
-    (ctx.output_dir / "wechat.html").write_text(fragment, encoding="utf-8")
-    (ctx.output_dir / "index.html").write_text(preview, encoding="utf-8")
+    preview_path = ctx.output_dir / "index.html"
+    wechat_path = ctx.output_dir / "wechat.html"
+    if not ctx.errors:
+        wechat_path.write_text(fragment, encoding="utf-8")
+        preview_path.write_text(preview, encoding="utf-8")
+    else:
+        for stale_transport in (preview_path, wechat_path):
+            if stale_transport.exists() and stale_transport.is_file():
+                stale_transport.unlink()
     report = {
         "ok": not ctx.errors,
         "article": {
@@ -639,6 +637,8 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
             "route_id": ctx.route.get("id"),
             "route_layout": ctx.route.get("layout"),
         },
+        "calibration": calibration,
+        "storyboard": storyboard,
         "counts": {
             "blocks": len(rendered_blocks),
             "html_characters": len(fragment),
@@ -649,29 +649,18 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
             "registered_roles": sorted(role for role in kit_roles if role),
             "unique_asset_count": len(unique_kit_asset_ids),
             "fresh_asset_count": len(fresh_kit_asset_ids),
-            "ready": (
-                isinstance(visual_kit, dict)
-                and visual_kit.get("status") == "approved"
-                and REQUIRED_VISUAL_KIT_ROLES.issubset(kit_roles)
-                and len(fresh_kit_asset_ids) >= 3
-            ),
+            "semantic_errors": visual_kit_plan["semantic_errors"],
+            "ready": visual_kit_plan["ready_for_layout"],
         },
-        "layout_review": {
-            "ready": layout_review_ready,
-            "content_sections": layout_review.get("content_sections"),
-            "boxed_sections": layout_review.get("boxed_sections"),
-            "maximum_consecutive_boxed_sections": layout_review.get("maximum_consecutive_boxed_sections"),
-            "asymmetric_or_edge_breaking_moments": layout_review.get("asymmetric_or_edge_breaking_moments"),
-            "visual_reviewed": layout_review.get("visual_reviewed"),
-        },
+        "visual_review": visual_review_report,
         "component_ids": list(dict.fromkeys(ctx.component_ids)),
         "source_ids": sorted(ctx.used_source_ids),
         "copied_assets": ctx.copied_assets,
         "warnings": list(dict.fromkeys(ctx.warnings)),
         "errors": list(dict.fromkeys(ctx.errors)),
         "outputs": {
-            "preview": str((ctx.output_dir / "index.html").resolve()),
-            "wechat": str((ctx.output_dir / "wechat.html").resolve()),
+            "preview": str(preview_path.resolve()) if not ctx.errors else None,
+            "wechat": str(wechat_path.resolve()) if not ctx.errors else None,
             "report": str((ctx.output_dir / "compile-report.json").resolve()),
         },
     }

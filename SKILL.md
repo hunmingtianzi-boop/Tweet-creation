@@ -26,8 +26,22 @@ For the complete operator guide, commands, file locations, and migration example
    python3 scripts/orgs.py init ORGANIZATION_ID --name "Organization name" --root organizations
    ```
 
-5. For an article, read [references/article-schema.md](references/article-schema.md), [references/ardot-workflow.md](references/ardot-workflow.md), and [references/organic-layout.md](references/organic-layout.md), then create an article JSON beside its source materials.
-6. Before any long-article layout, build and complete the mandatory article-specific micro-illustration kit:
+5. Before the first full article for an organization or route, read [references/visual-calibration.md](references/visual-calibration.md) and create two or three small Ardot calibration strips:
+
+   ```bash
+   python3 scripts/build_visual_directions.py path/to/organization-pack ARTICLE_TYPE \
+     --output output/organization-id/visual-directions.json
+   ```
+
+   Show only a hero, chapter, photo treatment, and micro visual for each direction. Stop until one route is approved and its Ardot file/page/node is recorded under `organization.visual.calibration`. A provisional organization never proceeds to a full article.
+6. For an article, read [references/article-schema.md](references/article-schema.md), [references/storyboard.md](references/storyboard.md), [references/ardot-workflow.md](references/ardot-workflow.md), and [references/organic-layout.md](references/organic-layout.md). Write and approve a 4–10 chapter narrative storyboard before generating visuals:
+
+   ```bash
+   python3 scripts/build_storyboard.py article.json \
+     --output output/article-slug/storyboard-plan.json
+   ```
+
+7. Build the mandatory article-specific micro-illustration kit:
 
    ```bash
    python3 scripts/build_visual_kit.py article.json \
@@ -36,8 +50,8 @@ For the complete operator guide, commands, file locations, and migration example
    ```
 
    Generate, inspect, save, and register the missing `floating-spot`, `section-transition`, `inline-explainer`, and `closing-motif` assets. Record the approved IDs in `article.visual_kit.assets`. Do not continue while `ready_for_layout` is false.
-   Each generated asset must be registered with its visual role and the current `article_id` via `--role ROLE --generated-for ARTICLE_ID`; old generic decorations do not satisfy this gate. Set `article.visual_kit.status` to `approved` only after inspecting the files.
-7. Build the deterministic Ardot assembly manifest before editing the design:
+   Every slot must quote one exact `source_text`, name a specific `concrete_subject`, visible `action`, storyboard chapter, placement, and composition job. Never prompt from a bulk dump of the article. Each generated asset must be registered with its visual role and the current `article_id`; generic decorations do not satisfy this gate.
+8. Build the deterministic Ardot assembly manifest before editing the design:
 
    ```bash
    python3 scripts/build_ardot_manifest.py article.json \
@@ -45,14 +59,21 @@ For the complete operator guide, commands, file locations, and migration example
      --output output/article-slug/ardot-manifest.json
    ```
 
-8. Create native Ardot ornament components from the visual kit, then use the manifest to assemble and visually review the article. Record the measured result in `article.layout_review`. Generate WeChat transport files only after the Ardot design and the layout-review gate pass.
+9. Assemble the article chapter by chapter in Ardot. A chapter may reuse primitives, but must not become a mechanical stack of block components.
+10. Read [references/visual-review.md](references/visual-review.md). Capture five distinct Ardot node screenshots (`hero`, `chapter`, `evidence`, `complex-section`, `cta`) in a separate review JSON, then validate it:
+
+   ```bash
+   python3 scripts/build_visual_review.py visual-review.json --article article.json
+   ```
+
+   Set `article.visual_review_file` to that file. Generate WeChat transport only after this screenshot-backed review passes.
 
 ## Organization model
 
 - Infer identity from official evidence and representative past communication, not from organization category or logo alone.
 - Model voice and visual character separately. Preserve the organization’s factual and institutional boundaries even when using a more expressive visual route.
 - Use the five profile axes as evidence-backed signals, not labels: authority, technical depth, warmth, experimentation, and action orientation.
-- Offer two or three plausible visual routes during first-time onboarding when the evidence does not establish one clear system. Record the selected route in the pack.
+- Offer two or three small visual calibration strips during first-time onboarding. Approve visual evidence, not route names or prompt prose.
 - Treat bundled packs marked `migrated-draft` or `provisional` as hypotheses requiring confirmation before external delivery.
 
 ## Evidence and assets
@@ -92,7 +113,7 @@ For the complete operator guide, commands, file locations, and migration example
 - Do not begin the article root until the four micro-visual roles exist as native Ardot components. Use them beside text, across transitions, along a continuous path, and near the ending—not as rectangular panel backgrounds.
 - Keep body copy readable on a solid or near-solid surface. Use strong backgrounds for covers, transitions, evidence summaries, calls to action, and endings.
 - Keep closed boxes at or below 20% of content sections, never place two boxed sections consecutively, and include at least three asymmetric or edge-breaking visual moments.
-- Record `content_sections`, `boxed_sections`, `maximum_consecutive_boxed_sections`, `asymmetric_or_edge_breaking_moments`, `every_block_has_container`, and `visual_reviewed` under `article.layout_review`; do not invent these values before inspecting the Ardot board.
+- Judge openness, rhythm, clipping, scale variation, photo/illustration harmony, mobile legibility, and subject relevance from real Ardot screenshots. Never let article JSON self-certify its own visual quality.
 - Vary long-article rhythm through open text, generated micro illustrations, continuous paths, full-width transitions, image breaks, and quiet whitespace. Never solve missing visual rhythm by adding cards.
 - Optimize for phone reading: short paragraphs, clear hierarchy, 15–17 px body text, generous line height, and visible swipe affordance.
 - Record selected organization ID, route ID, component IDs, source IDs, and unresolved warnings in the compile report.
@@ -123,7 +144,10 @@ Treat any of the following as blocking for final delivery:
 - missing or incomplete `article.visual_kit`, fewer than three unique generated micro assets, or any missing visual role;
 - article layout started before the micro illustrations were made into Ardot components;
 - more than 20% boxed content sections, two consecutive boxes, or every block owning a background/border/radius container;
-- missing, unreviewed, or failing `article.layout_review` before final transport;
+- missing organization/route calibration benchmark or provisional organization status;
+- missing or incomplete narrative storyboard;
+- a visual-kit item without grounded source copy, a specific subject/action, or a chapter/composition role;
+- missing or failing screenshot-backed `visual_review_file` before final transport;
 - a metric without a source ID;
 - a quote without attribution or source ID;
 - mismatched organization IDs across registries;
