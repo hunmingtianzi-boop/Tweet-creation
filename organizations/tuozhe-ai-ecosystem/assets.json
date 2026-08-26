@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "organization_id": "tuozhe-ai-ecosystem",
+  "assets": [
+    {"id": "photo.hackathon-wide", "kind": "photo", "title": "浙客松开发现场全景", "location": "assets/photos/hackathon-wide.jpg", "style": "real-event", "uses": ["hero", "recruitment", "event"], "origin": "user-supplied", "source_id": "tuozhe-event-photo-pack"},
+    {"id": "photo.hackathon-focus", "kind": "photo", "title": "浙客松开发特写", "location": "assets/photos/hackathon-focus.jpg", "style": "real-event", "uses": ["gallery", "project-update"], "origin": "user-supplied", "source_id": "tuozhe-event-photo-pack"},
+    {"id": "photo.hackathon-exchange", "kind": "photo", "title": "浙客松交流氛围", "location": "assets/photos/hackathon-exchange.jpg", "style": "real-event", "uses": ["gallery", "recruitment"], "origin": "user-supplied", "source_id": "tuozhe-event-photo-pack"},
+    {"id": "photo.hackathon-group", "kind": "photo", "title": "浙客松闭幕合影", "location": "assets/photos/hackathon-group.jpg", "style": "real-event", "uses": ["gallery", "event"], "origin": "user-supplied", "source_id": "tuozhe-event-photo-pack"},
+    {"id": "photo.ai-x-beauty", "kind": "photo", "title": "AI × 美妆活动合影", "location": "assets/photos/ai-x-beauty-group.jpg", "style": "real-event", "uses": ["gallery", "case"], "origin": "user-supplied", "source_id": "tuozhe-event-photo-pack"},
+    {"id": "visual.floating-workbench", "kind": "illustration", "title": "浮动工作台", "location": "assets/generated/floating-workbench-alpha.png", "style": "handmade-paper-cutout", "uses": ["hero", "learning"], "roles": ["floating-spot"], "generated_for_articles": ["tuozhe-2026-autumn-recruitment"], "origin": "generated-illustrative", "source_id": "tuozhe-ardot-open-workbench"},
+    {"id": "visual.learning-trail", "kind": "illustration", "title": "学习到项目路径", "location": "assets/generated/learning-to-project-trail-alpha.png", "style": "handmade-paper-cutout", "uses": ["steps", "timeline"], "roles": ["section-transition"], "generated_for_articles": ["tuozhe-2026-autumn-recruitment"], "origin": "generated-illustrative", "source_id": "tuozhe-ardot-open-workbench"},
+    {"id": "visual.cross-discipline", "kind": "illustration", "title": "跨学科组装", "location": "assets/generated/cross-discipline-assembly-alpha.png", "style": "handmade-paper-cutout", "uses": ["section", "roles"], "roles": ["inline-explainer"], "generated_for_articles": ["tuozhe-2026-autumn-recruitment"], "origin": "generated-illustrative", "source_id": "tuozhe-ardot-open-workbench"},
+    {"id": "visual.project-handoff", "kind": "illustration", "title": "原型交付", "location": "assets/generated/project-handoff-alpha.png", "style": "handmade-paper-cutout", "uses": ["cta", "footer"], "roles": ["closing-motif"], "generated_for_articles": ["tuozhe-2026-autumn-recruitment"], "origin": "generated-illustrative", "source_id": "tuozhe-ardot-open-workbench"}
+  ]
+}

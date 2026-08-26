@@ -1,0 +1,28 @@
+{
+  "organization": "拓浙 AI 生态",
+  "article": "2026 秋季招新",
+  "status": "ardot-layout-complete-awaiting-recruitment-fields",
+  "ardot": {
+    "file_name": "拓浙 AI 生态｜2026 秋季招新｜开放工作台版",
+    "file_id": "719045826140352",
+    "file_url": "https://ardot.tencent.com/file/719045826140352",
+    "page_id": "0:1",
+    "article_root_id": "3:10",
+    "component_library_id": "3:17"
+  },
+  "qa": {
+    "visual_review": "passed",
+    "reviewed_sections": ["3:11", "3:12", "3:13", "3:14", "3:15", "3:16"],
+    "final_review_images": [
+      "qa/hero.png",
+      "qa/identity.png",
+      "qa/evidence.png",
+      "qa/possibilities.png",
+      "qa/roles.png",
+      "qa/join.png"
+    ],
+    "intentional_layout_features": ["透明组件跨区", "照片压线", "色带作为背景层", "为阅读节奏保留的大块留白"]
+  },
+  "missing_content": ["报名起止时间", "报名二维码", "咨询群二维码或联系方式"],
+  "asset_source": "用户提供的拓浙数据包；生成插图由 OpenAI 内置 ImageGen 制作。"
+}

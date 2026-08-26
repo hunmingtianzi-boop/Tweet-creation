@@ -12,6 +12,8 @@
 
 [Ardot 基准文件｜招新推文·灵动丰富版 2026](https://ardot.tencent.com/file/718358960022995)（文章根节点 `51:2`）。这是 Ocean 的效果基准，不是让其他组织照抄海洋风格。
 
+泛化迁移后的首个独立组织实战是[拓浙 AI 生态 2026 秋季招新](examples/tuozhe-2026-autumn-recruitment/README.md)：它使用真实黑客松照片和四个文章专属透明小组件，形成“开放工作台”路线。[Ardot 源文件](https://ardot.tencent.com/file/719045826140352)的文章根节点为 `3:10`，组件库为 `3:17`。
+
 ## 能力
 
 - 新组织调研与组织包初始化。
@@ -111,7 +113,7 @@ python3 scripts/compile_wechat.py article.json \
 └── tests/
 ```
 
-`organizations/` 内包含浙江大学海洋机器人协会迁移样本。状态为 `migrated-draft`，代表需组织审核后才能转为正式品牌包。其他公众号应通过调研新增独立组织包与 Ardot 品牌模式。
+`organizations/` 内包含浙江大学海洋机器人协会迁移样本和拓浙 AI 生态的已校准组织包。其他公众号应通过调研新增独立组织包与 Ardot 品牌模式。
 
 共享的 [Org WeChat Studio 组件系统](https://ardot.tencent.com/file/718644779257522) 只用于语义基础和组织模式，不再作为效果基准。
 

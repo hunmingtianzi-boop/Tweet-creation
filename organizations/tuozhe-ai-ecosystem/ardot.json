@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "organization_id": "tuozhe-ai-ecosystem",
+  "status": "linked",
+  "design_file": {
+    "url": "https://ardot.tencent.com/file/719045826140352",
+    "file_id": "719045826140352"
+  },
+  "variable_set": "Tuozhe Open Workbench",
+  "variable_mode": "2026 Autumn",
+  "page_names": {
+    "foundations": "Page 1 / Variables",
+    "components": "Page 1 / 透明小组件库",
+    "example": "Page 1 / 2026 秋季招新"
+  },
+  "component_aliases": {
+    "hero.photo-stage-with-floating-workbench": "3:19",
+    "steps.continuous-action-path": "3:20",
+    "section.cross-discipline-assembly": "3:21",
+    "cta.project-handoff": "3:22"
+  }
+}

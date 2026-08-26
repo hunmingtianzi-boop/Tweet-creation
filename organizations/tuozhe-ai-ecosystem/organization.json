@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "id": "tuozhe-ai-ecosystem",
+  "status": "confirmed",
+  "identity": {
+    "name": "拓浙 AI 生态",
+    "short_name": "拓浙 AI 生态",
+    "summary": "面向浙江大学同学的 AI × X 学习与实践社区，帮助不同专业的同学找到伙伴、组队实践并把想法做成项目。",
+    "category": "高校学生 AI 学习与实践社区",
+    "audiences": ["浙江大学在校学生", "希望开始 AI 实践的同学", "跨专业项目参与者", "赛事与产业合作伙伴"],
+    "content_pillars": ["AI 学习", "项目共创", "黑客松与赛事", "AI × X 跨专业实践", "成员招募", "合作与真实问题"]
+  },
+  "personality": {
+    "authority": 58,
+    "technical": 72,
+    "warmth": 76,
+    "experimental": 88,
+    "action": 94
+  },
+  "voice": {
+    "traits": ["行动导向", "开放跨学科", "真实不夸张", "青年共创", "允许从零开始"],
+    "headline_patterns": ["从常见犹豫转向第一个行动", "用项目、组队和真实场景呈现价值"],
+    "preferred_terms": ["动手", "组队", "共创", "项目", "真实问题", "AI × X", "把想法做出来"],
+    "avoid_terms": ["颠覆一切", "AI 赋能万物", "零门槛暴富", "无事实依据的行业领先", "模板化科技黑话"]
+  },
+  "visual": {
+    "tokens": {
+      "ink": "#101317",
+      "body": "#3F4852",
+      "accent": "#1648C8",
+      "accent_alt": "#FF6B62",
+      "surface": "#FFFFFF",
+      "surface_alt": "#F6F1E6",
+      "border": "#00C8E8",
+      "white": "#FFFFFF",
+      "on_accent": "#FFFFFF",
+      "on_accent_alt": "#101317"
+    },
+    "motifs": ["真实活动连拍", "开放工作台", "手作原型", "电缆与行动路径", "跨学科工具", "纸张留白", "克制的青色与珊瑚色标记"],
+    "avoid": ["紫色 AI 渐变", "发光球体", "黑色整块 CTA", "每段一个圆角卡片", "模板化模块堆叠", "生成图片里的中文", "用概念图代替真实活动证据"],
+    "default_route": "open-workbench",
+    "calibration": {
+      "status": "approved",
+      "approved_routes": ["open-workbench"],
+      "benchmark": {
+        "file_url": "https://ardot.tencent.com/file/719045826140352",
+        "page_name": "Page 1",
+        "article_node_id": "3:10"
+      },
+      "reviewed_at": "2026-08-26",
+      "review_basis": ["用户明确要求灵动、先生成小组件、避免方块化", "六章节 Ardot 截图两轮质检", "用户提供的浙客松与 AI × 美妆真实照片"]
+    },
+    "routes": [
+      {
+        "id": "open-workbench",
+        "label": "开放工作台",
+        "uses": ["recruitment", "event", "project-update", "learning"],
+        "layout": "editorial",
+        "dominant_style": "real-photography-with-transparent-handmade-components",
+        "component_variants": {
+          "hero": "photo-stage-with-floating-workbench",
+          "section": "open-editorial-head",
+          "statement": "large-type-in-whitespace",
+          "metrics": "numbers-between-photos",
+          "gallery": "asymmetric-live-photo-sequence",
+          "roles": "staggered-role-lines",
+          "steps": "continuous-action-path",
+          "cta": "open-corner-signup"
+        },
+        "rationale": "让真实照片承担可信度，让透明小组件承担语义连接，通过留白、错位和连续路径形成灵动阅读节奏。"
+      }
+    ]
+  },
+  "article_types": {
+    "recruitment": {"label": "招新", "route": "open-workbench", "recommended_blocks": ["hero", "lead", "statement", "metrics", "gallery", "roles", "steps", "cta", "footer"]},
+    "event": {"label": "活动", "route": "open-workbench", "recommended_blocks": ["hero", "lead", "timeline", "gallery", "statement", "cta", "footer"]},
+    "project-update": {"label": "项目进展", "route": "open-workbench", "recommended_blocks": ["hero", "lead", "metrics", "case", "gallery", "references", "footer"]},
+    "learning": {"label": "学习与教程", "route": "open-workbench", "recommended_blocks": ["hero", "lead", "section", "steps", "image", "references", "footer"]}
+  },
+  "asset_policy": {
+    "logo": "official-or-user-supplied-only",
+    "qr": "official-or-user-supplied-only",
+    "photography": "real-photos-first-for-people-events-and-project-evidence",
+    "generation": "text-free-transparent-micro-illustrations-with-explicit-semantic-role"
+  },
+  "publishing": {
+    "authoring": "ardot-native",
+    "delivery": "wechat-editor-manual-paste-or-draft-tool",
+    "default_action": "draft-only",
+    "formal_publish_requires_confirmation": true
+  },
+  "provenance": {
+    "source_ids": ["tuozhe-2026-recruitment-copy", "tuozhe-event-photo-pack", "tuozhe-ardot-open-workbench"],
+    "reviewed_at": "2026-08-26",
+    "notes": "组织信息和活动素材来自用户提供的招新文案与数据包；缺失的报名日期、二维码和联系方式不得推断。"
+  }
+}

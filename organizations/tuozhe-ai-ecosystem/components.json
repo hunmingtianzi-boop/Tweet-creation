@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "organization_id": "tuozhe-ai-ecosystem",
+  "components": [
+    {"id": "core.hero", "kind": "hero", "title": "Photo-led opening", "uses": ["all"]},
+    {"id": "core.lead", "kind": "lead", "title": "Action-first lead", "uses": ["all"]},
+    {"id": "core.section", "kind": "section", "title": "Open editorial section", "uses": ["all"]},
+    {"id": "core.text", "kind": "text", "title": "Open body text", "uses": ["all"]},
+    {"id": "core.statement", "kind": "statement", "title": "Large statement in whitespace", "uses": ["all"]},
+    {"id": "core.metrics", "kind": "metrics", "title": "Verified numbers between photos", "uses": ["recruitment", "event", "project-update"]},
+    {"id": "core.timeline", "kind": "timeline", "title": "Continuous action path", "uses": ["event", "project-update"]},
+    {"id": "core.gallery", "kind": "gallery", "title": "Asymmetric real-photo sequence", "uses": ["recruitment", "event", "project-update"]},
+    {"id": "core.case", "kind": "case", "title": "AI × X project case", "uses": ["event", "project-update"]},
+    {"id": "core.roles", "kind": "roles", "title": "Staggered role lines", "uses": ["recruitment"]},
+    {"id": "core.steps", "kind": "steps", "title": "Open recruitment steps", "uses": ["recruitment", "learning"]},
+    {"id": "core.image", "kind": "image", "title": "Evidence image", "uses": ["all"]},
+    {"id": "core.cta", "kind": "cta", "title": "Open-corner signup", "uses": ["recruitment", "event"]},
+    {"id": "core.references", "kind": "references", "title": "References", "uses": ["learning", "project-update"]},
+    {"id": "core.footer", "kind": "footer", "title": "Cobalt closing band", "uses": ["all"]},
+    {"id": "tuozhe.floating-workbench", "kind": "image", "title": "Floating multidisciplinary workbench", "uses": ["recruitment", "learning"]},
+    {"id": "tuozhe.learning-trail", "kind": "timeline", "title": "Learning-to-project cable path", "uses": ["recruitment", "learning"]},
+    {"id": "tuozhe.cross-discipline", "kind": "image", "title": "Cross-discipline prototype assembly", "uses": ["recruitment", "event"]},
+    {"id": "tuozhe.project-handoff", "kind": "image", "title": "First project handoff", "uses": ["recruitment", "project-update"]}
+  ],
+  "recommendations": {
+    "recruitment": ["core.hero", "core.lead", "core.statement", "core.metrics", "core.gallery", "core.roles", "core.steps", "core.cta", "core.footer"],
+    "event": ["core.hero", "core.lead", "core.timeline", "core.gallery", "core.statement", "core.cta", "core.footer"],
+    "project-update": ["core.hero", "core.lead", "core.metrics", "core.case", "core.gallery", "core.references", "core.footer"],
+    "learning": ["core.hero", "core.lead", "core.section", "core.steps", "core.image", "core.references", "core.footer"]
+  }
+}

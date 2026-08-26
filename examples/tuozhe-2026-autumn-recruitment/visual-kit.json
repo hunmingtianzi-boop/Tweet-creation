@@ -1,0 +1,45 @@
+{
+  "generated_assets": [
+    {
+      "file": "../../organizations/tuozhe-ai-ecosystem/assets/generated/floating-workbench-alpha.png",
+      "meaning": "AI × X 的共同工作台与多种入门方式",
+      "role": "首屏锚点",
+      "placement": "标题下方与真实现场照片轻微重叠"
+    },
+    {
+      "file": "../../organizations/tuozhe-ai-ecosystem/assets/generated/learning-to-project-trail-alpha.png",
+      "meaning": "收藏教程到做出项目的连续行动路径",
+      "role": "章节连接线",
+      "placement": "我们是谁与可以做什么两处连续复用"
+    },
+    {
+      "file": "../../organizations/tuozhe-ai-ecosystem/assets/generated/cross-discipline-assembly-alpha.png",
+      "meaning": "计算机、工程、医学、金融、传媒共同组装原型",
+      "role": "跨学科解释组件",
+      "placement": "身份章节与岗位章节"
+    },
+    {
+      "file": "../../organizations/tuozhe-ai-ecosystem/assets/generated/project-handoff-alpha.png",
+      "meaning": "一起交付第一个可以展示的项目",
+      "role": "结尾句号",
+      "placement": "报名信息之后"
+    }
+  ],
+  "photo_assets": [
+    {"file": "../../organizations/tuozhe-ai-ecosystem/assets/photos/hackathon-wide.jpg", "meaning": "真实开发现场", "role": "首屏主图"},
+    {"file": "../../organizations/tuozhe-ai-ecosystem/assets/photos/hackathon-focus.jpg", "meaning": "开发过程细节", "role": "证据"},
+    {"file": "../../organizations/tuozhe-ai-ecosystem/assets/photos/hackathon-exchange.jpg", "meaning": "同伴交流", "role": "证据"},
+    {"file": "../../organizations/tuozhe-ai-ecosystem/assets/photos/hackathon-group.jpg", "meaning": "浙客松共同体", "role": "证据"},
+    {"file": "../../organizations/tuozhe-ai-ecosystem/assets/photos/ai-x-beauty-group.jpg", "meaning": "AI × 美妆真实活动", "role": "跨界证据"}
+  ],
+  "palette": {
+    "paper": "#F6F1E6",
+    "ink": "#101317",
+    "body": "#3F4852",
+    "cobalt": "#1648C8",
+    "cyan": "#00C8E8",
+    "coral": "#FF6B62",
+    "white": "#FFFFFF"
+  },
+  "font": {"family": "Sarasa Gothic SC", "styles": ["Regular", "Semi Bold", "Bold"]}
+}
