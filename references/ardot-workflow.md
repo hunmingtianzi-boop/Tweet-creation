@@ -7,6 +7,7 @@ Ardot 是视觉设计与可编辑组件的唯一源文件。文章 JSON 保存�
 ```text
 organization pack  → 品牌、语气、路线、资产、Ardot 映射
 article JSON       → 单篇内容、来源、区块顺序
+visual kit         → 文章专属小组件、小插图与开放式构图锚点
 Ardot              → 变量、组件、390 px 长文画板、视觉审核
 WeChat adapter     → 图片上传、内联样式、草稿创建
 ```
@@ -32,7 +33,16 @@ WeChat adapter     → 图片上传、内联样式、草稿创建
 ## 每次生成文章
 
 1. 校验组织包与文章 JSON。
-2. 生成装配清单：
+2. 先生成文章专属微型视觉套件计划：
+
+   ```bash
+   python3 scripts/build_visual_kit.py article.json \
+     --org organizations/<organization-id> \
+     --output output/<organization-id>/<slug>/visual-kit-plan.json
+   ```
+
+3. 逐张生成、检查并注册 `floating-spot`、`section-transition`、`inline-explainer`、`closing-motif`；至少三枚不同生成图。把 ID 写入 `article.visual_kit.assets`，并先在 Ardot 做成开放边缘的原生小组件。
+4. 确认 `ready_for_layout: true` 后，生成装配清单：
 
    ```bash
    python3 scripts/build_ardot_manifest.py article.json \
@@ -40,13 +50,14 @@ WeChat adapter     → 图片上传、内联样式、草稿创建
      --output output/<organization-id>/<slug>/ardot-manifest.json
    ```
 
-3. 读取清单中的设计文件、变量模式、组件名称、资产路径和区块顺序。
-4. 在 Ardot 中更新该组织的变量模式；不要复制另一组织的硬编码色值。
-5. 先补齐缺失组件，再创建 390 px 文章根 Frame，并按清单顺序插入组件实例。
-6. 真实照片、官方 Logo 和二维码使用登记资产；插画先上传到组件的命名图片槽。
-7. 每次创建顶层 Frame 前定位空白区域；每批编辑不超过 25 个操作。
-8. 分段截图检查 Hero、章节、观点、步骤、案例和 CTA；超过 2000 px 的长文不要一次截图。
-9. 修正溢出、断行、空洞、重复盒子和组织气质偏差后，才进入投递。
+5. 读取清单中的设计文件、变量模式、组件名称、资产路径、开放式构图模式和区块顺序。
+6. 在 Ardot 中更新该组织的变量模式；不要复制另一组织的硬编码色值。
+7. 先补齐缺失组件，再创建 390 px 文章根 Frame。所有内容默认无外框；插图从文字边缘切入、穿过转场或陪伴连续路径。
+8. 真实照片、官方 Logo 和二维码使用登记资产；微型插画使用组件实例，不作为矩形卡片背景。
+9. 每次创建顶层 Frame 前定位空白区域；每批编辑不超过 25 个操作。
+10. 分段截图检查 Hero、章节、观点、步骤、案例和 CTA；超过 2000 px 的长文不要一次截图。
+11. 修正溢出、断行、空洞、方框占比和组织气质偏差，并把实测结果写入 `article.layout_review`。
+12. 只有 `visual_reviewed: true` 且量化门槛全部通过，才进入投递。
 
 ## 新公众号迁移
 
@@ -63,12 +74,16 @@ WeChat adapter     → 图片上传、内联样式、草稿创建
 ## 效果优先的视觉门槛
 
 - Hero 必须形成一个明确的视觉时刻，并为标题断行留下真实空间。
+- 没有完成文章专属微型视觉套件时，不得开始排版。
 - 长文中至少有一个图片主导段和一个全宽色块/字体转场。
-- 连续两个盒子后必须切换为开放文本、色带、旅程线、图片或其他布局。
+- 闭合方框不超过正文区块的 20%，且不允许连续出现两个。
 - 卡片只用于可独立比较的信息；步骤优先用旅程线、协议表或连续流程。
+- 每篇至少有三次不对称、越界或边缘切入的视觉时刻；每个区块默认无背景、无描边、无圆角容器。
 - 组织差异至少体现在构图、留白、字体尺度、边角和图片策略中的三项，而不只是换色。
 - 所有正文按 390 px 检查；正文通常为 15–17 px，行距留足手机阅读。
 
+详细验收见 [organic-layout.md](organic-layout.md)。
+
 ## 微信投递
 
-视觉定稿后，才运行 `compile_wechat.py` 生成内部投递文件。适配层需要把 Ardot 审核后的组件语义映射为微信允许的内联样式，并将正文图片上传到目标公众号。默认只创建草稿；正式发布仍需单独确认。
+视觉定稿且 `article.layout_review` 通过后，才运行 `compile_wechat.py` 生成内部投递文件。适配层需要把 Ardot 审核后的组件语义映射为微信允许的内联样式，并将正文图片上传到目标公众号。默认只创建草稿；正式发布仍需单独确认。

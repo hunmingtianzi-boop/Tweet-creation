@@ -15,9 +15,11 @@
 - 新组织调研与组织包初始化。
 - 语气、品牌色、视觉路线、文章类型与事实来源建模。
 - 按公众号与文章类型生成资产计划。
-- 封面背景、章节视觉、透明插画、技术解释图与照片派生资产的生成和注册。
+- 排版前强制生成文章专属的浮动插图、章节转场、行内解释图和收尾视觉，并先做成 Ardot 小组件。
+- 封面背景、章节视觉、透明/开放边缘插画、技术解释图与照片派生资产的生成和注册。
 - Ardot 语义变量模式、原生组件、390 px 长文画板和分段视觉 QA。
 - 由文章 JSON 生成可执行的 Ardot 装配清单。
+- 默认开放式构图；闭合方框不超过正文区块的 20%、不连续，并至少保留三处不对称或越界视觉。
 - 16 类语义区块与隐藏的微信内联 HTML 投递适配。
 - 事实来源、占位符、图片、Logo、二维码和微信安全格式校验。
 - 默认只生成草稿交付物，正式发布需要单独确认。
@@ -46,7 +48,15 @@ python3 scripts/orgs.py asset-plan \
   --output output/new-account-id/recruitment-asset-plan.json
 ```
 
-生成 Ardot 装配清单：
+为本篇文章生成小组件/小插图计划：
+
+```bash
+python3 scripts/build_visual_kit.py article.json \
+  --org organizations/new-account-id \
+  --output output/new-account-id/article-slug/visual-kit-plan.json
+```
+
+逐张生图、验图，并用 `--role ... --generated-for ARTICLE_ID` 登记为本篇资产，再写入 `article.visual_kit`；只有计划中的 `ready_for_layout` 为 `true`，才生成 Ardot 装配清单：
 
 ```bash
 python3 scripts/build_ardot_manifest.py article.json \
@@ -54,7 +64,7 @@ python3 scripts/build_ardot_manifest.py article.json \
   --output output/new-account-id/article-slug/ardot-manifest.json
 ```
 
-按清单在 Ardot 中完成原生组件装配、截图检查和视觉确认后，才生成微信投递文件：
+先把四类小插图做成开放边缘的 Ardot 原生组件，再按清单完成长文装配。截图复核后把方框数量、不对称视觉次数等结果写入 `article.layout_review`，通过硬性检查后才生成微信投递文件：
 
 ```bash
 python3 scripts/compile_wechat.py article.json \

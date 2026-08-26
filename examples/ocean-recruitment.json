@@ -1,9 +1,29 @@
 {
   "schema_version": 1,
+  "article_id": "ocean-recruitment",
   "organization_id": "zju-ocean-robot-association",
   "article_type": "recruitment",
   "title": "在水里，把想法变成机器人",
   "summary": "浙江大学海洋机器人协会招新文章结构示例。",
+  "visual_kit": {
+    "status": "approved",
+    "direction": "用水下航行器、推进器与声呐线条形成开放、流动的文章节奏，不为每段文字套框。",
+    "assets": [
+      {"id": "spot.auv", "role": "floating-spot", "placement": ["lead-edge", "roles-break"]},
+      {"id": "visual.sonar-opener", "role": "section-transition", "placement": ["before-section-01"]},
+      {"id": "spot.thruster", "role": "inline-explainer", "placement": ["roles-to-steps"]},
+      {"id": "spot.auv", "role": "closing-motif", "placement": ["before-cta"]}
+    ]
+  },
+  "layout_review": {
+    "visual_reviewed": true,
+    "content_sections": 9,
+    "boxed_sections": 1,
+    "maximum_consecutive_boxed_sections": 1,
+    "asymmetric_or_edge_breaking_moments": 4,
+    "every_block_has_container": false,
+    "notes": "正文以开放文字、声呐转场、AUV 浮动插图和连续步骤路径组织；仅 CTA 使用一个明确边界。"
+  },
   "blocks": [
     {"type": "hero", "component": "core.hero", "eyebrow": "ZJU OCEAN ROBOT", "title": "在水里，把想法变成机器人", "subtitle": "从设计、制作到调试，和一群人让系统真正下水。", "cta": "一起动手", "background": "visual.hero-ocean-engineering", "background_alt": "浅色水下环境中的海洋机器人插画"},
     {"type": "lead", "component": "core.lead", "paragraphs": ["海洋机器人不只是一台机器，它需要机械、电子、控制、感知与协作共同工作。", "这里关心的是真实问题：如何密封，如何稳定推进，如何在水下感知和定位。"]},

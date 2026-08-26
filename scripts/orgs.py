@@ -40,6 +40,12 @@ ASSET_ORIGINS = SAFE_IDENTITY_ORIGINS | {
     "derived",
 }
 ASSET_KINDS = {"logo", "qr", "photo", "illustration", "background", "decoration"}
+VISUAL_KIT_ROLES = {
+    "floating-spot",
+    "section-transition",
+    "inline-explainer",
+    "closing-motif",
+}
 
 
 def read_json(path: Path) -> Any:
@@ -254,6 +260,20 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
         source_id = asset.get("source_id")
         if source_id and source_id not in source_ids:
             errors.append(f"asset {asset_id} references unknown source: {source_id}")
+        roles = asset.get("roles")
+        if roles is not None:
+            for role in require_list(roles, f"asset {asset_id}.roles", errors):
+                if role not in VISUAL_KIT_ROLES:
+                    errors.append(f"asset {asset_id} has unknown visual-kit role: {role}")
+        generated_for_articles = asset.get("generated_for_articles")
+        if generated_for_articles is not None:
+            values = require_list(
+                generated_for_articles,
+                f"asset {asset_id}.generated_for_articles",
+                errors,
+            )
+            if any(not isinstance(value, str) or not SLUG.fullmatch(value) for value in values):
+                errors.append(f"asset {asset_id}.generated_for_articles must contain article slugs")
 
     provenance = require_dict(org.get("provenance"), "organization.provenance", errors)
     for source_id in require_list(provenance.get("source_ids"), "organization.provenance.source_ids", errors):
@@ -591,6 +611,31 @@ def prompt_blueprint(
     )
 
 
+def micro_prompt_blueprint(
+    org: dict[str, Any],
+    route: dict[str, Any],
+    article_type: str,
+    purpose: str,
+    aspect_ratio: str,
+) -> str:
+    tokens = org["visual"]["tokens"]
+    palette = ", ".join(
+        f"{name} {tokens[name]}"
+        for name in ("ink", "accent", "accent_alt", "surface_alt")
+    )
+    motifs = "、".join(org["visual"].get("motifs", []))
+    avoid = "、".join(org["visual"].get("avoid", []))
+    return (
+        f"Create one small, text-free {purpose} for {org['identity']['name']} and a "
+        f"{article_type} WeChat article. Derive the subject from the article's concrete "
+        f"objects, actions, or process rather than generic decoration. Follow the "
+        f"{route['dominant_style']} route; motifs: {motifs}; palette: {palette}; aspect "
+        f"ratio {aspect_ratio}. Use a transparent background or an open, soft-edged "
+        f"composition with no rectangular panel, border, card, poster, UI frame, letters, "
+        f"numbers, watermark, logo, or QR code. Avoid: {avoid}."
+    )
+
+
 def build_asset_plan(pack_dir: Path, article_type: str) -> dict[str, Any]:
     pack = load_pack(pack_dir)
     org = pack["organization"]
@@ -612,9 +657,13 @@ def build_asset_plan(pack_dir: Path, article_type: str) -> dict[str, Any]:
         aspect_ratio: str,
         required: bool,
         generate_allowed: bool,
+        force_generate: bool = False,
+        micro_component: bool = False,
     ) -> None:
         candidates = matching_assets(pack, article_type, kinds)
-        if candidates:
+        if force_generate:
+            status = "generate-required"
+        elif candidates:
             status = "reuse-available"
         elif generate_allowed:
             status = "generate-or-source"
@@ -635,12 +684,30 @@ def build_asset_plan(pack_dir: Path, article_type: str) -> dict[str, Any]:
             "aspect_ratio": aspect_ratio,
             "existing_candidates": [item["id"] for item in candidates],
             "suggested_directory": suggested_directory,
+            "micro_component": micro_component,
         }
         if generate_allowed:
-            slot["prompt_blueprint"] = prompt_blueprint(
-                org, route, article_type, purpose, aspect_ratio
-            )
+            prompt_builder = micro_prompt_blueprint if micro_component else prompt_blueprint
+            slot["prompt_blueprint"] = prompt_builder(org, route, article_type, purpose, aspect_ratio)
         slots.append(slot)
+
+    for slot_id, purpose, aspect_ratio in (
+        ("kit.floating-spot", "floating spot illustration", "1:1 transparent"),
+        ("kit.section-transition", "flowing section transition illustration", "4:1 transparent"),
+        ("kit.inline-explainer", "small inline explanatory illustration", "4:3 open composition"),
+        ("kit.closing-motif", "closing motif beside the call to action", "1:1 transparent"),
+    ):
+        add_slot(
+            slot_id,
+            purpose,
+            {"illustration", "decoration"},
+            "Generate before layout; keep it text-free, open-edged, and article-specific.",
+            aspect_ratio,
+            required=True,
+            generate_allowed=True,
+            force_generate=True,
+            micro_component=True,
+        )
 
     add_slot(
         "visual.hero",
@@ -711,10 +778,13 @@ def build_asset_plan(pack_dir: Path, article_type: str) -> dict[str, Any]:
         "avoid": org["visual"].get("avoid", []),
         "slots": slots,
         "rules": [
+            "Generate and approve all four micro-component slots before assembling the article layout.",
+            "Turn the approved micro illustrations into reusable Ardot spot, transition, explainer, and closing components before composing the long article.",
             "Search assets.json before generating anything.",
             "Generated images must not contain Chinese copy, dates, metrics, logos, or QR codes.",
             "Inspect every generated asset before registration.",
             "Register approved files in assets.json before article compilation.",
+            "Do not compensate for missing visuals by wrapping text blocks in cards or bordered containers.",
         ],
     }
 
@@ -757,6 +827,12 @@ def command_register_asset(args: argparse.Namespace) -> None:
         "uses": args.use or ["all"],
         "origin": args.origin,
     }
+    if getattr(args, "role", None):
+        item["roles"] = args.role
+    if getattr(args, "generated_for", None):
+        if args.origin != "generated-illustrative":
+            raise SystemExit("--generated-for is only valid for generated-illustrative assets")
+        item["generated_for_articles"] = args.generated_for
     if args.source_id:
         item["source_id"] = args.source_id
     items.append(item)
@@ -828,6 +904,12 @@ def build_parser() -> argparse.ArgumentParser:
     register_parser.add_argument("--origin", choices=sorted(ASSET_ORIGINS), required=True)
     register_parser.add_argument("--style", required=True)
     register_parser.add_argument("--use", action="append")
+    register_parser.add_argument("--role", action="append", choices=sorted(VISUAL_KIT_ROLES))
+    register_parser.add_argument(
+        "--generated-for",
+        action="append",
+        help="Article slug this illustration was freshly generated for",
+    )
     register_parser.add_argument("--source-id")
     register_parser.set_defaults(func=command_register_asset)
     return parser

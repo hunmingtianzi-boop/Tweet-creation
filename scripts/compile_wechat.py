@@ -35,6 +35,12 @@ SUPPORTED_BLOCKS = {
     "references",
     "footer",
 }
+REQUIRED_VISUAL_KIT_ROLES = {
+    "floating-spot",
+    "section-transition",
+    "inline-explainer",
+    "closing-motif",
+}
 
 
 def esc(value: Any) -> str:
@@ -497,6 +503,98 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
     markers = sorted(set(match.group(0) for match in PLACEHOLDERS.finditer(serialized)))
     if markers:
         ctx.errors.append(f"article contains placeholders: {', '.join(markers)}")
+    visual_kit = spec.get("visual_kit")
+    article_id = spec.get("article_id")
+    if not isinstance(article_id, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", article_id):
+        ctx.errors.append("article.article_id must be a lowercase hyphenated slug")
+    kit_assets: list[dict[str, Any]] = []
+    if not isinstance(visual_kit, dict):
+        ctx.errors.append("article requires an approved visual_kit before layout or final transport")
+    else:
+        if visual_kit.get("status") != "approved":
+            ctx.errors.append("article.visual_kit.status must be approved after image inspection")
+        raw_assets = visual_kit.get("assets")
+        if isinstance(raw_assets, list):
+            kit_assets = [item for item in raw_assets if isinstance(item, dict)]
+        else:
+            ctx.errors.append("article.visual_kit.assets must be an array")
+    registered_assets = {
+        item.get("id"): item
+        for item in ctx.assets_doc.get("assets", [])
+        if isinstance(item, dict) and item.get("id")
+    }
+    kit_roles = {item.get("role") for item in kit_assets if isinstance(item.get("role"), str)}
+    unique_kit_asset_ids = {
+        item.get("id") for item in kit_assets if isinstance(item.get("id"), str)
+    }
+    fresh_kit_asset_ids: set[str] = set()
+    for role in sorted(REQUIRED_VISUAL_KIT_ROLES - kit_roles):
+        ctx.errors.append(f"article.visual_kit is missing required generated role: {role}")
+    for item in kit_assets:
+        asset_id = item.get("id")
+        role = item.get("role", "<missing-role>")
+        registered = registered_assets.get(asset_id)
+        if registered is None:
+            ctx.errors.append(f"visual kit role {role} references unknown asset: {asset_id}")
+            continue
+        if registered.get("origin") != "generated-illustrative":
+            ctx.errors.append(f"visual kit role {role} must use a generated-illustrative asset")
+        if article_id not in registered.get("generated_for_articles", []):
+            ctx.errors.append(
+                f"visual kit role {role} must use an asset freshly generated for article {article_id}"
+            )
+        elif registered.get("origin") == "generated-illustrative" and isinstance(asset_id, str):
+            fresh_kit_asset_ids.add(asset_id)
+        ctx.asset_src(asset_id, f"visual kit role {role}")
+    if len(fresh_kit_asset_ids) < 3:
+        ctx.errors.append(
+            f"article.visual_kit requires at least 3 unique assets freshly generated for this article; found {len(fresh_kit_asset_ids)}"
+        )
+    layout_review = spec.get("layout_review")
+    layout_review_ready = False
+    if not isinstance(layout_review, dict):
+        ctx.errors.append("article requires an Ardot layout_review before final transport")
+        layout_review = {}
+    else:
+        total_sections = layout_review.get("content_sections")
+        boxed_sections = layout_review.get("boxed_sections")
+        consecutive_boxed = layout_review.get("maximum_consecutive_boxed_sections")
+        asymmetric_moments = layout_review.get("asymmetric_or_edge_breaking_moments")
+        reviewed = layout_review.get("visual_reviewed") is True
+        every_block_container = layout_review.get("every_block_has_container")
+        numeric_counts = all(
+            isinstance(value, int) and not isinstance(value, bool)
+            for value in (total_sections, boxed_sections, consecutive_boxed, asymmetric_moments)
+        )
+        if not numeric_counts:
+            ctx.errors.append("layout_review counts must be integers")
+        elif total_sections <= 0:
+            ctx.errors.append("layout_review.content_sections must be greater than 0")
+        else:
+            boxed_ratio = boxed_sections / total_sections
+            if boxed_sections < 0 or boxed_ratio > 0.2:
+                ctx.errors.append(
+                    f"Ardot layout uses too many boxed sections: {boxed_sections}/{total_sections} ({boxed_ratio:.0%}) > 20%"
+                )
+            if consecutive_boxed < 0 or consecutive_boxed > 1:
+                ctx.errors.append("Ardot layout contains consecutive boxed sections")
+            if asymmetric_moments < 3:
+                ctx.errors.append("Ardot layout requires at least 3 asymmetric or edge-breaking visual moments")
+        if every_block_container is not False:
+            ctx.errors.append("Ardot layout_review must confirm that not every block has a container")
+        if not reviewed:
+            ctx.errors.append("Ardot layout_review.visual_reviewed must be true")
+        layout_review_ready = (
+            numeric_counts
+            and total_sections > 0
+            and boxed_sections >= 0
+            and boxed_sections / total_sections <= 0.2
+            and consecutive_boxed >= 0
+            and consecutive_boxed <= 1
+            and asymmetric_moments >= 3
+            and every_block_container is False
+            and reviewed
+        )
     blocks = spec.get("blocks")
     if not isinstance(blocks, list) or not blocks:
         ctx.errors.append("article.blocks must be a non-empty array")
@@ -535,6 +633,7 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
         "ok": not ctx.errors,
         "article": {
             "title": spec.get("title"),
+            "article_id": article_id,
             "organization_id": spec.get("organization_id"),
             "article_type": spec.get("article_type"),
             "route_id": ctx.route.get("id"),
@@ -544,6 +643,26 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
             "blocks": len(rendered_blocks),
             "html_characters": len(fragment),
             "copied_assets": len(ctx.copied_assets),
+        },
+        "visual_kit": {
+            "required_roles": sorted(REQUIRED_VISUAL_KIT_ROLES),
+            "registered_roles": sorted(role for role in kit_roles if role),
+            "unique_asset_count": len(unique_kit_asset_ids),
+            "fresh_asset_count": len(fresh_kit_asset_ids),
+            "ready": (
+                isinstance(visual_kit, dict)
+                and visual_kit.get("status") == "approved"
+                and REQUIRED_VISUAL_KIT_ROLES.issubset(kit_roles)
+                and len(fresh_kit_asset_ids) >= 3
+            ),
+        },
+        "layout_review": {
+            "ready": layout_review_ready,
+            "content_sections": layout_review.get("content_sections"),
+            "boxed_sections": layout_review.get("boxed_sections"),
+            "maximum_consecutive_boxed_sections": layout_review.get("maximum_consecutive_boxed_sections"),
+            "asymmetric_or_edge_breaking_moments": layout_review.get("asymmetric_or_edge_breaking_moments"),
+            "visual_reviewed": layout_review.get("visual_reviewed"),
         },
         "component_ids": list(dict.fromkeys(ctx.component_ids)),
         "source_ids": sorted(ctx.used_source_ids),

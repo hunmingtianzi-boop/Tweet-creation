@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from compile_wechat import compile_article  # noqa: E402
 from build_ardot_manifest import build_manifest  # noqa: E402
+from build_visual_kit import build_visual_kit_plan  # noqa: E402
 from orgs import (  # noqa: E402
     build_asset_plan,
     command_init,
@@ -71,6 +72,10 @@ class OrganizationPackTests(unittest.TestCase):
         )
         logo = next(slot for slot in recruitment["slots"] if slot["id"] == "brand.logo")
         self.assertEqual(logo["status"], "reuse-available")
+        micro_slots = [slot for slot in recruitment["slots"] if slot["micro_component"]]
+        self.assertEqual(len(micro_slots), 4)
+        self.assertTrue(all(slot["status"] == "generate-required" for slot in micro_slots))
+        self.assertTrue(all("no rectangular panel" in slot["prompt_blueprint"] for slot in micro_slots))
 
     def test_register_asset_updates_registry_and_preserves_identity_policy(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -139,6 +144,36 @@ class CompilerTests(unittest.TestCase):
                     self.assertNotIn("<script", fragment.lower())
                     self.assertNotIn("<style", fragment.lower())
                     self.assertEqual(report["article"]["organization_id"], org_id)
+                    self.assertTrue(report["visual_kit"]["ready"])
+                    self.assertTrue(report["layout_review"]["ready"])
+
+    def test_boxed_ardot_layout_fails_final_check(self) -> None:
+        org_id = "zju-ocean-robot-association"
+        source = json.loads(
+            (ROOT / "examples" / "ocean-recruitment.json").read_text(encoding="utf-8")
+        )
+        source["layout_review"].update(
+            {
+                "boxed_sections": 5,
+                "maximum_consecutive_boxed_sections": 2,
+                "asymmetric_or_edge_breaking_moments": 1,
+                "every_block_has_container": True,
+            }
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            spec = temp_path / "article.json"
+            spec.write_text(json.dumps(source, ensure_ascii=False), encoding="utf-8")
+            report = compile_article(
+                spec,
+                ROOT / "organizations" / org_id,
+                temp_path / "output",
+                check=True,
+            )
+            self.assertFalse(report["ok"])
+            self.assertFalse(report["layout_review"]["ready"])
+            self.assertTrue(any("too many boxed" in error for error in report["errors"]))
+            self.assertTrue(any("consecutive boxed" in error for error in report["errors"]))
 
     def test_metric_without_source_fails_final_check(self) -> None:
         org_id = "zju-ocean-robot-association"
@@ -197,7 +232,31 @@ class ArdotManifestTests(unittest.TestCase):
         self.assertEqual(ocean["handoff"]["source_of_truth"], "ardot-native")
         self.assertEqual(ocean["design_target"]["variable_mode"], "Ocean")
         self.assertEqual(ocean["blocks"][0]["ardot_component"], "WeChat/Hero/ImageStage/Ocean")
+        self.assertTrue(ocean["visual_kit"]["ready_for_layout"])
+        self.assertTrue(ocean["qa"]["ready_for_layout"])
+        self.assertEqual(ocean["qa"]["layout_policy"]["maximum_boxed_section_ratio"], 0.2)
+        self.assertTrue(all(block["container_policy"] == "open-by-default" for block in ocean["blocks"]))
         self.assertFalse(ocean["qa"]["unresolved_assets"])
+
+    def test_visual_kit_blocks_layout_until_micro_assets_are_recorded(self) -> None:
+        source = json.loads(
+            (ROOT / "examples" / "ocean-recruitment.json").read_text(encoding="utf-8")
+        )
+        source.pop("visual_kit")
+        with tempfile.TemporaryDirectory() as temp:
+            article = Path(temp) / "article.json"
+            article.write_text(json.dumps(source, ensure_ascii=False), encoding="utf-8")
+            plan = build_visual_kit_plan(
+                article,
+                ROOT / "organizations" / "zju-ocean-robot-association",
+            )
+            self.assertFalse(plan["ready_for_layout"])
+            self.assertEqual(set(plan["missing_roles"]), {
+                "floating-spot",
+                "section-transition",
+                "inline-explainer",
+                "closing-motif",
+            })
 
 
 if __name__ == "__main__":

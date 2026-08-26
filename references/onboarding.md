@@ -56,7 +56,9 @@ Create the first real article as a 390 px native Ardot board and use it to test:
 - whether the visual route survives a complete mobile article, not only a cover;
 - whether supplied photos, logos, and QR codes integrate cleanly;
 - whether the component recommendations suit the article’s actual information.
+- whether an article-specific visual kit was generated before layout and turned into four reusable ornament roles;
+- whether the article reads as an open editorial composition rather than a stack of rounded cards.
 
 After review, update the organization pack instead of accumulating one-off prompt rules.
 
-Record the approved Ardot file, variable mode, page names, and component aliases in `ardot.json`. Preserve the first article as an editable example page for later migration checks.
+Record the approved Ardot file, variable mode, page names, and component aliases in `ardot.json`. Record the inspected box count and asymmetric visual moments in the article’s `layout_review`. Preserve the first article as an editable example page for later migration checks.

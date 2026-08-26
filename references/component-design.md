@@ -30,15 +30,18 @@ An individual article block may set `variant` when one deliberate exception is n
 
 ## Rhythm rules
 
-- Use no more than two boxed components in sequence.
+- Read [organic-layout.md](organic-layout.md) before building or revising a long article.
+- Generate and componentize the article-specific micro-illustration kit before any long-article layout.
+- Closed boxes may occupy at most 20% of content sections and may never appear consecutively.
 - Give each long article at least one image-led moment and one full-width color or type transition.
-- Alternate layout families: open text, image, numbered process, evidence, action.
+- Alternate layout families: open text, floating illustration, image, continuous path, evidence, action, quiet whitespace.
 - A hero is one visual moment. Keep the title, short subtitle, optional eyebrow, and at most one action label.
-- Use cards only when items are independently comparable. Use rails, bands, whitespace, or one continuous path for sequences.
+- Use cards only when items are independently comparable. A semantic block does not automatically deserve its own background, border, radius, or shadow. Use rails, bands, whitespace, asymmetric illustration placement, or one continuous path for sequences.
 - Real people, events, facilities, projects, and outcomes use real or officially supplied photography. Generated images are illustrative brand assets only.
 
 ## Image slots
 
+- Mandatory micro kit: floating spot, section transition, inline explainer, and closing motif; at least three different article-specific generated assets.
 - Hero background: 2:3 portrait, subject weighted to one side, large title-safe zone.
 - Section opener: 3:2 landscape, one clear subject, no embedded copy.
 - Gallery: consistent photographic treatment; do not mix generated illustration with documentary evidence in one gallery.
@@ -46,7 +49,15 @@ An individual article block may set `variant` when one deliberate exception is n
 
 ## Visual QA
 
-Build an Ardot manifest and create a native component gallery before approving a new organization route:
+Build and approve the article-specific visual kit before the Ardot manifest and native component gallery:
+
+```bash
+python3 scripts/build_visual_kit.py article.json \
+  --org organizations/ORG_ID \
+  --output output/ORG_ID/article/visual-kit-plan.json
+```
+
+Only after `ready_for_layout: true`:
 
 ```bash
 python3 scripts/build_ardot_manifest.py article.json \
@@ -54,4 +65,4 @@ python3 scripts/build_ardot_manifest.py article.json \
   --output output/ORG_ID/article/ardot-manifest.json
 ```
 
-Inspect high-impact sections with Ardot screenshots at 390 px. Confirm that route families differ in composition, not only color, and that no three consecutive sections repeat the same container pattern. Keep the gallery and example article editable as native components and instances.
+Inspect high-impact sections with Ardot screenshots at 390 px. Confirm that route families differ in composition, not only color; boxes do not exceed 20%; no two boxes are consecutive; and at least three moments visibly break symmetry or the text edge. Record the measured result in `article.layout_review`. Keep the gallery and example article editable as native components and instances.

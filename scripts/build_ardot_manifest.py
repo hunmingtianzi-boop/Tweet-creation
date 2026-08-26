@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from build_visual_kit import build_visual_kit_plan
 from orgs import load_pack, validate_pack
 
 
@@ -21,6 +22,25 @@ TOKEN_NAMES = {
     "surface_alt": "Surface Alt",
     "border": "Border",
     "on_accent": "On Accent",
+}
+
+OPEN_COMPOSITIONS = {
+    "hero": ("image-led-opening", []),
+    "lead": ("open-editorial", ["floating-spot"]),
+    "section": ("floating-marker", ["section-transition"]),
+    "text": ("open-editorial", ["floating-spot"]),
+    "statement": ("typographic-pause", ["floating-spot"]),
+    "metrics": ("open-number-field", ["inline-explainer"]),
+    "timeline": ("flowing-line", ["inline-explainer"]),
+    "gallery": ("edge-to-edge-sequence", ["section-transition"]),
+    "case": ("layered-process-without-outer-card", ["inline-explainer"]),
+    "roles": ("staggered-open-labels", ["floating-spot", "inline-explainer"]),
+    "quote": ("full-width-type-pause", ["floating-spot"]),
+    "steps": ("continuous-journey-path", ["inline-explainer"]),
+    "image": ("open-image-break", ["section-transition"]),
+    "cta": ("illustrated-ending", ["closing-motif"]),
+    "references": ("quiet-open-notes", []),
+    "footer": ("quiet-open-ending", ["closing-motif"]),
 }
 
 
@@ -120,6 +140,12 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
     if article.get("organization_id") != organization.get("id"):
         raise ValueError("article organization_id does not match the organization pack")
     route = choose_route(article, organization)
+    visual_kit_plan = build_visual_kit_plan(article_path, org_dir)
+    kit_asset_by_role = {
+        item["role"]: item.get("asset_id")
+        for item in visual_kit_plan["slots"]
+        if item.get("asset_id")
+    }
     ardot = pack["ardot"]
     mode = ardot["variable_mode"]
     aliases = ardot.get("component_aliases", {})
@@ -137,6 +163,11 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
         )
         refs = asset_references(raw)
         used_assets.extend(refs)
+        composition_mode, kit_roles = OPEN_COMPOSITIONS.get(
+            kind, ("open-editorial", ["floating-spot"])
+        )
+        kit_assets = [kit_asset_by_role[role] for role in kit_roles if role in kit_asset_by_role]
+        used_assets.extend(kit_assets)
         content = {
             key: value
             for key, value in raw.items()
@@ -150,6 +181,10 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
                 "content_component": raw.get("component", f"core.{kind}"),
                 "variant": variant,
                 "ardot_component": component_name,
+                "composition_mode": composition_mode,
+                "container_policy": "open-by-default",
+                "micro_visual_roles": kit_roles,
+                "micro_visual_assets": kit_assets,
                 "content": content,
                 "asset_refs": refs,
             }
@@ -174,6 +209,7 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
             "status": organization["status"],
         },
         "article": {
+            "article_id": article.get("article_id"),
             "title": article.get("title"),
             "article_type": article.get("article_type"),
             "mobile_width": 390,
@@ -194,24 +230,42 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
             "component_variants": route.get("component_variants", {}),
         },
         "variables": variables,
+        "visual_kit": visual_kit_plan,
         "blocks": blocks,
         "assets": assets,
         "assembly": [
+            "STOP if visual_kit.ready_for_layout is false",
+            "generate, inspect, register, and componentize the four micro illustrations before article layout",
             "apply or update the organization variable mode",
             "fetch reusable components by exact ardot_component name",
             "create missing semantic component variants before article assembly",
             "create one 390px article root and insert blocks in manifest order",
+            "place micro illustrations between and beside open text flows; never use them as card backgrounds",
             "upload registered image assets to their named image slots",
             "capture section screenshots and iterate before any WeChat handoff",
         ],
         "qa": {
+            "ready_for_layout": visual_kit_plan["ready_for_layout"],
             "blocking": [
+                "article-specific visual kit lacks any required role or has fewer than three unique generated micro assets",
+                "layout started before micro illustrations became native Ardot components",
                 "missing component variant",
                 "unresolved asset",
                 "clipped or overflowed text",
-                "three consecutive boxed sections",
+                "more than 20 percent of content sections use a closed box",
+                "two boxed sections appear consecutively",
+                "every semantic block has its own background, border, or rounded container",
+                "micro illustration is rectangular, framed, generic, or used as a panel background",
                 "organization mode or organization_id mismatch",
             ],
+            "layout_policy": {
+                "maximum_boxed_section_ratio": 0.2,
+                "maximum_consecutive_boxed_sections": 1,
+                "minimum_micro_illustration_roles": 4,
+                "minimum_unique_generated_micro_assets": 3,
+                "minimum_asymmetric_or_edge_breaking_moments": 3,
+                "default_container": "none",
+            },
             "unresolved_assets": unresolved,
             "requires_visual_review": True,
         },

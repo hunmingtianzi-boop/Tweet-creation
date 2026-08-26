@@ -85,10 +85,10 @@ New packs start as `not-linked`. Set `linked` only after a real Ardot file, vari
 
 ## `assets.json`
 
-Each asset has an ID, kind, title, path or URL, style, uses, origin, and optional source ID. Local paths resolve relative to the organization pack.
+Each asset has an ID, kind, title, path or URL, style, uses, origin, and optional source ID. Local paths resolve relative to the organization pack. Generated micro illustrations declare one or more `roles` (`floating-spot`, `section-transition`, `inline-explainer`, `closing-motif`) and the article slugs they were made for in `generated_for_articles`.
 
 Allowed origins include `user-supplied`, `official`, `photographed`, `generated-illustrative`, and `derived`. A `logo` or `qr` asset must be `user-supplied` or `official`; otherwise validation fails.
 
 Do not store account secrets, access tokens, or private credentials in an organization pack.
 
-Generate an article-type asset plan with `scripts/orgs.py asset-plan`, then register approved files with `scripts/orgs.py register-asset`. The plan may recommend generated illustrations, but logos and QR codes always remain official or user-supplied assets.
+Generate an article-type asset plan with `scripts/orgs.py asset-plan`, then register approved files with `scripts/orgs.py register-asset`. For a newly generated micro illustration, pass `--role ROLE --generated-for ARTICLE_ID`. Every article gets a fresh visual-kit plan and must produce all four micro-visual roles before layout; at least three different approved generated assets bound to that article must be used. Logos and QR codes always remain official or user-supplied assets.
