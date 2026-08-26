@@ -30,13 +30,13 @@
       "accent": "#1648C8",
       "accent_alt": "#FF6B62",
       "surface": "#FFFFFF",
-      "surface_alt": "#F6F1E6",
+      "surface_alt": "#F3EEDB",
       "border": "#00C8E8",
       "white": "#FFFFFF",
       "on_accent": "#FFFFFF",
       "on_accent_alt": "#101317"
     },
-    "motifs": ["真实活动连拍", "开放工作台", "手作原型", "电缆与行动路径", "跨学科工具", "纸张留白", "克制的青色与珊瑚色标记"],
+    "motifs": ["真实活动连拍", "开放工作台", "手作原型", "跨章节连续项目电缆", "跨学科工具", "统一暖纸画布", "克制的青色与珊瑚色标记"],
     "avoid": ["紫色 AI 渐变", "发光球体", "黑色整块 CTA", "每段一个圆角卡片", "模板化模块堆叠", "生成图片里的中文", "用概念图代替真实活动证据"],
     "default_route": "open-workbench",
     "calibration": {
@@ -67,7 +67,7 @@
           "steps": "continuous-action-path",
           "cta": "open-corner-signup"
         },
-        "rationale": "让真实照片承担可信度，让透明小组件承担语义连接，通过留白、错位和连续路径形成灵动阅读节奏。"
+        "rationale": "让真实照片承担可信度，让透明小组件承担语义连接；所有章节共享同一暖纸底色，项目电缆在边界精确接续，通过留白、错位和连续路径形成完整阅读节奏。"
       }
     ]
   },

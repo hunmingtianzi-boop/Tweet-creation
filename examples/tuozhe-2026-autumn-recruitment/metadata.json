@@ -8,7 +8,8 @@
     "file_url": "https://ardot.tencent.com/file/719045826140352",
     "page_id": "0:1",
     "article_root_id": "3:10",
-    "component_library_id": "3:17"
+    "component_library_id": "3:17",
+    "continuous_background_nodes": ["3:125", "3:130", "3:135", "3:141", "3:146", "3:151", "3:156"]
   },
   "qa": {
     "visual_review": "passed",
@@ -21,7 +22,7 @@
       "qa/roles.png",
       "qa/join.png"
     ],
-    "intentional_layout_features": ["透明组件跨区", "照片压线", "色带作为背景层", "为阅读节奏保留的大块留白"]
+    "intentional_layout_features": ["六章节统一暖纸底色", "蓝色实线与青色虚线跨章节首尾相接", "透明组件跨区", "照片压线", "收尾路径进入蓝色色带"]
   },
   "missing_content": ["报名起止时间", "报名二维码", "咨询群二维码或联系方式"],
   "asset_source": "用户提供的拓浙数据包；生成插图由 OpenAI 内置 ImageGen 制作。"
