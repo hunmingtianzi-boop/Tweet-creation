@@ -30,13 +30,13 @@
       "accent": "#1648C8",
       "accent_alt": "#FF6B62",
       "surface": "#FFFFFF",
-      "surface_alt": "#F3EEDB",
+      "surface_alt": "#F7FAFF",
       "border": "#00C8E8",
       "white": "#FFFFFF",
       "on_accent": "#FFFFFF",
       "on_accent_alt": "#101317"
     },
-    "motifs": ["真实活动连拍", "开放工作台", "手作原型", "跨章节连续项目电缆", "跨学科工具", "统一暖纸画布", "克制的青色与珊瑚色标记"],
+    "motifs": ["真实活动连拍", "AI 校园蓝图底图", "开放工作台", "手作原型", "跨学科工具", "瓷白阅读区", "克制的青色、珊瑚色与酸性青柠标记"],
     "avoid": ["紫色 AI 渐变", "发光球体", "黑色整块 CTA", "每段一个圆角卡片", "模板化模块堆叠", "生成图片里的中文", "用概念图代替真实活动证据"],
     "default_route": "open-workbench",
     "calibration": {
@@ -56,7 +56,7 @@
         "label": "开放工作台",
         "uses": ["recruitment", "event", "project-update", "learning"],
         "layout": "editorial",
-        "dominant_style": "real-photography-with-transparent-handmade-components",
+        "dominant_style": "real-photography-with-ai-campus-workbench-backgrounds-and-transparent-components",
         "component_variants": {
           "hero": "photo-stage-with-floating-workbench",
           "section": "open-editorial-head",
@@ -67,7 +67,7 @@
           "steps": "continuous-action-path",
           "cta": "open-corner-signup"
         },
-        "rationale": "让真实照片承担可信度，让透明小组件承担语义连接；所有章节共享同一暖纸底色，项目电缆在边界精确接续，通过留白、错位和连续路径形成完整阅读节奏。"
+        "rationale": "让真实照片承担可信度，透明小组件解释内容，两张同系列 AI 校园工作台底图以不同裁切和透明度提供变化；瓷白阅读区、蓝图线和项目路径保持统一。"
       }
     ]
   },

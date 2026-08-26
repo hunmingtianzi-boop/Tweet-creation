@@ -1,6 +1,18 @@
 {
   "generated_assets": [
     {
+      "file": "../../organizations/tuozhe-ai-ecosystem/assets/generated/ai-background-campus-workbench-v1.png",
+      "meaning": "校园动线逐步进入开放工作台",
+      "role": "AI 底图母版",
+      "placement": "首屏、活动证据与收尾章节使用不同裁切"
+    },
+    {
+      "file": "../../organizations/tuozhe-ai-ecosystem/assets/generated/ai-background-collaboration-path-v1.png",
+      "meaning": "协作路径穿过校园走廊与创作桌面",
+      "role": "AI 底图变体",
+      "placement": "身份、行动与岗位章节使用不同裁切"
+    },
+    {
       "file": "../../organizations/tuozhe-ai-ecosystem/assets/generated/floating-workbench-alpha.png",
       "meaning": "AI × X 的共同工作台与多种入门方式",
       "role": "首屏锚点",
@@ -33,7 +45,7 @@
     {"file": "../../organizations/tuozhe-ai-ecosystem/assets/photos/ai-x-beauty-group.jpg", "meaning": "AI × 美妆真实活动", "role": "跨界证据"}
   ],
   "palette": {
-    "paper": "#F3EEDB",
+    "paper": "#FFFFFF",
     "ink": "#101317",
     "body": "#3F4852",
     "cobalt": "#1648C8",
