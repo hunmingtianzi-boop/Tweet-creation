@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "article_id": "tuozhe-2026-autumn-recruitment-sourcezero",
+  "organization_id": "tuozhe-ai-ecosystem",
+  "ardot": {
+    "file_url": "https://ardot.tencent.com/file/719086033843150",
+    "page_id": "0:1",
+    "article_node_id": "8:23"
+  },
+  "screenshots": [
+    {"role": "hero", "node_id": "8:24", "location": "qa/hero.png"},
+    {"role": "chapter", "node_id": "8:25", "location": "qa/identity.png"},
+    {"role": "evidence", "node_id": "8:26", "location": "qa/evidence.png"},
+    {"role": "complex-section", "node_id": "8:27", "location": "qa/possibilities.png"},
+    {"role": "complex-section", "node_id": "8:28", "location": "qa/roles.png"},
+    {"role": "cta", "node_id": "8:29", "location": "qa/join.png"}
+  ],
+  "density": {
+    "mode": "compact-editorial",
+    "samples": [
+      {"node_id": "8:24", "body_font_px": 15, "body_line_height_ratio": 1.53, "letter_spacing_px": 0, "paragraph_gap_px": 10, "content_occupancy_ratio": 0.82, "largest_empty_region_ratio": 0.12, "intentional_whitespace": true, "intentional_whitespace_reason": "Hero 在标题与真实现场照片之间保留一次开场停顿。"},
+      {"node_id": "8:25", "body_font_px": 15, "body_line_height_ratio": 1.53, "letter_spacing_px": 0, "paragraph_gap_px": 10, "content_occupancy_ratio": 0.77, "largest_empty_region_ratio": 0.16},
+      {"node_id": "8:26", "body_font_px": 15, "body_line_height_ratio": 1.53, "letter_spacing_px": 0, "paragraph_gap_px": 10, "content_occupancy_ratio": 0.86, "largest_empty_region_ratio": 0.10},
+      {"node_id": "8:27", "body_font_px": 15, "body_line_height_ratio": 1.53, "letter_spacing_px": 0, "paragraph_gap_px": 10, "content_occupancy_ratio": 0.84, "largest_empty_region_ratio": 0.10},
+      {"node_id": "8:28", "body_font_px": 15, "body_line_height_ratio": 1.53, "letter_spacing_px": 0, "paragraph_gap_px": 10, "content_occupancy_ratio": 0.82, "largest_empty_region_ratio": 0.12},
+      {"node_id": "8:29", "body_font_px": 15, "body_line_height_ratio": 1.53, "letter_spacing_px": 0, "paragraph_gap_px": 10, "content_occupancy_ratio": 0.79, "largest_empty_region_ratio": 0.16, "intentional_whitespace": true, "intentional_whitespace_reason": "CTA 在原型交接插图周围保留收束呼吸区。"}
+    ]
+  },
+  "checks": {
+    "subject_relevance": "pass",
+    "style_coherence": "pass",
+    "no_clipped_ornaments": "pass",
+    "scale_variation": "pass",
+    "photo_illustration_harmony": "pass",
+    "no_generic_ai_decoration": "pass",
+    "no_unexplained_labels": "pass",
+    "editorial_rhythm": "pass",
+    "mobile_legibility": "pass",
+    "open_composition": "pass",
+    "information_density": "pass",
+    "background_family_coherence": "pass"
+  },
+  "status": "approved",
+  "reviewed_at": "2026-08-27",
+  "notes": "六个章节均来自全新 Ardot 源文件。证据章节在最终指标文字修复后重新导出；仅保留刻意的错位照片重叠。"
+}

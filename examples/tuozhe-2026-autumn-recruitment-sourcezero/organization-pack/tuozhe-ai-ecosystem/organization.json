@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "id": "tuozhe-ai-ecosystem",
+  "status": "confirmed",
+  "identity": {
+    "name": "拓浙 AI 生态",
+    "short_name": "拓浙 AI 生态",
+    "summary": "由学生发起、面向浙江大学同学的 AI × X 学习与实践社区，以比赛、真实项目和信息服务连接学习、实践与机会。",
+    "category": "校园 AI 学习与实践社区",
+    "audiences": ["浙江大学在校学生", "希望从 AI 学习走向真实项目的跨专业同学", "寻找队友、赛事和实践机会的学生"],
+    "content_pillars": ["AI 学习与工具", "比赛与共创", "真实项目与产学连接", "跨专业伙伴与校园机会"]
+  },
+  "personality": {"authority": 58, "technical": 72, "warmth": 70, "experimental": 82, "action": 92},
+  "voice": {
+    "traits": ["直接", "行动导向", "欢迎新手", "跨专业", "以真实成果说话"],
+    "headline_patterns": ["从一个想法开始", "把想法做出来", "让第一步真正发生"],
+    "preferred_terms": ["伙伴", "实践", "项目", "真实场景", "共创", "做出来"],
+    "avoid_terms": ["赋能", "颠覆未来", "改变世界", "无证据的顶尖与第一", "泛化 AI 口号"]
+  },
+  "visual": {
+    "tokens": {"ink": "#0B1020", "body": "#3D4658", "accent": "#0957D0", "accent_alt": "#FF5B4D", "surface": "#F7FAFF", "surface_alt": "#EAF3FF", "border": "#B9CBE3", "white": "#FFFFFF"},
+    "motifs": ["正在运行的项目轨迹", "蓝色会场座椅与屏幕", "光标与版本标记", "跨专业路径交汇", "真实开发现场", "未完成到完成的过程"],
+    "avoid": ["紫色科技渐变", "发光大脑", "玻璃卡片", "每段一个方框", "脏米黄色大底", "生成中文", "随机 AI 装饰", "用概念图替代真实活动照片"],
+    "default_route": "action-field-notes",
+    "routes": [{
+      "id": "action-field-notes",
+      "label": "行动现场",
+      "uses": ["recruitment", "event-recap", "community-introduction"],
+      "layout": "editorial",
+      "dominant_style": "photo-led-campus-field-notes",
+      "component_variants": {"hero": "photo-cascade", "section": "offset-index", "metrics": "open-numerals", "steps": "continuous-build-line", "roles": "staggered-bands", "cta": "prototype-handoff"},
+      "rationale": "从用户原始照片中的蓝色会场、密集开发屏幕和围桌交流出发，用冰白底、钴蓝轨迹和珊瑚标记形成正在发生的校园行动现场。"
+    }],
+    "calibration": {
+      "status": "approved",
+      "approved_routes": ["action-field-notes"],
+      "benchmark": {"file_url": "https://ardot.tencent.com/file/719086033843150", "page_name": "Page 1", "article_node_id": "8:13"},
+      "density_mode": "compact-editorial",
+      "background_family": {"id": "sourcezero-action-trace-v1", "strategy": "one-master-plus-companion-crops"},
+      "reviewed_at": "2026-08-26",
+      "review_basis": ["用户提供的纯文字招新 PDF", "用户提供的黑客松与 AI × 美妆现场照片", "原始活动执行方案与 AI 生态演讲稿", "不参考任何既有推文或组件"]
+    }
+  },
+  "article_types": {
+    "recruitment": {"label": "招新", "route": "action-field-notes", "recommended_blocks": ["hero", "lead", "section", "statement", "metrics", "gallery", "steps", "roles", "cta", "references", "footer"]},
+    "event-recap": {"label": "活动回顾", "route": "action-field-notes", "recommended_blocks": ["hero", "lead", "metrics", "gallery", "case", "references", "footer"]},
+    "community-introduction": {"label": "社区介绍", "route": "action-field-notes", "recommended_blocks": ["hero", "lead", "section", "statement", "gallery", "cta", "footer"]}
+  },
+  "asset_policy": {"logo": "official-or-user-supplied-only", "qr": "official-or-user-supplied-only", "photography": "prefer-real-for-real-people-and-events", "generation": "text-free-illustrative-only"},
+  "publishing": {"authoring": "ardot-native", "delivery": "wechat-inline-html", "default_action": "draft-only", "formal_publish_requires_confirmation": true},
+  "provenance": {"source_ids": ["recruitment-copy-pdf", "hackathon-execution-plan", "ai-ecosystem-speech", "user-photo-archive"], "reviewed_at": "2026-08-26", "notes": "本包仅从本轮原始资料重新建立，不继承任何既有推文设计。"}
+}

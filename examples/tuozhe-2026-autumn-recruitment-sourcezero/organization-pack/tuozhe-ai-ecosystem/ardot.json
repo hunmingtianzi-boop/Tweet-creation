@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "organization_id": "tuozhe-ai-ecosystem",
+  "status": "linked",
+  "design_file": {"url": "https://ardot.tencent.com/file/719086033843150", "file_id": "719086033843150"},
+  "variable_set": "Fresh Action Field Notes",
+  "variable_mode": "Tuozhe Fresh",
+  "page_names": {"foundations": "Page 1", "components": "Page 1", "example": "Page 1"},
+  "component_aliases": {
+    "core.hero": "WeChat/Hero/PhotoCascade/TuozheFresh",
+    "core.lead": "WeChat/Lead/CompactEditorial/TuozheFresh",
+    "core.section": "WeChat/Section/OffsetIndex/TuozheFresh",
+    "core.text": "WeChat/Text/Open/TuozheFresh",
+    "core.statement": "WeChat/Statement/Open/TuozheFresh",
+    "core.metrics": "WeChat/Metrics/OpenNumerals/TuozheFresh",
+    "core.gallery": "WeChat/Gallery/EvidenceCascade/TuozheFresh",
+    "core.steps": "WeChat/Steps/ContinuousBuildLine/TuozheFresh",
+    "core.roles": "WeChat/Roles/StaggeredBands/TuozheFresh",
+    "core.cta": "WeChat/CTA/PrototypeHandoff/TuozheFresh",
+    "core.references": "WeChat/References/SourceNotes/TuozheFresh",
+    "core.footer": "WeChat/Footer/ClosingBand/TuozheFresh"
+  }
+}

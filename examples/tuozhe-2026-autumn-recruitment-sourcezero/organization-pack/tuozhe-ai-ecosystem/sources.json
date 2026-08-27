@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "organization_id": "tuozhe-ai-ecosystem",
+  "sources": [
+    {"id": "recruitment-copy-pdf", "title": "拓浙 AI 生态 2026 秋季招新纯文字文案", "kind": "user-supplied-pdf", "locator": "source/recruitment-copy.pdf"},
+    {"id": "hackathon-execution-plan", "title": "浙大 AI 全栈极速黑客松完整执行方案", "kind": "user-supplied-docx", "locator": "拓浙数据包/5.10黑客松/浙大AI黑客松_最终执行方案2.docx"},
+    {"id": "ai-ecosystem-speech", "title": "浙江大学 AI 生态演讲", "kind": "user-supplied-docx", "locator": "拓浙数据包/5.10黑客松/演讲稿/AI生态演讲.docx"},
+    {"id": "user-photo-archive", "title": "黑客松与 AI × 美妆现场照片", "kind": "user-supplied-photo-archive", "locator": "拓浙数据包"}
+  ],
+  "facts": [
+    {"id": "fact-community", "claim": "拓浙 AI 生态面向浙江大学同学开展 AI × X 学习与实践。", "source_ids": ["recruitment-copy-pdf"], "confidence": "reported", "last_checked": "2026-08-26"},
+    {"id": "fact-network", "claim": "文案记载 1000+ 技术同学连接及多个 500+ AI 学习社群。", "source_ids": ["recruitment-copy-pdf"], "confidence": "reported", "last_checked": "2026-08-26"},
+    {"id": "fact-hackathon", "claim": "首届浙客松文案记载 300 人报名、100 人参赛。", "source_ids": ["recruitment-copy-pdf", "user-photo-archive"], "confidence": "reported", "last_checked": "2026-08-26"},
+    {"id": "fact-directions", "claim": "生态持续开展 AI × 美妆、AI × 量化、AI × 硬件等真实场景。", "source_ids": ["recruitment-copy-pdf", "user-photo-archive"], "confidence": "reported", "last_checked": "2026-08-26"},
+    {"id": "fact-partners", "claim": "首届浙客松获得阿里云、MiniMax、Qoder、魔搭社区、阶跃星辰、Bonjour 等支持。", "source_ids": ["recruitment-copy-pdf"], "confidence": "reported", "last_checked": "2026-08-26"},
+    {"id": "fact-principle", "claim": "组织强调以比赛发现人才、以项目认证能力、以社区服务同学。", "source_ids": ["ai-ecosystem-speech"], "confidence": "reported", "last_checked": "2026-08-26"}
+  ]
+}

@@ -12,7 +12,7 @@
 
 [Ardot 基准文件｜招新推文·灵动丰富版 2026](https://ardot.tencent.com/file/718358960022995)（文章根节点 `51:2`）。这是 Ocean 的效果基准，不是让其他组织照抄海洋风格。
 
-泛化迁移后的首个独立组织实战是[拓浙 AI 生态 2026 秋季招新](examples/tuozhe-2026-autumn-recruitment/README.md)：它使用真实黑客松照片和四个文章专属透明小组件，形成“开放工作台”路线。[Ardot 源文件](https://ardot.tencent.com/file/719045826140352)的文章根节点为 `3:10`，组件库为 `3:17`。
+最新的独立组织实战是[拓浙 AI 生态 2026 秋季招新｜Source Zero](examples/tuozhe-2026-autumn-recruitment-sourcezero/README.md)：它只从原始文案、活动方案、演讲稿和现场照片重新建立组织包，先生成同一家族连续底图与四枚文章专属透明组件，再以开放轨迹和错位照片完成高密度排版。[全新 Ardot 源文件](https://ardot.tencent.com/file/719086033843150?node_id=8%3A23)的文章根节点为 `8:23`，校准板为 `8:13`，专属组件源为 `8:18`。
 
 ## 能力
 

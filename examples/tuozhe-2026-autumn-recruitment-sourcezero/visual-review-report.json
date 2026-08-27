@@ -1,0 +1,29 @@
+{
+  "ready": true,
+  "errors": [],
+  "screenshot_count": 6,
+  "screenshot_roles": [
+    "chapter",
+    "complex-section",
+    "cta",
+    "evidence",
+    "hero"
+  ],
+  "node_count": 6,
+  "density_mode": "compact-editorial",
+  "density_sample_count": 6,
+  "passed_checks": [
+    "background_family_coherence",
+    "editorial_rhythm",
+    "information_density",
+    "mobile_legibility",
+    "no_clipped_ornaments",
+    "no_generic_ai_decoration",
+    "no_unexplained_labels",
+    "open_composition",
+    "photo_illustration_harmony",
+    "scale_variation",
+    "style_coherence",
+    "subject_relevance"
+  ]
+}

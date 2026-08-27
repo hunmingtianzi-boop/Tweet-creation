@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "organization_id": "tuozhe-ai-ecosystem",
+  "assets": [
+    {
+      "id": "photo.hackathon-wide",
+      "kind": "photo",
+      "title": "浙客松开发现场全景",
+      "location": "assets/photos/hackathon-wide.jpg",
+      "style": "documentary-action",
+      "uses": [
+        "recruitment"
+      ],
+      "origin": "user-supplied",
+      "source_id": "user-photo-archive"
+    },
+    {
+      "id": "photo.hackathon-focus",
+      "kind": "photo",
+      "title": "浙客松开发特写",
+      "location": "assets/photos/hackathon-focus.jpg",
+      "style": "documentary-action",
+      "uses": [
+        "recruitment"
+      ],
+      "origin": "user-supplied",
+      "source_id": "user-photo-archive"
+    },
+    {
+      "id": "photo.hackathon-exchange",
+      "kind": "photo",
+      "title": "浙客松交流现场",
+      "location": "assets/photos/hackathon-exchange.jpg",
+      "style": "documentary-action",
+      "uses": [
+        "recruitment"
+      ],
+      "origin": "user-supplied",
+      "source_id": "user-photo-archive"
+    },
+    {
+      "id": "photo.hackathon-opening-group",
+      "kind": "photo",
+      "title": "浙客松开幕合影",
+      "location": "assets/photos/hackathon-opening-group.jpg",
+      "style": "documentary-action",
+      "uses": [
+        "recruitment"
+      ],
+      "origin": "user-supplied",
+      "source_id": "user-photo-archive"
+    },
+    {
+      "id": "photo.hackathon-closing-group",
+      "kind": "photo",
+      "title": "浙客松闭幕合影",
+      "location": "assets/photos/hackathon-closing-group.jpg",
+      "style": "documentary-action",
+      "uses": [
+        "recruitment"
+      ],
+      "origin": "user-supplied",
+      "source_id": "user-photo-archive"
+    },
+    {
+      "id": "photo.beauty-hackathon-group",
+      "kind": "photo",
+      "title": "AI × 美妆活动合影",
+      "location": "assets/photos/beauty-hackathon-group.jpg",
+      "style": "documentary-cross-domain",
+      "uses": [
+        "recruitment"
+      ],
+      "origin": "user-supplied",
+      "source_id": "user-photo-archive"
+    },
+    {
+      "id": "background.action-trace-master",
+      "kind": "background",
+      "title": "行动现场主底图",
+      "location": "assets/generated/background-action-trace-master.png",
+      "style": "action-field-notes",
+      "uses": [
+        "recruitment"
+      ],
+      "origin": "generated-illustrative"
+    },
+    {
+      "id": "background.action-trace-companion",
+      "kind": "background",
+      "title": "行动现场辅助底图",
+      "location": "assets/generated/background-action-trace-companion.png",
+      "style": "action-field-notes",
+      "uses": [
+        "recruitment"
+      ],
+      "origin": "generated-illustrative"
+    },
+    {
+      "id": "spot.cursor-prototype",
+      "kind": "illustration",
+      "title": "光标启动原型",
+      "location": "assets/generated/spot-cursor-prototype-alpha.png",
+      "style": "action-field-notes",
+      "uses": [
+        "recruitment"
+      ],
+      "origin": "generated-illustrative",
+      "roles": [
+        "floating-spot"
+      ],
+      "generated_for_articles": [
+        "tuozhe-2026-autumn-recruitment-sourcezero"
+      ]
+    },
+    {
+      "id": "visual.discipline-confluence",
+      "kind": "illustration",
+      "title": "跨专业汇流",
+      "location": "assets/generated/visual-discipline-confluence-alpha.png",
+      "style": "action-field-notes",
+      "uses": [
+        "recruitment"
+      ],
+      "origin": "generated-illustrative",
+      "roles": [
+        "section-transition"
+      ],
+      "generated_for_articles": [
+        "tuozhe-2026-autumn-recruitment-sourcezero"
+      ]
+    },
+    {
+      "id": "visual.build-relay",
+      "kind": "illustration",
+      "title": "项目构建接力",
+      "location": "assets/generated/visual-build-relay-alpha.png",
+      "style": "action-field-notes",
+      "uses": [
+        "recruitment"
+      ],
+      "origin": "generated-illustrative",
+      "roles": [
+        "inline-explainer"
+      ],
+      "generated_for_articles": [
+        "tuozhe-2026-autumn-recruitment-sourcezero"
+      ]
+    },
+    {
+      "id": "spot.prototype-handoff",
+      "kind": "illustration",
+      "title": "原型交接",
+      "location": "assets/generated/spot-prototype-handoff-alpha.png",
+      "style": "action-field-notes",
+      "uses": [
+        "recruitment"
+      ],
+      "origin": "generated-illustrative",
+      "roles": [
+        "closing-motif"
+      ],
+      "generated_for_articles": [
+        "tuozhe-2026-autumn-recruitment-sourcezero"
+      ]
+    }
+  ]
+}

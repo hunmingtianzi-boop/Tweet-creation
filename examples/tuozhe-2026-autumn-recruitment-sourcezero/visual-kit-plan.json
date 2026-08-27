@@ -1,0 +1,205 @@
+{
+  "schema_version": 1,
+  "kind": "org-wechat-visual-kit-plan",
+  "organization_id": "tuozhe-ai-ecosystem",
+  "article_id": "tuozhe-2026-autumn-recruitment-sourcezero",
+  "article_title": "AI 无界，等你拓新",
+  "article_type": "recruitment",
+  "route_id": "action-field-notes",
+  "calibration": {
+    "ready": true,
+    "status": "approved",
+    "approved_routes": [
+      "action-field-notes"
+    ],
+    "benchmark": {
+      "file_url": "https://ardot.tencent.com/file/719086033843150",
+      "page_name": "Page 1",
+      "article_node_id": "8:13"
+    },
+    "blocking_reasons": []
+  },
+  "storyboard": {
+    "schema_version": 1,
+    "kind": "org-wechat-storyboard-plan",
+    "article_id": "tuozhe-2026-autumn-recruitment-sourcezero",
+    "ready_for_visual_kit": true,
+    "errors": [],
+    "chapter_count": 6,
+    "composition_count": 6,
+    "chapters": [
+      {
+        "id": "opening",
+        "label": "第一步",
+        "thesis": "收藏教程，不如真正做出第一个项目。",
+        "composition": "photo-cascade-opening",
+        "visual_intent": "开发现场全景先进入，标题像一条正在运行的命令落在照片上方，光标原型从文字边缘启动。",
+        "density_intent": "Hero 保留一次有意停顿；标题、导语和现场照片必须在一个半屏内建立关系。",
+        "block_indices": [
+          0,
+          1
+        ]
+      },
+      {
+        "id": "identity",
+        "label": "同一条路径",
+        "thesis": "不同专业的人，可以在同一个真实项目里找到位置。",
+        "composition": "open-cross-discipline-path",
+        "visual_intent": "多条专业轨迹从左右边缘汇入一个开放工作点，正文不加外框。",
+        "density_intent": "两段正文与一条学习路径紧密连续，普通内容占用率不低于 70%。",
+        "block_indices": [
+          2,
+          3
+        ]
+      },
+      {
+        "id": "evidence",
+        "label": "已经发生",
+        "thesis": "真实照片、数字和跨界活动共同证明这不是概念社区。",
+        "composition": "evidence-contact-sheet",
+        "visual_intent": "大数字与三张不同尺度的现场照片交错，画面像正在更新的行动记录。",
+        "density_intent": "数字、照片和说明持续交替，最大无意空洞不超过 16%。",
+        "block_indices": [
+          4,
+          5,
+          6
+        ]
+      },
+      {
+        "id": "possibilities",
+        "label": "从试试到做出来",
+        "thesis": "学习、组队、比赛和真实问题是一条连续的行动链。",
+        "composition": "continuous-build-line",
+        "visual_intent": "一条不闭合的项目轨迹穿过五个动作，专属小组件在节点间接力。",
+        "density_intent": "五个动作以 72–96 px 节奏连续出现，不拆成五张卡。",
+        "block_indices": [
+          7,
+          8
+        ]
+      },
+      {
+        "id": "roles",
+        "label": "找到你的入口",
+        "thesis": "不以履历筛人，而是让不同能力进入同一件事。",
+        "composition": "staggered-role-bands",
+        "visual_intent": "五类方向用长短不同的开放色轨组织，跨专业交汇插图压住中部节奏。",
+        "density_intent": "角色条带高低错落但保持紧凑，正文与结论之间不出现大块空白。",
+        "block_indices": [
+          9,
+          10
+        ]
+      },
+      {
+        "id": "join",
+        "label": "让想法发生",
+        "thesis": "用一条清楚的报名路径结束，并保留缺失信息。",
+        "composition": "prototype-handoff-ending",
+        "visual_intent": "流程沿一条线落向二维码占位，交付原型视觉作为结尾落点。",
+        "density_intent": "CTA 允许一次收束留白；招募对象、流程、待补信息和结尾必须在一屏半内闭合。",
+        "block_indices": [
+          11,
+          12
+        ]
+      }
+    ]
+  },
+  "minimum_micro_component_roles": 4,
+  "minimum_unique_generated_micro_assets": 3,
+  "visual_kit_status": "approved",
+  "ready_for_layout": true,
+  "missing_roles": [],
+  "blocking_reasons": [],
+  "semantic_errors": [],
+  "slots": [
+    {
+      "role": "floating-spot",
+      "purpose": "a small floating illustration that enters or exits an open text section",
+      "aspect_ratio": "1:1",
+      "placement": "Hero 导语与现场照片之间",
+      "status": "approved-and-registered",
+      "asset_id": "spot.cursor-prototype",
+      "storyboard_chapter": "opening",
+      "source_text": "收藏了很多 AI 教程，不如真正做出第一个项目。",
+      "concrete_subject": "光标启动一枚可运行的桌面原型",
+      "action": "从文字边缘点亮并向现场照片移动",
+      "composition_role": "anchor",
+      "prompt": "Create one text-free a small floating illustration that enters or exits an open text section for 拓浙 AI 生态. Concrete subject: 光标启动一枚可运行的桌面原型. Depict this action: 从文字边缘点亮并向现场照片移动. Ground it only in this approved copy: 收藏了很多 AI 教程，不如真正做出第一个项目。. Chapter visual intent: 开发现场全景先进入，标题像一条正在运行的命令落在照片上方，光标原型从文字边缘启动。. Its composition job is anchor at Hero 导语与现场照片之间. Follow the calibrated photo-led-campus-field-notes direction with motifs 正在运行的项目轨迹、蓝色会场座椅与屏幕、光标与版本标记、跨专业路径交汇、真实开发现场、未完成到完成的过程 and palette ink #0B1020, accent #0957D0, accent_alt #FF5B4D, surface_alt #EAF3FF. Aspect ratio 1:1. Use a transparent background or an irregular/open edge; keep generous negative space. Do not create a rectangle, card, UI panel, border, poster, generic blob, letters, numbers, watermark, logo, or QR code. Avoid: 紫色科技渐变、发光大脑、玻璃卡片、每段一个方框、脏米黄色大底、生成中文、随机 AI 装饰、用概念图替代真实活动照片.",
+      "registration": {
+        "origin": "generated-illustrative",
+        "role": "floating-spot",
+        "generated_for": "tuozhe-2026-autumn-recruitment-sourcezero"
+      },
+      "ardot_component_name": "WeChat/Ornament/FloatingSpot/Tuozhe Fresh"
+    },
+    {
+      "role": "section-transition",
+      "purpose": "a wide flowing illustration that carries the eye into the next section",
+      "aspect_ratio": "4:1",
+      "placement": "身份章节中部跨页转场",
+      "status": "approved-and-registered",
+      "asset_id": "visual.discipline-confluence",
+      "storyboard_chapter": "identity",
+      "source_text": "这里有计算机、工科、医学、金融、人文、传媒等不同专业的同学。",
+      "concrete_subject": "六条专业材料轨迹汇入一个共同工作点",
+      "action": "从左右边缘交汇并继续向下一章流动",
+      "composition_role": "connector",
+      "prompt": "Create one text-free a wide flowing illustration that carries the eye into the next section for 拓浙 AI 生态. Concrete subject: 六条专业材料轨迹汇入一个共同工作点. Depict this action: 从左右边缘交汇并继续向下一章流动. Ground it only in this approved copy: 这里有计算机、工科、医学、金融、人文、传媒等不同专业的同学。. Chapter visual intent: 多条专业轨迹从左右边缘汇入一个开放工作点，正文不加外框。. Its composition job is connector at 身份章节中部跨页转场. Follow the calibrated photo-led-campus-field-notes direction with motifs 正在运行的项目轨迹、蓝色会场座椅与屏幕、光标与版本标记、跨专业路径交汇、真实开发现场、未完成到完成的过程 and palette ink #0B1020, accent #0957D0, accent_alt #FF5B4D, surface_alt #EAF3FF. Aspect ratio 4:1. Use a transparent background or an irregular/open edge; keep generous negative space. Do not create a rectangle, card, UI panel, border, poster, generic blob, letters, numbers, watermark, logo, or QR code. Avoid: 紫色科技渐变、发光大脑、玻璃卡片、每段一个方框、脏米黄色大底、生成中文、随机 AI 装饰、用概念图替代真实活动照片.",
+      "registration": {
+        "origin": "generated-illustrative",
+        "role": "section-transition",
+        "generated_for": "tuozhe-2026-autumn-recruitment-sourcezero"
+      },
+      "ardot_component_name": "WeChat/Ornament/SectionTransition/Tuozhe Fresh"
+    },
+    {
+      "role": "inline-explainer",
+      "purpose": "a compact visual explanation of one concrete object, action, or process",
+      "aspect_ratio": "4:3",
+      "placement": "五个行动条目之间",
+      "status": "approved-and-registered",
+      "asset_id": "visual.build-relay",
+      "storyboard_chapter": "possibilities",
+      "source_text": "从“我想试试”到“这是我做出来的”",
+      "concrete_subject": "一个项目原型在学习、组队、比赛与真实问题节点间接力",
+      "action": "沿连续轨迹逐步组装并变得完整",
+      "composition_role": "motion",
+      "prompt": "Create one text-free a compact visual explanation of one concrete object, action, or process for 拓浙 AI 生态. Concrete subject: 一个项目原型在学习、组队、比赛与真实问题节点间接力. Depict this action: 沿连续轨迹逐步组装并变得完整. Ground it only in this approved copy: 从“我想试试”到“这是我做出来的”. Chapter visual intent: 一条不闭合的项目轨迹穿过五个动作，专属小组件在节点间接力。. Its composition job is motion at 五个行动条目之间. Follow the calibrated photo-led-campus-field-notes direction with motifs 正在运行的项目轨迹、蓝色会场座椅与屏幕、光标与版本标记、跨专业路径交汇、真实开发现场、未完成到完成的过程 and palette ink #0B1020, accent #0957D0, accent_alt #FF5B4D, surface_alt #EAF3FF. Aspect ratio 4:3. Use a transparent background or an irregular/open edge; keep generous negative space. Do not create a rectangle, card, UI panel, border, poster, generic blob, letters, numbers, watermark, logo, or QR code. Avoid: 紫色科技渐变、发光大脑、玻璃卡片、每段一个方框、脏米黄色大底、生成中文、随机 AI 装饰、用概念图替代真实活动照片.",
+      "registration": {
+        "origin": "generated-illustrative",
+        "role": "inline-explainer",
+        "generated_for": "tuozhe-2026-autumn-recruitment-sourcezero"
+      },
+      "ardot_component_name": "WeChat/Ornament/InlineExplainer/Tuozhe Fresh"
+    },
+    {
+      "role": "closing-motif",
+      "purpose": "a small finishing illustration that gives the CTA a visual landing",
+      "aspect_ratio": "1:1",
+      "placement": "结尾主张与收束色带之间",
+      "status": "approved-and-registered",
+      "asset_id": "spot.prototype-handoff",
+      "storyboard_chapter": "join",
+      "source_text": "做出第一个项目，参加第一次共创，让第一个想法真正发生。",
+      "concrete_subject": "两只手交接一枚已经点亮的项目原型",
+      "action": "在报名路径末端完成交付",
+      "composition_role": "punctuation",
+      "prompt": "Create one text-free a small finishing illustration that gives the CTA a visual landing for 拓浙 AI 生态. Concrete subject: 两只手交接一枚已经点亮的项目原型. Depict this action: 在报名路径末端完成交付. Ground it only in this approved copy: 做出第一个项目，参加第一次共创，让第一个想法真正发生。. Chapter visual intent: 流程沿一条线落向二维码占位，交付原型视觉作为结尾落点。. Its composition job is punctuation at 结尾主张与收束色带之间. Follow the calibrated photo-led-campus-field-notes direction with motifs 正在运行的项目轨迹、蓝色会场座椅与屏幕、光标与版本标记、跨专业路径交汇、真实开发现场、未完成到完成的过程 and palette ink #0B1020, accent #0957D0, accent_alt #FF5B4D, surface_alt #EAF3FF. Aspect ratio 1:1. Use a transparent background or an irregular/open edge; keep generous negative space. Do not create a rectangle, card, UI panel, border, poster, generic blob, letters, numbers, watermark, logo, or QR code. Avoid: 紫色科技渐变、发光大脑、玻璃卡片、每段一个方框、脏米黄色大底、生成中文、随机 AI 装饰、用概念图替代真实活动照片.",
+      "registration": {
+        "origin": "generated-illustrative",
+        "role": "closing-motif",
+        "generated_for": "tuozhe-2026-autumn-recruitment-sourcezero"
+      },
+      "ardot_component_name": "WeChat/Ornament/ClosingMotif/Tuozhe Fresh"
+    }
+  ],
+  "required_sequence": [
+    "STOP if the organization route has no approved Ardot calibration benchmark",
+    "STOP if the narrative storyboard is not approved and complete",
+    "generate every missing slot before any article layout",
+    "inspect each image and reject rectangular, framed, generic, or text-bearing results",
+    "save and register approved images as generated-illustrative assets with generated_for_articles=tuozhe-2026-autumn-recruitment-sourcezero",
+    "record the registered IDs under article.visual_kit.assets",
+    "create native Ardot ornament components from the approved images",
+    "only then assemble the long article"
+  ]
+}

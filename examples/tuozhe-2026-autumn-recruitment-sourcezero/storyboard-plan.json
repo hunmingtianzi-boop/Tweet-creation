@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "kind": "org-wechat-storyboard-plan",
+  "article_id": "tuozhe-2026-autumn-recruitment-sourcezero",
+  "ready_for_visual_kit": true,
+  "errors": [],
+  "chapter_count": 6,
+  "composition_count": 6,
+  "chapters": [
+    {
+      "id": "opening",
+      "label": "第一步",
+      "thesis": "收藏教程，不如真正做出第一个项目。",
+      "composition": "photo-cascade-opening",
+      "visual_intent": "开发现场全景先进入，标题像一条正在运行的命令落在照片上方，光标原型从文字边缘启动。",
+      "density_intent": "Hero 保留一次有意停顿；标题、导语和现场照片必须在一个半屏内建立关系。",
+      "block_indices": [
+        0,
+        1
+      ]
+    },
+    {
+      "id": "identity",
+      "label": "同一条路径",
+      "thesis": "不同专业的人，可以在同一个真实项目里找到位置。",
+      "composition": "open-cross-discipline-path",
+      "visual_intent": "多条专业轨迹从左右边缘汇入一个开放工作点，正文不加外框。",
+      "density_intent": "两段正文与一条学习路径紧密连续，普通内容占用率不低于 70%。",
+      "block_indices": [
+        2,
+        3
+      ]
+    },
+    {
+      "id": "evidence",
+      "label": "已经发生",
+      "thesis": "真实照片、数字和跨界活动共同证明这不是概念社区。",
+      "composition": "evidence-contact-sheet",
+      "visual_intent": "大数字与三张不同尺度的现场照片交错，画面像正在更新的行动记录。",
+      "density_intent": "数字、照片和说明持续交替，最大无意空洞不超过 16%。",
+      "block_indices": [
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "id": "possibilities",
+      "label": "从试试到做出来",
+      "thesis": "学习、组队、比赛和真实问题是一条连续的行动链。",
+      "composition": "continuous-build-line",
+      "visual_intent": "一条不闭合的项目轨迹穿过五个动作，专属小组件在节点间接力。",
+      "density_intent": "五个动作以 72–96 px 节奏连续出现，不拆成五张卡。",
+      "block_indices": [
+        7,
+        8
+      ]
+    },
+    {
+      "id": "roles",
+      "label": "找到你的入口",
+      "thesis": "不以履历筛人，而是让不同能力进入同一件事。",
+      "composition": "staggered-role-bands",
+      "visual_intent": "五类方向用长短不同的开放色轨组织，跨专业交汇插图压住中部节奏。",
+      "density_intent": "角色条带高低错落但保持紧凑，正文与结论之间不出现大块空白。",
+      "block_indices": [
+        9,
+        10
+      ]
+    },
+    {
+      "id": "join",
+      "label": "让想法发生",
+      "thesis": "用一条清楚的报名路径结束，并保留缺失信息。",
+      "composition": "prototype-handoff-ending",
+      "visual_intent": "流程沿一条线落向二维码占位，交付原型视觉作为结尾落点。",
+      "density_intent": "CTA 允许一次收束留白；招募对象、流程、待补信息和结尾必须在一屏半内闭合。",
+      "block_indices": [
+        11,
+        12
+      ]
+    }
+  ]
+}

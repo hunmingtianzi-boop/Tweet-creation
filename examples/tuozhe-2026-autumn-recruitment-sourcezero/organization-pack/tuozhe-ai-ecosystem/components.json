@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "organization_id": "tuozhe-ai-ecosystem",
+  "components": [
+    {"id": "core.hero", "kind": "hero", "title": "Photo Cascade Hero", "uses": ["all"]},
+    {"id": "core.lead", "kind": "lead", "title": "Compact Editorial Lead", "uses": ["all"]},
+    {"id": "core.section", "kind": "section", "title": "Offset Index Section", "uses": ["all"]},
+    {"id": "core.text", "kind": "text", "title": "Open Text", "uses": ["all"]},
+    {"id": "core.statement", "kind": "statement", "title": "Open Statement", "uses": ["all"]},
+    {"id": "core.metrics", "kind": "metrics", "title": "Open Numerals", "uses": ["all"]},
+    {"id": "core.gallery", "kind": "gallery", "title": "Evidence Photo Cascade", "uses": ["all"]},
+    {"id": "core.steps", "kind": "steps", "title": "Continuous Build Line", "uses": ["all"]},
+    {"id": "core.roles", "kind": "roles", "title": "Staggered Role Bands", "uses": ["all"]},
+    {"id": "core.cta", "kind": "cta", "title": "Prototype Handoff", "uses": ["all"]},
+    {"id": "core.references", "kind": "references", "title": "Source Notes", "uses": ["all"]},
+    {"id": "core.footer", "kind": "footer", "title": "Closing Band", "uses": ["all"]}
+  ],
+  "recommendations": {"recruitment": ["core.hero", "core.lead", "core.section", "core.statement", "core.metrics", "core.gallery", "core.steps", "core.roles", "core.cta", "core.references", "core.footer"]}
+}

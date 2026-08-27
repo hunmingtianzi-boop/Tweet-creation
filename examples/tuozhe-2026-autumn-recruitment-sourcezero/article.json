@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "article_id": "tuozhe-2026-autumn-recruitment-sourcezero",
+  "organization_id": "tuozhe-ai-ecosystem",
+  "article_type": "recruitment",
+  "route": "action-field-notes",
+  "title": "AI 无界，等你拓新",
+  "summary": "面向浙江大学同学的拓浙 AI 生态 2026 秋季招新。",
+  "storyboard": {
+    "status": "approved",
+    "chapters": [
+      {"id": "opening", "label": "第一步", "thesis": "收藏教程，不如真正做出第一个项目。", "composition": "photo-cascade-opening", "visual_intent": "开发现场全景先进入，标题像一条正在运行的命令落在照片上方，光标原型从文字边缘启动。", "density_intent": "Hero 保留一次有意停顿；标题、导语和现场照片必须在一个半屏内建立关系。", "block_indices": [0, 1]},
+      {"id": "identity", "label": "同一条路径", "thesis": "不同专业的人，可以在同一个真实项目里找到位置。", "composition": "open-cross-discipline-path", "visual_intent": "多条专业轨迹从左右边缘汇入一个开放工作点，正文不加外框。", "density_intent": "两段正文与一条学习路径紧密连续，普通内容占用率不低于 70%。", "block_indices": [2, 3]},
+      {"id": "evidence", "label": "已经发生", "thesis": "真实照片、数字和跨界活动共同证明这不是概念社区。", "composition": "evidence-contact-sheet", "visual_intent": "大数字与三张不同尺度的现场照片交错，画面像正在更新的行动记录。", "density_intent": "数字、照片和说明持续交替，最大无意空洞不超过 16%。", "block_indices": [4, 5, 6]},
+      {"id": "possibilities", "label": "从试试到做出来", "thesis": "学习、组队、比赛和真实问题是一条连续的行动链。", "composition": "continuous-build-line", "visual_intent": "一条不闭合的项目轨迹穿过五个动作，专属小组件在节点间接力。", "density_intent": "五个动作以 72–96 px 节奏连续出现，不拆成五张卡。", "block_indices": [7, 8]},
+      {"id": "roles", "label": "找到你的入口", "thesis": "不以履历筛人，而是让不同能力进入同一件事。", "composition": "staggered-role-bands", "visual_intent": "五类方向用长短不同的开放色轨组织，跨专业交汇插图压住中部节奏。", "density_intent": "角色条带高低错落但保持紧凑，正文与结论之间不出现大块空白。", "block_indices": [9, 10]},
+      {"id": "join", "label": "让想法发生", "thesis": "用一条清楚的报名路径结束，并保留缺失信息。", "composition": "prototype-handoff-ending", "visual_intent": "流程沿一条线落向二维码占位，交付原型视觉作为结尾落点。", "density_intent": "CTA 允许一次收束留白；招募对象、流程、待补信息和结尾必须在一屏半内闭合。", "block_indices": [11, 12]}
+    ]
+  },
+  "visual_kit": {
+    "status": "approved",
+    "direction": "行动现场：用冰白纸面、钴蓝运行轨迹、珊瑚版本标记和真实开发照片，把想法从启动、交汇、构建到交付串成一条开放路径。",
+    "assets": [
+      {"id": "spot.cursor-prototype", "role": "floating-spot", "storyboard_chapter": "opening", "source_text": "收藏了很多 AI 教程，不如真正做出第一个项目。", "concrete_subject": "光标启动一枚可运行的桌面原型", "action": "从文字边缘点亮并向现场照片移动", "composition_role": "anchor", "placement": "Hero 导语与现场照片之间"},
+      {"id": "visual.discipline-confluence", "role": "section-transition", "storyboard_chapter": "identity", "source_text": "这里有计算机、工科、医学、金融、人文、传媒等不同专业的同学。", "concrete_subject": "六条专业材料轨迹汇入一个共同工作点", "action": "从左右边缘交汇并继续向下一章流动", "composition_role": "connector", "placement": "身份章节中部跨页转场"},
+      {"id": "visual.build-relay", "role": "inline-explainer", "storyboard_chapter": "possibilities", "source_text": "从“我想试试”到“这是我做出来的”", "concrete_subject": "一个项目原型在学习、组队、比赛与真实问题节点间接力", "action": "沿连续轨迹逐步组装并变得完整", "composition_role": "motion", "placement": "五个行动条目之间"},
+      {"id": "spot.prototype-handoff", "role": "closing-motif", "storyboard_chapter": "join", "source_text": "做出第一个项目，参加第一次共创，让第一个想法真正发生。", "concrete_subject": "两只手交接一枚已经点亮的项目原型", "action": "在报名路径末端完成交付", "composition_role": "punctuation", "placement": "结尾主张与收束色带之间"}
+    ]
+  },
+  "visual_review_file": "visual-review.json",
+  "blocks": [
+    {"type": "hero", "component": "core.hero", "eyebrow": "TUOZHE AI ECOSYSTEM · 2026 AUTUMN", "title": "AI 无界，\n等你拓新", "subtitle": "拓浙 AI 生态 2026 秋季招新", "cta": "从第一个项目开始"},
+    {"type": "lead", "component": "core.lead", "paragraphs": ["收藏了很多 AI 教程，不如真正做出第一个项目。", "想参加比赛，却找不到队友；有一个想法，却不知道怎样落地；想接触 AI，却不知道从哪里开始。", "如果你也有过这些想法，欢迎来到拓浙 AI 生态。"]},
+    {"type": "section", "component": "core.section", "number": "01", "title": "不同专业，走进同一件事", "kicker": "我们是谁"},
+    {"type": "statement", "component": "core.statement", "label": "AI × X LEARNING & BUILDING", "title": "这里不要求你已经很懂 AI。", "body": "拓浙 AI 生态，是一个面向浙江大学同学的 AI × X 学习与实践社区。这里有计算机、工科、医学、金融、人文、传媒等不同专业的同学。我们更希望帮你找到伙伴，开始实践，把想法真正做出来。学习 AI → 组队实践 → 完成项目 → 参加比赛 → 连接更多机会。"},
+    {"type": "section", "component": "core.section", "number": "02", "title": "不是概念，已经在发生", "kicker": "我们已经在做什么"},
+    {"type": "metrics", "component": "core.metrics", "items": [{"value": "1000+", "label": "技术同学连接", "source_id": "recruitment-copy-pdf"}, {"value": "多个 500+", "label": "AI 学习社群", "source_id": "recruitment-copy-pdf"}, {"value": "300 / 100", "label": "首届浙客松报名 / 参赛", "source_id": "recruitment-copy-pdf"}]},
+    {"type": "gallery", "component": "core.gallery", "images": [{"src": "photo.hackathon-wide", "alt": "浙客松现场，大量同学在阶梯教室使用电脑开发", "caption": "真实开发现场", "source_id": "user-photo-archive"}, {"src": "photo.hackathon-focus", "alt": "参赛同学戴耳机专注开发，周围多台电脑运行代码", "caption": "把想法敲成可以运行的东西", "source_id": "user-photo-archive"}, {"src": "photo.hackathon-exchange", "alt": "不同专业同学围在电脑旁交流项目", "caption": "交流、组队和反馈", "source_id": "user-photo-archive"}, {"src": "photo.beauty-hackathon-group", "alt": "AI 与美妆主题活动参与者合影", "caption": "AI × 美妆等跨界场景", "source_id": "user-photo-archive"}]},
+    {"type": "section", "component": "core.section", "number": "03", "title": "从“我想试试”到“这是我做出来的”", "kicker": "加入这里，你可以做什么"},
+    {"type": "steps", "component": "core.steps", "items": [{"title": "学 AI", "description": "从常用 AI 工具、Vibe Coding、知识库、智能体开始，边学边做。"}, {"title": "做项目", "description": "找到不同专业的伙伴，把一个想法做成真正可以展示的作品。"}, {"title": "打比赛", "description": "参加浙客松、跨学科比赛与 AI × X 共创活动。"}, {"title": "找伙伴", "description": "认识技术、产品、设计、内容以及不同专业的同学。"}, {"title": "接触真实问题", "description": "参与校园需求、企业课题和跨专业项目，把 AI 用到真实场景中。"}]},
+    {"type": "section", "component": "core.section", "number": "04", "title": "你可以从这里进入", "kicker": "我们在找这样的你"},
+    {"type": "roles", "component": "core.roles", "items": [{"name": "技术与 AI", "description": "AI 应用｜智能体｜平台开发｜软硬件"}, {"name": "产品与运营", "description": "产品策划｜用户研究｜活动组织｜项目管理"}, {"name": "内容与新媒体", "description": "推文｜采访｜摄影｜视频｜社交媒体"}, {"name": "视觉与设计", "description": "海报｜品牌视觉｜网站界面｜视频设计"}, {"name": "商务与资源合作", "description": "企业对接｜赛事合作｜资源整合｜项目落地"}, {"name": "我们更看重", "description": "好奇心、行动力，以及把事情做出来的热情。暂时没有经验，也欢迎你。"}]},
+    {"type": "section", "component": "core.section", "number": "05", "title": "让第一个想法真正发生", "kicker": "招新信息"},
+    {"type": "cta", "component": "core.cta", "title": "大学的第一年，不必马上知道最终会去哪里。", "body": "但你可以先找到一群愿意一起探索的人，做出第一个项目，参加第一次共创，让第一个想法真正发生。", "steps": ["招募对象：浙江大学全体在校同学，大一新生优先，年级、专业不限。", "报名时间：待组织补充报名起止时间", "招新流程：报名 → 初步交流 → 双向选择 → 正式加入", "报名方式：待组织提供报名二维码", "咨询方式：待组织提供咨询群二维码或联系方式"], "button": "拓浙 AI 生态 2026 秋季招新"},
+    {"type": "references", "component": "core.references", "items": [{"label": "招新文案与全部招募信息", "source_id": "recruitment-copy-pdf"}, {"label": "首届浙客松执行与现场事实", "source_id": "hackathon-execution-plan"}, {"label": "组织定位与项目主导学习逻辑", "source_id": "ai-ecosystem-speech"}, {"label": "活动照片", "source_id": "user-photo-archive"}]},
+    {"type": "footer", "component": "core.footer", "name": "拓浙 AI 生态", "tagline": "海纳百川，永不设限。", "credits": "本稿依据用户提供的原始文案与现场资料制作；报名日期、二维码与咨询方式仍待组织补充。"}
+  ]
+}
