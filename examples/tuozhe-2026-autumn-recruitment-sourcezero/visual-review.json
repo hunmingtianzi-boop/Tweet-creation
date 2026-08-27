@@ -18,12 +18,12 @@
   "density": {
     "mode": "compact-editorial",
     "samples": [
-      {"node_id": "8:24", "body_font_px": 15, "body_line_height_ratio": 1.53, "letter_spacing_px": 0, "paragraph_gap_px": 10, "content_occupancy_ratio": 0.82, "largest_empty_region_ratio": 0.12, "intentional_whitespace": true, "intentional_whitespace_reason": "Hero 在标题与真实现场照片之间保留一次开场停顿。"},
-      {"node_id": "8:25", "body_font_px": 15, "body_line_height_ratio": 1.53, "letter_spacing_px": 0, "paragraph_gap_px": 10, "content_occupancy_ratio": 0.77, "largest_empty_region_ratio": 0.16},
-      {"node_id": "8:26", "body_font_px": 15, "body_line_height_ratio": 1.53, "letter_spacing_px": 0, "paragraph_gap_px": 10, "content_occupancy_ratio": 0.86, "largest_empty_region_ratio": 0.10},
-      {"node_id": "8:27", "body_font_px": 15, "body_line_height_ratio": 1.53, "letter_spacing_px": 0, "paragraph_gap_px": 10, "content_occupancy_ratio": 0.84, "largest_empty_region_ratio": 0.10},
-      {"node_id": "8:28", "body_font_px": 15, "body_line_height_ratio": 1.53, "letter_spacing_px": 0, "paragraph_gap_px": 10, "content_occupancy_ratio": 0.82, "largest_empty_region_ratio": 0.12},
-      {"node_id": "8:29", "body_font_px": 15, "body_line_height_ratio": 1.53, "letter_spacing_px": 0, "paragraph_gap_px": 10, "content_occupancy_ratio": 0.79, "largest_empty_region_ratio": 0.16, "intentional_whitespace": true, "intentional_whitespace_reason": "CTA 在原型交接插图周围保留收束呼吸区。"}
+      {"node_id": "8:24", "body_font_px": 17, "body_line_height_ratio": 1.47, "letter_spacing_px": -0.2, "paragraph_gap_px": 8, "content_occupancy_ratio": 0.88, "largest_empty_region_ratio": 0.09, "intentional_whitespace": true, "intentional_whitespace_reason": "Hero 在标题与真实现场照片之间保留一次开场停顿。"},
+      {"node_id": "8:25", "body_font_px": 17, "body_line_height_ratio": 1.47, "letter_spacing_px": -0.2, "paragraph_gap_px": 8, "content_occupancy_ratio": 0.84, "largest_empty_region_ratio": 0.16},
+      {"node_id": "8:26", "body_font_px": 17, "body_line_height_ratio": 1.47, "letter_spacing_px": -0.2, "paragraph_gap_px": 8, "content_occupancy_ratio": 0.89, "largest_empty_region_ratio": 0.08},
+      {"node_id": "8:27", "body_font_px": 17, "body_line_height_ratio": 1.47, "letter_spacing_px": -0.2, "paragraph_gap_px": 8, "content_occupancy_ratio": 0.88, "largest_empty_region_ratio": 0.08},
+      {"node_id": "8:28", "body_font_px": 17, "body_line_height_ratio": 1.47, "letter_spacing_px": -0.2, "paragraph_gap_px": 8, "content_occupancy_ratio": 0.89, "largest_empty_region_ratio": 0.07},
+      {"node_id": "8:29", "body_font_px": 17, "body_line_height_ratio": 1.47, "letter_spacing_px": -0.2, "paragraph_gap_px": 8, "content_occupancy_ratio": 0.88, "largest_empty_region_ratio": 0.14, "intentional_whitespace": true, "intentional_whitespace_reason": "CTA 在原型交接插图周围保留收束呼吸区。"}
     ]
   },
   "checks": {
@@ -42,5 +42,5 @@
   },
   "status": "approved",
   "reviewed_at": "2026-08-27",
-  "notes": "六个章节均来自全新 Ardot 源文件。证据章节在最终指标文字修复后重新导出；仅保留刻意的错位照片重叠。"
+  "notes": "密度修订版：正文统一升至 17 px、25 px 行高、-0.2 px 中文字距；复杂底图上的长文字增加通栏冰白阅读带。仅保留刻意的错位照片重叠。"
 }

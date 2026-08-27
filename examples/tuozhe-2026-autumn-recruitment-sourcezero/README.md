@@ -7,6 +7,7 @@
 - Ardot 专属组件源：<https://ardot.tencent.com/file/719086033843150?node_id=8%3A18>
 - 视觉路线：行动现场 / Action Field Notes
 - 密度模式：compact-editorial
+- 密度修订：17 px 正文、25 px 行高、-0.2 px 中文字距；复杂底图上的长文必须使用通栏冰白阅读带。
 - 当前状态：视觉稿已完成并通过分段截图验收；报名日期、报名二维码、咨询方式仍待补充。
 
 ## 使用方法
