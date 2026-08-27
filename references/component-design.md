@@ -36,6 +36,7 @@ An individual article block may set `variant` when one deliberate exception is n
 - Give each long article at least one image-led moment and one full-width color or type transition.
 - Alternate layout families: open text, floating illustration, image, continuous path, evidence, action, quiet whitespace.
 - A hero is one visual moment. Keep the title, short subtitle, optional eyebrow, and at most one action label.
+- Give an expressive route 2–4 native display-type moments across hero, chapter, statement, key phrase, or CTA roles. Change scale, weight, stacking, baseline, or native outline treatment; do not turn headings into generated bitmaps. Keep body typography standard. See [expressive-typography.md](expressive-typography.md).
 - Use cards only when items are independently comparable. A semantic block does not automatically deserve its own background, border, radius, or shadow. Use rails, bands, whitespace, asymmetric illustration placement, or one continuous path for sequences.
 - Real people, events, facilities, projects, and outcomes use real or officially supplied photography. Generated images are illustrative brand assets only.
 
@@ -65,4 +66,4 @@ python3 scripts/build_ardot_manifest.py article.json \
   --output output/ORG_ID/article/ardot-manifest.json
 ```
 
-Inspect high-impact sections with Ardot screenshots at 390 px. Confirm that route families differ in composition, not only color; boxes do not exceed 20%; no two boxes are consecutive; and at least three moments visibly break symmetry or the text edge. Record five distinct Ardot nodes and all required checks in the separate screenshot-backed visual review. Keep the gallery and example article editable as native components and instances.
+Inspect high-impact sections with Ardot screenshots at 390 px. Confirm that route families differ in composition, not only color; boxes do not exceed 20%; no two boxes are consecutive; at least three moments visibly break symmetry or the text edge; and expressive type is selective, editable, and legible. Record five distinct Ardot nodes and all required checks in the separate screenshot-backed visual review. Keep the gallery and example article editable as native components and instances.

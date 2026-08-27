@@ -15,7 +15,7 @@ from typing import Any
 
 from build_storyboard import build_storyboard_plan
 from build_visual_kit import build_visual_kit_plan
-from workflow_quality import calibration_state, validate_visual_review
+from workflow_quality import calibration_state, validate_typography_plan, validate_visual_review
 
 
 REMOTE_SRC = re.compile(r"^(?:https?://|data:)", re.I)
@@ -503,6 +503,7 @@ def load_context(spec_path: Path, org_dir: Path, output_dir: Path, check: bool) 
 
 def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: bool) -> dict[str, Any]:
     ctx, spec = load_context(spec_path, org_dir, output_dir, check)
+    ardot_doc = read_json(org_dir / "ardot.json")
     calibration = calibration_state(ctx.organization, ctx.route.get("id"), ctx.assets_doc)
     ctx.errors.extend(calibration["blocking_reasons"])
     storyboard = build_storyboard_plan(spec_path)
@@ -517,6 +518,8 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
             "semantic_errors": [str(exc)],
             "blocking_reasons": [str(exc)],
         }
+    typography = validate_typography_plan(spec, ctx.organization, ardot_doc)
+    ctx.errors.extend(typography["errors"])
     serialized = json.dumps(spec, ensure_ascii=False)
     markers = sorted(set(match.group(0) for match in PLACEHOLDERS.finditer(serialized)))
     if markers:
@@ -692,6 +695,7 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
             "semantic_errors": visual_kit_plan["semantic_errors"],
             "ready": visual_kit_plan["ready_for_layout"],
         },
+        "typography": typography,
         "visual_review": visual_review_report,
         "component_ids": list(dict.fromkeys(ctx.component_ids)),
         "source_ids": sorted(ctx.used_source_ids),

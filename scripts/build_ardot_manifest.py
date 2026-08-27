@@ -12,7 +12,7 @@ from typing import Any
 from build_visual_kit import build_visual_kit_plan
 from build_storyboard import build_storyboard_plan
 from orgs import load_pack, validate_pack
-from workflow_quality import calibration_state
+from workflow_quality import calibration_state, validate_typography_plan
 
 
 TOKEN_NAMES = {
@@ -145,12 +145,13 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
     calibration = calibration_state(organization, route["id"], pack["assets"])
     storyboard = build_storyboard_plan(article_path)
     visual_kit_plan = build_visual_kit_plan(article_path, org_dir)
+    ardot = pack["ardot"]
+    typography = validate_typography_plan(article, organization, ardot)
     kit_asset_by_role = {
         item["role"]: item.get("asset_id")
         for item in visual_kit_plan["slots"]
         if item.get("asset_id")
     }
-    ardot = pack["ardot"]
     mode = ardot["variable_mode"]
     aliases = ardot.get("component_aliases", {})
     blocks: list[dict[str, Any]] = []
@@ -251,6 +252,7 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
         "storyboard": storyboard,
         "variables": variables,
         "visual_kit": visual_kit_plan,
+        "typography": typography,
         "chapters": chapters,
         "blocks": blocks,
         "assets": assets,
@@ -258,8 +260,10 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
             "STOP if calibration.ready is false",
             "STOP if storyboard.ready_for_visual_kit is false",
             "STOP if visual_kit.ready_for_layout is false",
+            "STOP if typography.ready is false",
             "generate four distinct micro illustrations, verify real Alpha, register them, and record native Ardot component evidence before article layout",
             "place only the calibrated background-family master and companions, varying crop and opacity instead of style",
+            "apply 2–4 approved expressive typography moments as native editable Ardot text styles; keep body copy standard and never bake Chinese display text into images",
             "apply or update the organization variable mode",
             "fetch reusable components by exact ardot_component name",
             "create missing semantic component variants before article assembly",
@@ -274,11 +278,13 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
                 calibration["ready"]
                 and storyboard["ready_for_visual_kit"]
                 and visual_kit_plan["ready_for_layout"]
+                and typography["ready"]
             ),
             "blocking": [
                 "organization or selected route lacks an approved Ardot calibration benchmark",
                 "article lacks an approved narrative storyboard with complete block coverage",
                 "article-specific visual kit lacks any required role or does not use four distinct generated micro assets",
+                "expressive typography is missing, flattened, ungrounded, unlicensed, or lacks native Ardot text-style evidence",
                 "layout started before micro illustrations became native Ardot components",
                 "missing component variant",
                 "unresolved asset",
@@ -296,6 +302,8 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
                 "minimum_unique_generated_micro_assets": 4,
                 "minimum_asymmetric_or_edge_breaking_moments": 3,
                 "default_container": "none",
+                "expressive_typography_moments": "2-4 when strategy is expressive-native",
+                "body_copy_typography": "standard-readable",
             },
             "unresolved_assets": unresolved,
             "requires_visual_review": True,

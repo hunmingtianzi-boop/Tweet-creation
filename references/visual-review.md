@@ -12,7 +12,9 @@
 
 还要为这五个节点记录 `density.mode`、`measured_from: ardot-node-properties-and-screenshot`、测量时间与密度样本。每个样本用 `screenshot_sha256` 绑定对应截图，并包含 `major_gap_px`；字段见 [information-density.md](information-density.md)。以下检查必须全部为 `pass`：
 
-`subject_relevance`, `style_coherence`, `no_clipped_ornaments`, `scale_variation`, `photo_illustration_harmony`, `no_generic_ai_decoration`, `no_unexplained_labels`, `editorial_rhythm`, `mobile_legibility`, `open_composition`, `information_density`, `background_family_coherence`.
+`subject_relevance`, `style_coherence`, `no_clipped_ornaments`, `scale_variation`, `photo_illustration_harmony`, `no_generic_ai_decoration`, `no_unexplained_labels`, `editorial_rhythm`, `mobile_legibility`, `open_composition`, `information_density`, `background_family_coherence`, `expressive_typography`, `no_baked_art_text`.
+
+`expressive_typography` 确认标题字有节制地出现在高影响位置，字重、断行、层级和组织性格匹配，不侵入正文阅读。`no_baked_art_text` 确认标题仍是 Ardot 可编辑文本节点，不是 AI 生成字图、扁平图片或仅轮廓存档。
 
 ```bash
 python3 scripts/build_visual_review.py visual-review.json --article article.json

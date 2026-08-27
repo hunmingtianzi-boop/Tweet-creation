@@ -100,6 +100,14 @@ def make_pack(root: Path) -> Path:
             "companion_asset_ids": ["background.companion"],
             "copy_safe_zone": "center 68% remains near-solid",
         },
+        "typography": {
+            "strategy": "expressive-native",
+            "editable_text_required": True,
+            "font_policy": "licensed-or-system-only",
+            "body_copy_remains_standard": True,
+            "approved_treatments": ["stacked-title", "mixed-weight", "stroke-offset"],
+            "maximum_moments_per_article": 4,
+        },
         "reviewed_at": "2026-08-27T09:00:00+08:00",
         "review_basis": ["source.current-materials"],
     }
@@ -253,6 +261,41 @@ def make_article(root: Path, pack: Path) -> Path:
         "title": "Fresh article",
         "storyboard": {"status": "approved", "chapters": chapters},
         "visual_kit": {"status": "approved", "assets": visual_assets},
+        "typography": {
+            "status": "approved",
+            "moments": [
+                {
+                    "role": "hero-title",
+                    "storyboard_chapter": "opening",
+                    "source_text": "第一步从一个真实问题开始。",
+                    "treatment": "stacked-title",
+                    "editable_text": True,
+                    "font_source": "licensed-or-system",
+                    "fallback_text_style": "Display/Hero/Fallback",
+                    "ardot_text_style": {
+                        "file_url": "https://ardot.example/fresh",
+                        "node_id": "41:1",
+                        "style_id": "40:1",
+                        "name": "Type/Display/Stacked/Fresh",
+                    },
+                },
+                {
+                    "role": "chapter-title",
+                    "storyboard_chapter": "identity",
+                    "source_text": "不同能力沿同一条路径汇合。",
+                    "treatment": "mixed-weight",
+                    "editable_text": True,
+                    "font_source": "licensed-or-system",
+                    "fallback_text_style": "Display/Chapter/Fallback",
+                    "ardot_text_style": {
+                        "file_url": "https://ardot.example/fresh",
+                        "node_id": "41:2",
+                        "style_id": "40:2",
+                        "name": "Type/Display/MixedWeight/Fresh",
+                    },
+                },
+            ],
+        },
         "blocks": blocks,
     }
     article_path = root / "article.json"
@@ -322,6 +365,7 @@ def add_visual_review(article_path: Path) -> Path:
                 "photo_illustration_harmony", "no_generic_ai_decoration", "no_unexplained_labels",
                 "editorial_rhythm", "mobile_legibility", "open_composition", "information_density",
                 "background_family_coherence",
+                "expressive_typography", "no_baked_art_text",
             )
         },
         "status": "approved",
@@ -374,6 +418,14 @@ class OrganizationPackTests(FreshWorkflowTestCase):
         self.assertFalse(report["ok"])
         self.assertTrue(any("background_family" in item for item in report["errors"]))
 
+    def test_typography_calibration_is_mandatory(self) -> None:
+        organization = json.loads((self.pack / "organization.json").read_text(encoding="utf-8"))
+        organization["visual"]["calibration"].pop("typography")
+        write_json(self.pack / "organization.json", organization)
+        report = validate_pack(self.pack)
+        self.assertFalse(report["ok"])
+        self.assertTrue(any("typography" in item for item in report["errors"]))
+
     def test_opaque_micro_asset_fails_pixel_alpha_check(self) -> None:
         opaque = self.pack / "assets" / "generated" / "opaque.png"
         write_png(opaque, 256, 256, alpha=False)
@@ -419,6 +471,24 @@ class VisualKitTests(FreshWorkflowTestCase):
         serialized = json.dumps(plan, ensure_ascii=False)
         self.assertIn("prior article layouts", serialized)
         self.assertIn("background_family_trial", serialized)
+        self.assertIn("typography_trial", serialized)
+
+    def test_art_type_must_remain_native_editable_text(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article["typography"]["moments"][0]["editable_text"] = False
+        article["typography"]["moments"][0]["asset_id"] = "generated-title.png"
+        write_json(self.article, article)
+        manifest = build_manifest(self.article, self.pack)
+        self.assertFalse(manifest["qa"]["ready_for_layout"])
+        self.assertTrue(any("baked text assets" in item for item in manifest["typography"]["errors"]))
+
+    def test_art_type_moments_require_distinct_native_text_nodes(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article["typography"]["moments"][1]["ardot_text_style"]["node_id"] = "41:1"
+        write_json(self.article, article)
+        manifest = build_manifest(self.article, self.pack)
+        self.assertFalse(manifest["qa"]["ready_for_layout"])
+        self.assertTrue(any("reuses an Ardot text node" in item for item in manifest["typography"]["errors"]))
 
     def test_storyboard_density_intent_is_mandatory(self) -> None:
         article = json.loads(self.article.read_text(encoding="utf-8"))
@@ -434,6 +504,8 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
         self.assertTrue(manifest["qa"]["ready_for_layout"])
         self.assertEqual(manifest["handoff"]["source_of_truth"], "ardot-native")
         self.assertEqual(manifest["qa"]["layout_policy"]["minimum_unique_generated_micro_assets"], 4)
+        self.assertTrue(manifest["typography"]["ready"])
+        self.assertEqual(manifest["typography"]["moment_count"], 2)
         self.assertTrue(all(block["container_policy"] == "open-by-default" for block in manifest["blocks"]))
 
     def test_compile_passes_only_with_hashed_390px_ardot_evidence(self) -> None:

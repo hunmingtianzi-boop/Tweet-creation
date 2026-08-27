@@ -22,6 +22,7 @@
 - 透明图经过 Alpha 文件检查；预览棋盘格不能当作透明证明。
 - Inspect the native Ardot article and its high-impact component screenshots at 390 px before creating transport files.
 - Body type remains readable and paragraphs are not dense walls of text.
+- Expressive typography appears only in 2–4 approved high-impact moments, uses grounded article copy, licensed/system fonts, native editable Ardot text nodes, and a standard fallback; no generated or flattened Chinese title image replaces the source text.
 - Default body typography is checked against the selected density mode; `compact-editorial` uses 15–17 px type, 1.45–1.62 line-height, -0.2–0 px Chinese tracking, 8–14 px paragraph spacing, and 24–40 px major intra-section gaps.
 - Five screenshot-backed density samples record content occupancy and largest empty region; ordinary sections target 68%–90% occupancy and at most 20% accidental empty space.
 - AI backgrounds, when used, belong to one recorded family with a master and companion variants; copy remains on near-solid safe zones and chapters do not switch to unrelated generated styles.
@@ -31,7 +32,7 @@
 - At least three moments visibly break symmetry or enter from the text edge.
 - Long articles vary section rhythm through open text, micro illustrations, continuous paths, image breaks, full-width transitions, and quiet whitespace.
 - Every semantic block does not own a background, border, radius, or shadow.
-- A separate visual review v2 records five distinct local 390 px Ardot node exports, hashes, dimensions, capture metadata, density-to-screenshot bindings, and all twelve required visual checks; article JSON cannot self-certify the design.
+- A separate visual review v2 records five distinct local 390 px Ardot node exports, hashes, dimensions, capture metadata, density-to-screenshot bindings, and all fourteen required visual checks; article JSON cannot self-certify the design.
 - Images have useful alt text and important subjects remain legible on a phone.
 - No clipped text, overflow, accidental large empty region, or component instance with the wrong organization mode remains.
 - `index.html` may be used only to debug the final transport adapter; it does not replace Ardot visual review.

@@ -46,6 +46,41 @@ The compiler accepts UTF-8 JSON:
       }
     ]
   },
+  "typography": {
+    "status": "approved",
+    "moments": [
+      {
+        "role": "hero-title",
+        "storyboard_chapter": "opening",
+        "source_text": "Main title",
+        "treatment": "stacked-title",
+        "editable_text": true,
+        "font_source": "licensed-or-system",
+        "fallback_text_style": "Display/Hero/Fallback",
+        "ardot_text_style": {
+          "file_url": "https://ardot.example/current-organization",
+          "node_id": "14:7",
+          "style_id": "13:2",
+          "name": "Type/Display/Stacked/Current Mode"
+        }
+      },
+      {
+        "role": "statement",
+        "storyboard_chapter": "opening",
+        "source_text": "Supporting statement",
+        "treatment": "mixed-weight",
+        "editable_text": true,
+        "font_source": "licensed-or-system",
+        "fallback_text_style": "Display/Statement/Fallback",
+        "ardot_text_style": {
+          "file_url": "https://ardot.example/current-organization",
+          "node_id": "14:8",
+          "style_id": "13:3",
+          "name": "Type/Display/MixedWeight/Current Mode"
+        }
+      }
+    ]
+  },
   "visual_review_file": "article-visual-review.json",
   "blocks": [
     {
@@ -88,6 +123,8 @@ python3 scripts/build_ardot_manifest.py article.json \
 
 Every storyboard chapter must declare `density_intent`; ordinary chapters default to `compact-editorial`, while intentional open space is reserved for Hero, transition, or ending moments. After assembly, create a separate screenshot-backed visual review and store its path in `visual_review_file`. It must cover five distinct Ardot nodes, include five density samples, and pass every check in [visual-review.md](visual-review.md). A Boolean or count written inside the article cannot self-approve the design.
 
+When organization calibration chooses `expressive-native`, `typography.moments` must contain at least two grounded display moments (up to the organization maximum) across at least two semantic roles and treatments. Each moment stays as a native editable Ardot text node, uses a licensed or system font, has a standard fallback, and records file/node/style/name evidence. See [expressive-typography.md](expressive-typography.md). Do not reference an image or asset ID for display copy.
+
 ## Supported blocks
 
 - `hero`: `title`, optional `subtitle`, `eyebrow`, `background`, `background_alt`, `cta`.
@@ -120,4 +157,5 @@ Asset registry IDs such as `visual.hero-example` resolve from the organization p
 - Missing local images block `--check`.
 - Missing visual-kit roles, fewer than four distinct current-article generated micro assets, failed Alpha/aspect validation, missing native Ardot component evidence, or non-generated assets in the kit block `--check`.
 - A missing organization/route calibration, incomplete storyboard, ungrounded visual subject, or failed `visual_review_file` blocks `--check`.
+- Missing expressive typography evidence, a baked title image, an unlicensed font, or an ungrounded display phrase blocks `--check` when the organization uses `expressive-native`.
 - A QR image that is not explicitly official or user-supplied blocks `--check`.

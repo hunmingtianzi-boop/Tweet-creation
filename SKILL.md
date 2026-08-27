@@ -34,7 +34,7 @@ For commands and file locations, read [references/使用说明.md](references/�
    ```
 
    Show only a hero, chapter, real-photo treatment, micro visual, and density strip for each direction. If generated backgrounds are used, create one master plus 1–3 companions in the same family during calibration. Stop until one route, the family asset IDs/copy-safe zone, and its Ardot file/page/node are recorded under `organization.visual.calibration`. A provisional organization never proceeds to a full article.
-6. For an article, read [references/article-schema.md](references/article-schema.md), [references/storyboard.md](references/storyboard.md), [references/ardot-workflow.md](references/ardot-workflow.md), and [references/organic-layout.md](references/organic-layout.md). Write and approve a 4–10 chapter narrative storyboard before generating visuals:
+6. For an article, read [references/article-schema.md](references/article-schema.md), [references/storyboard.md](references/storyboard.md), [references/expressive-typography.md](references/expressive-typography.md), [references/ardot-workflow.md](references/ardot-workflow.md), and [references/organic-layout.md](references/organic-layout.md). Write and approve a 4–10 chapter narrative storyboard before generating visuals:
 
    ```bash
    python3 scripts/build_storyboard.py article.json \
@@ -112,6 +112,7 @@ For commands and file locations, read [references/使用说明.md](references/�
 - Default every block to an open composition with no enclosing background, border, radius, or shadow. Add a container only when the content truly needs comparison, interaction, or a hard boundary.
 - Do not begin the article root until the four micro-visual roles exist as native Ardot components. Use them beside text, across transitions, along a continuous path, and near the ending—not as rectangular panel backgrounds.
 - Keep body copy readable on a solid or near-solid surface. Use strong backgrounds for covers, transitions, evidence summaries, calls to action, and endings.
+- Use 2–4 approved expressive typography moments for hero, chapter, statement, key phrase, or CTA roles when the organization chooses `expressive-native`. Keep every moment as a licensed/system-font Ardot text node with an exact style/node reference and a standard fallback. Never bake Chinese display copy into generated images.
 - Keep closed boxes at or below 20% of content sections, never place two boxed sections consecutively, and include at least three asymmetric or edge-breaking visual moments.
 - Judge openness, rhythm, clipping, scale variation, photo/illustration harmony, mobile legibility, and subject relevance from real Ardot screenshots. Never let article JSON self-certify its own visual quality.
 - Vary long-article rhythm through open text, generated micro illustrations, continuous paths, full-width transitions, image breaks, and quiet whitespace. Never solve missing visual rhythm by adding cards.
@@ -148,10 +149,11 @@ Treat any of the following as blocking for final delivery:
 - more than 20% boxed content sections, two consecutive boxes, or every block owning a background/border/radius container;
 - missing organization/route calibration benchmark or provisional organization status;
 - missing generated background family, master, 1–3 companions, copy-safe zone, or mismatched family metadata;
+- missing organization typography calibration; or, for `expressive-native`, fewer than two grounded article moments, unapproved treatments, unlicensed fonts, missing/duplicate Ardot text-node evidence, or baked text assets;
 - missing or incomplete narrative storyboard;
 - a visual-kit item without grounded source copy, a specific subject/action, or a chapter/composition role;
 - missing or failing screenshot-backed `visual_review_file` before final transport;
-- missing `information_density` / `background_family_coherence` screenshot checks, unhashed/non-390 px Ardot exports, fewer than five density samples, `compact-editorial` major gaps outside 24–40 px, body line-height outside the selected mode, or an accidental empty region larger than 20% of a sampled section;
+- missing `information_density` / `background_family_coherence` / `expressive_typography` / `no_baked_art_text` screenshot checks, unhashed/non-390 px Ardot exports, fewer than five density samples, `compact-editorial` major gaps outside 24–40 px, body line-height outside the selected mode, or an accidental empty region larger than 20% of a sampled section;
 - a metric without a source ID;
 - a quote without attribution or source ID;
 - mismatched organization IDs across registries;

@@ -40,6 +40,12 @@ def build_directions(org_dir: Path, article_type: str) -> dict[str, Any]:
     motifs = "、".join(organization["visual"].get("motifs", []))
     provenance = organization.get("provenance", {})
     visual_input_source_ids = provenance.get("visual_input_source_ids", [])
+    personality = organization.get("personality", {})
+    typography_strategy = (
+        "expressive-native"
+        if personality.get("experimental", 0) >= 60 or personality.get("action", 0) >= 65
+        else "restrained-native"
+    )
     directions: list[dict[str, Any]] = []
     for route in route_candidates:
         base = (
@@ -67,6 +73,18 @@ def build_directions(org_dir: Path, article_type: str) -> dict[str, Any]:
                     "companions": "Generate 1 to 3 variants with the same spatial logic, material, light, and palette.",
                     "forbidden": "Do not generate unrelated chapter backgrounds or use generated scenes as documentary evidence.",
                 },
+                "typography_trial": {
+                    "recommended_strategy": typography_strategy,
+                    "compare": ["hero-title", "chapter-title"],
+                    "candidate_treatments": ["stacked-title", "mixed-weight", "stroke-offset"],
+                    "requirements": [
+                        "native editable Ardot text nodes",
+                        "licensed or system fonts only",
+                        "standard readable body copy",
+                        "fallback text style for every expressive moment",
+                    ],
+                    "forbidden": "No AI-generated Chinese lettering bitmap, flattened title image, or outlined-only critical copy.",
+                },
             }
         )
     state = calibration_state(organization, assets_doc=pack["assets"])
@@ -89,6 +107,7 @@ def build_directions(org_dir: Path, article_type: str) -> dict[str, Any]:
         "required_review": {
             "compare": ["hero", "chapter", "photo-composition", "micro-visual", "density-strip"],
             "background_family": ["master", "1-3 companions", "copy-safe zone", "same-family continuity"],
+            "typography": ["strategy", "approved treatments", "editable text", "body-copy fallback"],
             "approve_one_route_in": "organization.visual.calibration.approved_routes",
             "record_benchmark": ["file_url", "page_name", "article_node_id"],
             "stop_before_full_article": True,

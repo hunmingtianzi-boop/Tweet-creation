@@ -51,7 +51,7 @@ Required visual tokens:
 
 Routes use a layout family from `editorial`, `poster`, `technical`, `institutional`, or `warm-community`. These are compositional behaviors, not fixed brands.
 
-`visual.calibration` records `status`, `approved_routes`, a benchmark with Ardot `file_url`, `page_name`, and `article_node_id`, plus review metadata. Approval also requires a generated `background_family` with `id`, `strategy: generated-family`, `master_asset_id`, 1–3 `companion_asset_ids`, and `copy_safe_zone`. New organizations start at `not-started`; full-article production remains blocked until the chosen route and family are approved. See [visual-calibration.md](visual-calibration.md).
+`visual.calibration` records `status`, `approved_routes`, a benchmark with Ardot `file_url`, `page_name`, and `article_node_id`, plus review metadata. Approval also requires a generated `background_family` with `id`, `strategy: generated-family`, `master_asset_id`, 1–3 `companion_asset_ids`, and `copy_safe_zone`. Its `typography` object selects `expressive-native` or `restrained-native`, requires editable licensed/system-font text and standard body copy, lists approved treatments, and sets a 2–4 moment ceiling. New organizations start at `not-started`; full-article production remains blocked until the chosen route, family, and typography strategy are approved. See [visual-calibration.md](visual-calibration.md) and [expressive-typography.md](expressive-typography.md).
 
 ## `sources.json`
 

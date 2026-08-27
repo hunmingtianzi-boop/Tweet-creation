@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from asset_quality import validate_micro_asset
+from workflow_quality import ALLOWED_ART_TYPE_TREATMENTS, ALLOWED_TYPOGRAPHY_STRATEGIES
 
 
 HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
@@ -251,6 +252,36 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
             )
             if not 1 <= len(companions) <= 3:
                 errors.append("approved background family requires 1 to 3 companion assets")
+        typography = require_dict(
+            calibration.get("typography"),
+            "organization.visual.calibration.typography",
+            errors,
+        )
+        if typography.get("strategy") not in ALLOWED_TYPOGRAPHY_STRATEGIES:
+            errors.append("approved typography strategy must be expressive-native or restrained-native")
+        if typography.get("editable_text_required") is not True:
+            errors.append("approved typography must require editable native text")
+        if typography.get("font_policy") != "licensed-or-system-only":
+            errors.append("approved typography font_policy must be licensed-or-system-only")
+        if typography.get("body_copy_remains_standard") is not True:
+            errors.append("approved typography must keep body copy standard")
+        treatments = require_list(
+            typography.get("approved_treatments"),
+            "organization.visual.calibration.typography.approved_treatments",
+            errors,
+        )
+        if not treatments:
+            errors.append("approved typography requires at least one treatment")
+        for treatment in treatments:
+            if treatment not in ALLOWED_ART_TYPE_TREATMENTS:
+                errors.append(f"approved typography has invalid treatment: {treatment}")
+        maximum_moments = typography.get("maximum_moments_per_article")
+        if (
+            not isinstance(maximum_moments, int)
+            or isinstance(maximum_moments, bool)
+            or not 2 <= maximum_moments <= 4
+        ):
+            errors.append("approved typography maximum_moments_per_article must be 2 to 4")
     elif org.get("status") == "confirmed":
         warnings.append("confirmed organization lacks approved visual calibration; full article production is blocked")
 
@@ -569,6 +600,14 @@ def scaffold(org_id: str, name: str) -> dict[str, Any]:
         "calibration": {
             "status": "not-started", "approved_routes": [], "benchmark": None,
             "density_mode": "compact-editorial", "background_family": None,
+            "typography": {
+                "strategy": "calibrate",
+                "editable_text_required": True,
+                "font_policy": "licensed-or-system-only",
+                "body_copy_remains_standard": True,
+                "approved_treatments": [],
+                "maximum_moments_per_article": 4,
+            },
             "reviewed_at": None, "review_basis": [],
         },
     }

@@ -26,6 +26,8 @@ REQUIRED_VISUAL_CHECKS = {
     "open_composition",
     "information_density",
     "background_family_coherence",
+    "expressive_typography",
+    "no_baked_art_text",
 }
 REQUIRED_SCREENSHOT_ROLES = {"hero", "chapter", "evidence", "complex-section", "cta"}
 ALLOWED_DENSITY_MODES = {"compact-editorial", "standard", "spacious-feature"}
@@ -53,6 +55,18 @@ DENSITY_BANDS = {
     },
 }
 ALLOWED_COMPOSITION_ROLES = {"anchor", "motion", "connector", "punctuation"}
+ALLOWED_TYPOGRAPHY_STRATEGIES = {"expressive-native", "restrained-native"}
+ALLOWED_ART_TYPE_ROLES = {"hero-title", "chapter-title", "statement", "key-phrase", "cta-title"}
+ALLOWED_ART_TYPE_TREATMENTS = {
+    "mixed-weight",
+    "stacked-title",
+    "baseline-shift",
+    "stroke-offset",
+    "outline-shadow",
+    "hand-drawn-accent",
+    "compressed-display",
+    "vertical-accent",
+}
 GENERIC_VISUAL_SUBJECTS = {
     "ai",
     "ai科技",
@@ -199,6 +213,47 @@ def background_family_state(
     }
 
 
+def typography_calibration_state(organization: dict[str, Any]) -> dict[str, Any]:
+    calibration = organization.get("visual", {}).get("calibration")
+    typography = calibration.get("typography") if isinstance(calibration, dict) else None
+    reasons: list[str] = []
+    if not isinstance(typography, dict):
+        typography = {}
+        reasons.append("visual calibration requires a typography strategy")
+    strategy = typography.get("strategy")
+    if strategy not in ALLOWED_TYPOGRAPHY_STRATEGIES:
+        reasons.append("typography.strategy must be expressive-native or restrained-native")
+    if typography.get("editable_text_required") is not True:
+        reasons.append("typography must require editable native text")
+    if typography.get("font_policy") != "licensed-or-system-only":
+        reasons.append("typography.font_policy must be licensed-or-system-only")
+    if typography.get("body_copy_remains_standard") is not True:
+        reasons.append("typography must keep body copy on a standard readable style")
+    approved_treatments = typography.get("approved_treatments")
+    if not isinstance(approved_treatments, list) or not approved_treatments:
+        approved_treatments = []
+        reasons.append("typography requires approved_treatments")
+    else:
+        invalid = sorted(
+            treatment
+            for treatment in approved_treatments
+            if treatment not in ALLOWED_ART_TYPE_TREATMENTS
+        )
+        if invalid:
+            reasons.append("typography has invalid approved treatments: " + ", ".join(invalid))
+    maximum = typography.get("maximum_moments_per_article")
+    if not isinstance(maximum, int) or isinstance(maximum, bool) or not 2 <= maximum <= 4:
+        reasons.append("typography.maximum_moments_per_article must be 2 to 4")
+        maximum = 4
+    return {
+        "ready": not reasons,
+        "strategy": strategy,
+        "approved_treatments": approved_treatments,
+        "maximum_moments_per_article": maximum,
+        "blocking_reasons": reasons,
+    }
+
+
 def calibration_state(
     organization: dict[str, Any],
     route_id: str | None = None,
@@ -214,6 +269,7 @@ def calibration_state(
     reasons: list[str] = []
     isolation = source_isolation_state(organization)
     background_family = background_family_state(organization, assets_doc)
+    typography = typography_calibration_state(organization)
     reasons.extend(isolation["blocking_reasons"])
     if organization_status == "provisional":
         reasons.append("organization status is provisional")
@@ -230,6 +286,7 @@ def calibration_state(
     ):
         reasons.append("visual calibration lacks an Ardot benchmark file, page, and article node")
     reasons.extend(background_family["blocking_reasons"])
+    reasons.extend(typography["blocking_reasons"])
     return {
         "ready": not reasons,
         "status": calibration.get("status", "missing"),
@@ -237,6 +294,7 @@ def calibration_state(
         "benchmark": benchmark,
         "source_isolation": isolation,
         "background_family": background_family,
+        "typography": typography,
         "blocking_reasons": reasons,
     }
 
@@ -278,6 +336,107 @@ def concrete_subject_is_specific(subject: Any) -> bool:
         and normalized not in GENERIC_VISUAL_SUBJECTS
         and not GENERIC_SUBJECT_PATTERN.fullmatch(normalized)
     )
+
+
+def validate_typography_plan(
+    article: dict[str, Any],
+    organization: dict[str, Any],
+    ardot: dict[str, Any],
+) -> dict[str, Any]:
+    calibration = typography_calibration_state(organization)
+    errors: list[str] = []
+    plan = article.get("typography")
+    strategy = calibration["strategy"]
+    if strategy == "restrained-native" and not isinstance(plan, dict):
+        return {
+            "ready": calibration["ready"],
+            "strategy": strategy,
+            "moment_count": 0,
+            "roles": [],
+            "treatments": [],
+            "errors": calibration["blocking_reasons"],
+        }
+    if not isinstance(plan, dict):
+        plan = {}
+        errors.append("expressive-native typography requires article.typography")
+    if plan.get("status") != "approved":
+        errors.append("article.typography.status must be approved")
+    moments_raw = plan.get("moments")
+    moments = [item for item in moments_raw if isinstance(item, dict)] if isinstance(moments_raw, list) else []
+    minimum = 2 if strategy == "expressive-native" else 0
+    maximum = calibration["maximum_moments_per_article"]
+    if not minimum <= len(moments) <= maximum:
+        errors.append(f"article typography requires {minimum} to {maximum} expressive moments")
+    grounded_texts = article_texts(article)
+    storyboard = article.get("storyboard") if isinstance(article.get("storyboard"), dict) else {}
+    chapter_ids = {
+        item.get("id")
+        for item in storyboard.get("chapters", [])
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+    roles: set[str] = set()
+    treatments: set[str] = set()
+    text_node_ids: set[str] = set()
+    design_file = ardot.get("design_file") if isinstance(ardot.get("design_file"), dict) else {}
+    design_url = design_file.get("url")
+    approved_treatments = set(calibration["approved_treatments"])
+    for index, moment in enumerate(moments):
+        role = moment.get("role")
+        if role not in ALLOWED_ART_TYPE_ROLES:
+            errors.append(f"typography moment {index} has invalid role: {role}")
+        else:
+            roles.add(role)
+        chapter_id = moment.get("storyboard_chapter")
+        if chapter_id not in chapter_ids:
+            errors.append(f"typography moment {index} references unknown storyboard chapter: {chapter_id}")
+        source_text = moment.get("source_text")
+        if not source_text_is_grounded(source_text, grounded_texts):
+            errors.append(f"typography moment {index} source_text is not grounded in article copy")
+        elif len(source_text.strip()) > 40:
+            errors.append(f"typography moment {index} source_text is too long for display lettering")
+        treatment = moment.get("treatment")
+        if treatment not in approved_treatments:
+            errors.append(f"typography moment {index} uses an unapproved treatment: {treatment}")
+        else:
+            treatments.add(treatment)
+        if moment.get("editable_text") is not True:
+            errors.append(f"typography moment {index} must remain editable native text")
+        if moment.get("font_source") != "licensed-or-system":
+            errors.append(f"typography moment {index} font_source must be licensed-or-system")
+        if not isinstance(moment.get("fallback_text_style"), str) or not moment.get("fallback_text_style"):
+            errors.append(f"typography moment {index} requires fallback_text_style")
+        text_style = moment.get("ardot_text_style")
+        if not isinstance(text_style, dict):
+            errors.append(f"typography moment {index} requires ardot_text_style evidence")
+            continue
+        for field in ("file_url", "node_id", "style_id", "name"):
+            if not isinstance(text_style.get(field), str) or not text_style.get(field):
+                errors.append(f"typography moment {index} ardot_text_style.{field} is required")
+        if text_style.get("file_url") != design_url:
+            errors.append(f"typography moment {index} text style must belong to the organization Ardot file")
+        text_node_id = text_style.get("node_id")
+        if isinstance(text_node_id, str) and text_node_id:
+            if text_node_id in text_node_ids:
+                errors.append(f"typography moment {index} reuses an Ardot text node")
+            text_node_ids.add(text_node_id)
+        forbidden_asset_fields = {"asset_id", "src", "image", "raster_text"} & set(moment)
+        if forbidden_asset_fields:
+            errors.append(
+                f"typography moment {index} must not use baked text assets: "
+                + ", ".join(sorted(forbidden_asset_fields))
+            )
+    if strategy == "expressive-native" and len(roles) < 2:
+        errors.append("expressive typography requires at least 2 different semantic roles")
+    if strategy == "expressive-native" and len(treatments) < 2:
+        errors.append("expressive typography requires at least 2 different treatments")
+    return {
+        "ready": calibration["ready"] and not errors,
+        "strategy": strategy,
+        "moment_count": len(moments),
+        "roles": sorted(roles),
+        "treatments": sorted(treatments),
+        "errors": calibration["blocking_reasons"] + errors,
+    }
 
 
 def validate_visual_review(
