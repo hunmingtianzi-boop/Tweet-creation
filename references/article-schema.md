@@ -37,7 +37,12 @@ The compiler accepts UTF-8 JSON:
         "concrete_subject": "A named organization object",
         "action": "enters along the reading direction",
         "composition_role": "anchor",
-        "placement": "lead right edge"
+        "placement": "lead right edge",
+        "ardot_component": {
+          "file_url": "https://ardot.example/current-organization",
+          "node_id": "12:34",
+          "name": "WeChat/Ornament/FloatingSpot/Current Mode"
+        }
       }
     ]
   },
@@ -73,7 +78,7 @@ python3 scripts/build_visual_kit.py article.json \
   --output output/<organization-id>/<slug>/visual-kit-plan.json
 ```
 
-The four required roles are `floating-spot`, `section-transition`, `inline-explainer`, and `closing-motif`. Every entry must bind to exact article copy and one approved storyboard chapter, with a specific subject/action and a composition role of `anchor`, `motion`, `connector`, or `punctuation`. Use at least three different composition roles and three distinct generated assets. Then generate the Ardot assembly manifest:
+The four required roles are `floating-spot`, `section-transition`, `inline-explainer`, and `closing-motif`. Every entry must bind to exact article copy and one approved storyboard chapter, with a specific subject/action and a composition role of `anchor`, `motion`, `connector`, or `punctuation`. Use at least three different composition roles and four distinct generated assets. Every asset must pass pixel Alpha/aspect validation and record its native Ardot component file URL, node ID, and exact name. Then generate the Ardot assembly manifest:
 
 ```bash
 python3 scripts/build_ardot_manifest.py article.json \
@@ -113,6 +118,6 @@ Asset registry IDs such as `visual.hero-example` resolve from the organization p
 - A quote without attribution or `source_id` blocks `--check`.
 - Placeholders such as `待补充`, `待确认`, `TBD`, and `PLACEHOLDER` block `--check`.
 - Missing local images block `--check`.
-- Missing visual-kit roles, fewer than three unique generated micro assets, or non-generated assets in the kit block `--check`.
+- Missing visual-kit roles, fewer than four distinct current-article generated micro assets, failed Alpha/aspect validation, missing native Ardot component evidence, or non-generated assets in the kit block `--check`.
 - A missing organization/route calibration, incomplete storyboard, ungrounded visual subject, or failed `visual_review_file` blocks `--check`.
 - A QR image that is not explicitly official or user-supplied blocks `--check`.

@@ -142,7 +142,7 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
     if article.get("organization_id") != organization.get("id"):
         raise ValueError("article organization_id does not match the organization pack")
     route = choose_route(article, organization)
-    calibration = calibration_state(organization, route["id"])
+    calibration = calibration_state(organization, route["id"], pack["assets"])
     storyboard = build_storyboard_plan(article_path)
     visual_kit_plan = build_visual_kit_plan(article_path, org_dir)
     kit_asset_by_role = {
@@ -258,7 +258,8 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
             "STOP if calibration.ready is false",
             "STOP if storyboard.ready_for_visual_kit is false",
             "STOP if visual_kit.ready_for_layout is false",
-            "generate, inspect, register, and componentize the four micro illustrations before article layout",
+            "generate four distinct micro illustrations, verify real Alpha, register them, and record native Ardot component evidence before article layout",
+            "place only the calibrated background-family master and companions, varying crop and opacity instead of style",
             "apply or update the organization variable mode",
             "fetch reusable components by exact ardot_component name",
             "create missing semantic component variants before article assembly",
@@ -277,7 +278,7 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
             "blocking": [
                 "organization or selected route lacks an approved Ardot calibration benchmark",
                 "article lacks an approved narrative storyboard with complete block coverage",
-                "article-specific visual kit lacks any required role or has fewer than three unique generated micro assets",
+                "article-specific visual kit lacks any required role or does not use four distinct generated micro assets",
                 "layout started before micro illustrations became native Ardot components",
                 "missing component variant",
                 "unresolved asset",
@@ -292,7 +293,7 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
                 "maximum_boxed_section_ratio": 0.2,
                 "maximum_consecutive_boxed_sections": 1,
                 "minimum_micro_illustration_roles": 4,
-                "minimum_unique_generated_micro_assets": 3,
+                "minimum_unique_generated_micro_assets": 4,
                 "minimum_asymmetric_or_edge_breaking_moments": 3,
                 "default_container": "none",
             },

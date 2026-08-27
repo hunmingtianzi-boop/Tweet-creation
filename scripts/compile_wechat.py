@@ -503,7 +503,7 @@ def load_context(spec_path: Path, org_dir: Path, output_dir: Path, check: bool) 
 
 def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: bool) -> dict[str, Any]:
     ctx, spec = load_context(spec_path, org_dir, output_dir, check)
-    calibration = calibration_state(ctx.organization, ctx.route.get("id"))
+    calibration = calibration_state(ctx.organization, ctx.route.get("id"), ctx.assets_doc)
     ctx.errors.extend(calibration["blocking_reasons"])
     storyboard = build_storyboard_plan(spec_path)
     ctx.errors.extend(storyboard["errors"])
@@ -557,16 +557,16 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
             continue
         if registered.get("origin") != "generated-illustrative":
             ctx.errors.append(f"visual kit role {role} must use a generated-illustrative asset")
-        if article_id not in registered.get("generated_for_articles", []):
+        if article_id not in (registered.get("generated_for_articles") or []):
             ctx.errors.append(
                 f"visual kit role {role} must use an asset freshly generated for article {article_id}"
             )
         elif registered.get("origin") == "generated-illustrative" and isinstance(asset_id, str):
             fresh_kit_asset_ids.add(asset_id)
         ctx.asset_src(asset_id, f"visual kit role {role}")
-    if len(fresh_kit_asset_ids) < 3:
+    if len(fresh_kit_asset_ids) < 4:
         ctx.errors.append(
-            f"article.visual_kit requires at least 3 unique assets freshly generated for this article; found {len(fresh_kit_asset_ids)}"
+            f"article.visual_kit requires 4 distinct assets freshly generated for this article; found {len(fresh_kit_asset_ids)}"
         )
     visual_review: dict[str, Any] = {}
     visual_review_report = {"ready": False, "errors": ["visual review was not loaded"]}
@@ -584,12 +584,52 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
             visual_review = loaded_review
             visual_review_report = validate_visual_review(visual_review, spec, spec_path)
             ctx.errors.extend(visual_review_report["errors"])
+            expected_density = ctx.organization.get("visual", {}).get("calibration", {}).get("density_mode")
+            if visual_review_report.get("density_mode") != expected_density:
+                ctx.errors.append(
+                    f"visual review density mode must match organization calibration: {expected_density}"
+                )
         except ValueError as exc:
             ctx.errors.append(str(exc))
     blocks = spec.get("blocks")
     if not isinstance(blocks, list) or not blocks:
         ctx.errors.append("article.blocks must be a non-empty array")
         blocks = []
+    family_id = calibration.get("background_family", {}).get("id")
+    for block_index, block in enumerate(blocks):
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") == "gallery":
+            for image_index, image in enumerate(block.get("images", [])):
+                if not isinstance(image, dict):
+                    continue
+                ref = image.get("src")
+                asset = registered_assets.get(ref)
+                if not asset:
+                    ctx.errors.append(
+                        f"gallery evidence {block_index}.{image_index} must use a registered documentary photo"
+                    )
+                    continue
+                if asset.get("kind") != "photo" or asset.get("visual_role") != "documentary-evidence":
+                    ctx.errors.append(
+                        f"gallery evidence asset must be a documentary photo: {ref}"
+                    )
+                if not asset.get("source_id"):
+                    ctx.errors.append(f"documentary photo requires source_id: {ref}")
+        background_ref = block.get("background")
+        if isinstance(background_ref, str) and background_ref in registered_assets:
+            background = registered_assets[background_ref]
+            if background.get("origin") == "generated-illustrative":
+                if background.get("kind") != "background":
+                    ctx.errors.append(f"generated block background must be registered as background: {background_ref}")
+                if background.get("visual_role") != "illustrative-atmosphere":
+                    ctx.errors.append(
+                        f"generated background must declare visual_role=illustrative-atmosphere: {background_ref}"
+                    )
+                if background.get("background_family_id") != family_id:
+                    ctx.errors.append(
+                        f"generated background is outside the calibrated family {family_id}: {background_ref}"
+                    )
     rendered = "".join(
         render_block(ctx, block, index)
         for index, block in enumerate(blocks)

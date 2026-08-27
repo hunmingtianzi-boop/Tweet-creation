@@ -7,13 +7,15 @@ Use onboarding when the requested organization has no validated organization pac
 Collect the best available subset of:
 
 - official website, official account profile, charter, or organization introduction;
-- five to ten representative past articles, including more than one content type;
+- current official descriptions, raw copy, program documents, and user-approved text evidence from more than one content type;
 - canonical logo and any published brand guide;
 - representative event, team, project, venue, or product photographs;
 - current programs, teams, audience segments, and calls to action;
 - user-supplied corrections and preferences.
 
-Prefer official sources. Historical articles reveal editorial habits but do not override a newer official identity. Record every source in `sources.json`; do not paste large source documents into the organization pack.
+Prefer current official or user-provided sources. Past article text may inform voice only when the user explicitly permits it; never open its screenshots, layout, PDF preview, or Ardot source for visual calibration. Record every allowed source in `sources.json`; do not paste large source documents into the organization pack.
+
+Before visual work, complete the source-zero provenance fields: `visual_reference_policy: source-zero`, the current `visual_input_source_ids`, all four excluded legacy-visual kinds, and `isolation_reviewed_at`. Full-article work remains blocked without them.
 
 ## Research output
 
@@ -49,7 +51,7 @@ Choose a default only after user confirmation or when the organization already h
 
 ## Calibration strip, then first article
 
-First compare two or three four-part Ardot calibration strips and record the approved route plus benchmark file/page/node under `organization.visual.calibration`. Only then create the first real article as a 390 px native Ardot board and use it to test:
+First compare two or three five-part Ardot calibration strips and record the approved route, background family, plus benchmark file/page/node under `organization.visual.calibration`. Only then create the first real article as a 390 px native Ardot board and use it to test:
 
 - whether the voice sounds like the organization rather than a generic campaign;
 - whether verified facts remain distinguishable from promotional interpretation;
@@ -61,4 +63,4 @@ First compare two or three four-part Ardot calibration strips and record the app
 
 After review, update the organization pack instead of accumulating one-off prompt rules.
 
-Preserve the approved strip and first article as editable examples. Use a separate screenshot-backed `visual_review_file` for each article; do not self-report layout quality inside the article JSON.
+Preserve the approved strip inside the new organization's Ardot file. Do not expose the first article as a cross-organization visual example. Use a separate screenshot-backed `visual_review_file` for each article; do not self-report layout quality inside the article JSON.

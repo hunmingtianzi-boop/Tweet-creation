@@ -11,7 +11,7 @@
 3. `inline-explainer`：解释一个具体对象、动作或流程的小图。
 4. `closing-motif`：在 CTA 附近形成落点的收尾小图。
 
-至少使用三枚不同的生成资产覆盖上述四个角色。先运行：
+四个角色必须使用四枚不同的当前文章专属生成资产。先运行：
 
 ```bash
 python3 scripts/build_visual_kit.py article.json \
@@ -19,7 +19,7 @@ python3 scripts/build_visual_kit.py article.json \
   --output output/<organization-id>/<slug>/visual-kit-plan.json
 ```
 
-按提示逐张生图、检查、保存和注册，再把登记 ID 写入 `article.visual_kit.assets`。只有计划中的 `ready_for_layout` 为 `true`，才允许创建文章画板。
+按提示逐张生图，运行 `python3 scripts/inspect_asset.py FILE --role ROLE`，保存并注册。随后在 Ardot 创建四个原生 Ornament 组件，把 file/node/name 证据写入 `article.visual_kit.assets`。只有计划中的 `ready_for_layout` 为 `true`，才允许创建文章画板。
 
 如果没有图像生成能力，停在这一步。不要用色块、边框或卡片代替缺失的小插图。
 
@@ -79,10 +79,10 @@ WeChat/Ornament/ClosingMotif/<Mode>
 - 闭合方框区块不超过正文区块的 20%。
 - 不允许两个闭合方框连续出现。
 - 至少出现三次非对称、越界或边缘切入的视觉时刻。
-- 四类微型视觉角色全部出现；至少三枚不同生成图。
+- 四类微型视觉角色全部出现；四个角色由四枚不同生成图承担，并都有原生 Ardot component node。
 - 不能让每个语义区块都拥有自己的背景、边框或圆角容器。
 - 长文中要交替出现开放文本、图片/插图、连续路径、全宽转场和安静留白。
-- 用紧凑的字距、行距和段距提高信息密度，不通过增加边框或卡片填空；默认正文 15–17 px、行高 1.45–1.62、中文字距 -0.2–0 px、段距 8–14 px。
+- 用紧凑的字距、行距和段距提高信息密度，不通过增加边框或卡片填空；默认正文 15–17 px、行高 1.45–1.62、中文字距 -0.2–0 px、段距 8–14 px、章内主间隔 24–40 px。
 - 普通正文区的内容纵向占用率应为 68%–90%，最大无意空洞不超过区块高度 20%；Hero、全宽转场和结尾可以有意留白，但必须在分镜中声明。
 
 分段截图复核后，把 Hero、章节、证据、复杂区块与 CTA 五个不同 Ardot 节点写入独立 `visual-review.json`。文章 JSON 不允许通过自填数字或 `visual_reviewed: true` 绕过真实截图验收。

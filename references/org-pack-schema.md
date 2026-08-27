@@ -51,7 +51,7 @@ Required visual tokens:
 
 Routes use a layout family from `editorial`, `poster`, `technical`, `institutional`, or `warm-community`. These are compositional behaviors, not fixed brands.
 
-`visual.calibration` records `status`, `approved_routes`, a benchmark with Ardot `file_url`, `page_name`, and `article_node_id`, plus review metadata. New organizations start at `not-started`; full-article production remains blocked until the chosen route is approved. See [visual-calibration.md](visual-calibration.md).
+`visual.calibration` records `status`, `approved_routes`, a benchmark with Ardot `file_url`, `page_name`, and `article_node_id`, plus review metadata. Approval also requires a generated `background_family` with `id`, `strategy: generated-family`, `master_asset_id`, 1–3 `companion_asset_ids`, and `copy_safe_zone`. New organizations start at `not-started`; full-article production remains blocked until the chosen route and family are approved. See [visual-calibration.md](visual-calibration.md).
 
 ## `sources.json`
 
@@ -87,10 +87,14 @@ New packs start as `not-linked`. Set `linked` only after a real Ardot file, vari
 
 ## `assets.json`
 
-Each asset has an ID, kind, title, path or URL, style, uses, origin, and optional source ID. Local paths resolve relative to the organization pack. Generated micro illustrations declare one or more `roles` (`floating-spot`, `section-transition`, `inline-explainer`, `closing-motif`) and the article slugs they were made for in `generated_for_articles`.
+Each asset has an ID, kind, title, path or URL, style, uses, origin, and optional source ID. Local paths resolve relative to the organization pack. Real evidence photos declare `visual_role: documentary-evidence` and a `source_id`. Generated backgrounds declare `visual_role: illustrative-atmosphere`, `background_family_id`, and `background_variant` (`master` or `companion`). Generated micro illustrations declare `visual_role: article-micro`, exactly one of the four `roles`, the current slug in `generated_for_articles`, and stored Alpha quality metadata.
 
 Allowed origins include `user-supplied`, `official`, `photographed`, `generated-illustrative`, and `derived`. A `logo` or `qr` asset must be `user-supplied` or `official`; otherwise validation fails.
 
 Do not store account secrets, access tokens, or private credentials in an organization pack.
 
-Generate an article-type asset plan with `scripts/orgs.py asset-plan`, then register approved files with `scripts/orgs.py register-asset`. For a newly generated micro illustration, pass `--role ROLE --generated-for ARTICLE_ID`. Every article gets a fresh visual-kit plan and must produce all four micro-visual roles before layout; at least three different approved generated assets bound to that article must be used. Logos and QR codes always remain official or user-supplied assets.
+Generate an article-type asset plan with `scripts/orgs.py asset-plan`, then register approved files with `scripts/orgs.py register-asset`. For a newly generated micro illustration, pass `--role ROLE --generated-for ARTICLE_ID --visual-role article-micro`; registration runs the pixel Alpha/aspect check. Every article gets a fresh visual-kit plan and must produce four different assets for all four roles before layout. Logos and QR codes always remain official or user-supplied assets.
+
+## Source-zero provenance
+
+`organization.provenance` must declare `visual_reference_policy: source-zero`, current `visual_input_source_ids`, `isolation_reviewed_at`, and all four excluded kinds: `prior-article-layout`, `prior-ardot-file`, `prior-article-screenshot`, `other-organization-visual-pack`. These fields make the isolation claim executable instead of leaving it in notes.

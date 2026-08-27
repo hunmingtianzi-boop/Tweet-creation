@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from asset_quality import validate_micro_asset
 from build_storyboard import build_storyboard_plan
 from orgs import load_pack, validate_pack
 from workflow_quality import (
@@ -93,7 +94,7 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
     if not isinstance(article_id, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", article_id):
         raise ValueError("article.article_id must be a lowercase hyphenated slug")
     route = choose_route(article, organization)
-    calibration = calibration_state(organization, route["id"])
+    calibration = calibration_state(organization, route["id"], pack["assets"])
     storyboard = build_storyboard_plan(article_path)
     storyboard_by_id = {
         item.get("id"): item for item in storyboard["chapters"] if item.get("id")
@@ -127,6 +128,7 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
     semantic_errors: list[str] = []
     composition_roles: set[str] = set()
     registered_generated_ids: set[str] = set()
+    native_component_node_ids: set[str] = set()
     for definition in KIT_ROLES:
         role = definition["role"]
         approved = by_role.get(role)
@@ -152,11 +154,74 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
             else:
                 composition_roles.add(composition_role)
         registered_asset = registered.get(asset_id) if asset_id else None
+        expected_component_name = f"WeChat/Ornament/{''.join(part.title() for part in role.split('-'))}/{pack['ardot']['variable_mode']}"
         ready = bool(
             registered_asset
             and registered_asset.get("origin") == "generated-illustrative"
-            and article_id in registered_asset.get("generated_for_articles", [])
+            and article_id in (registered_asset.get("generated_for_articles") or [])
         )
+        if registered_asset:
+            if role not in (registered_asset.get("roles") or []):
+                semantic_errors.append(f"visual role {role} is not declared on registered asset {asset_id}")
+                ready = False
+            if registered_asset.get("visual_role") != "article-micro":
+                semantic_errors.append(f"visual role {role} asset {asset_id} must declare visual_role=article-micro")
+                ready = False
+            location = registered_asset.get("location")
+            if not isinstance(location, str) or re.match(r"^(?:https?://|data:)", location):
+                semantic_errors.append(f"visual role {role} requires a local PNG for alpha verification")
+                ready = False
+                alpha_report = {"ok": False, "errors": ["local PNG required"]}
+            else:
+                alpha_report = validate_micro_asset((org_dir / location).resolve(), role)
+                if not alpha_report["ok"]:
+                    semantic_errors.extend(
+                        f"visual role {role} alpha/shape check: {error}"
+                        for error in alpha_report["errors"]
+                    )
+                    ready = False
+                stored_quality = registered_asset.get("quality")
+                actual_inspection = alpha_report.get("inspection", {})
+                if (
+                    not isinstance(stored_quality, dict)
+                    or stored_quality.get("alpha_verified") is not True
+                    or stored_quality.get("sha256") != actual_inspection.get("sha256")
+                    or stored_quality.get("width_px") != actual_inspection.get("width_px")
+                    or stored_quality.get("height_px") != actual_inspection.get("height_px")
+                ):
+                    semantic_errors.append(
+                        f"visual role {role} stored Alpha quality evidence does not match asset {asset_id}"
+                    )
+                    ready = False
+            native_component = approved.get("ardot_component") if approved else None
+            if not isinstance(native_component, dict):
+                semantic_errors.append(f"visual role {role} requires native Ardot component evidence")
+                ready = False
+            else:
+                for field in ("file_url", "node_id", "name"):
+                    if not isinstance(native_component.get(field), str) or not native_component.get(field):
+                        semantic_errors.append(f"visual role {role} ardot_component.{field} is required")
+                        ready = False
+                if native_component.get("name") != expected_component_name:
+                    semantic_errors.append(
+                        f"visual role {role} Ardot component name must be {expected_component_name}"
+                    )
+                    ready = False
+                if native_component.get("file_url") != pack["ardot"].get("design_file", {}).get("url"):
+                    semantic_errors.append(
+                        f"visual role {role} Ardot component must belong to the organization design file"
+                    )
+                    ready = False
+                component_node_id = native_component.get("node_id")
+                if isinstance(component_node_id, str) and component_node_id:
+                    if component_node_id in native_component_node_ids:
+                        semantic_errors.append(
+                            f"visual role {role} reuses an Ardot component node: {component_node_id}"
+                        )
+                        ready = False
+                    native_component_node_ids.add(component_node_id)
+        else:
+            alpha_report = {"ok": False, "errors": ["asset is not registered"]}
         if ready and asset_id:
             registered_generated_ids.add(asset_id)
         if not ready:
@@ -170,7 +235,7 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
             f"Its composition job is {composition_role or '[anchor/motion/connector/punctuation]'} at {placement}. "
             f"Follow the calibrated {route['dominant_style']} direction with motifs "
             f"{motifs} and palette {palette}. Aspect ratio {definition['aspect_ratio']}. Use a "
-            f"transparent background or an irregular/open edge; keep generous negative space. "
+            f"real PNG alpha transparency and an irregular/open edge; keep generous negative space. "
             f"Do not create a rectangle, card, UI panel, border, poster, generic blob, letters, "
             f"numbers, watermark, logo, or QR code. Avoid: {avoid}."
         )
@@ -191,10 +256,11 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
                     "role": role,
                     "generated_for": article_id,
                 },
-                "ardot_component_name": f"WeChat/Ornament/{''.join(part.title() for part in role.split('-'))}/{pack['ardot']['variable_mode']}",
+                "alpha_validation": alpha_report,
+                "ardot_component_name": expected_component_name,
             }
         )
-    minimum_unique_assets = 3
+    minimum_unique_assets = 4
     ready_for_layout = (
         calibration["ready"]
         and storyboard["ready_for_visual_kit"]
@@ -239,10 +305,10 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
             "STOP if the organization route has no approved Ardot calibration benchmark",
             "STOP if the narrative storyboard is not approved and complete",
             "generate every missing slot before any article layout",
-            "inspect each image and reject rectangular, framed, generic, or text-bearing results",
+            "run inspect_asset.py for each role and reject missing/opaque Alpha, wrong aspect, rectangular, framed, generic, or text-bearing results",
             f"save and register approved images as generated-illustrative assets with generated_for_articles={article_id}",
             "record the registered IDs under article.visual_kit.assets",
-            "create native Ardot ornament components from the approved images",
+            "create four distinct native Ardot ornament components and record file_url, node_id, and exact name on each article.visual_kit asset",
             "only then assemble the long article",
         ],
     }

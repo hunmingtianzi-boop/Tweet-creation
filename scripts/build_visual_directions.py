@@ -38,11 +38,15 @@ def build_directions(org_dir: Path, article_type: str) -> dict[str, Any]:
         f"{key} {tokens[key]}" for key in ("ink", "accent", "accent_alt", "surface_alt")
     )
     motifs = "、".join(organization["visual"].get("motifs", []))
+    provenance = organization.get("provenance", {})
+    visual_input_source_ids = provenance.get("visual_input_source_ids", [])
     directions: list[dict[str, Any]] = []
     for route in route_candidates:
         base = (
             f"{organization['identity']['name']} / {article_type} / {route['label']}; "
             f"direction {route['dominant_style']}; palette {palette}; motifs {motifs}; "
+            f"derive visual decisions only from source IDs {visual_input_source_ids}; "
+            "do not inspect or imitate prior article layouts, Ardot files, screenshots, examples, or another organization's pack; "
             "text remains editable in Ardot; no generated letters, logo, QR, dashboard, or generic AI glow."
         )
         directions.append(
@@ -55,15 +59,27 @@ def build_directions(org_dir: Path, article_type: str) -> dict[str, Any]:
                     {"role": "chapter", "prompt": base + " Create one open editorial chapter with one concrete subject."},
                     {"role": "photo-composition", "instruction": "Compose supplied real photos with route-specific crop, overlap, caption, and whitespace behavior."},
                     {"role": "micro-visual", "prompt": base + " Create one unframed micro illustration grounded in a concrete organization object or action."},
+                    {"role": "density-strip", "instruction": "Compose editable body text, one list/process, and one photo-to-text transition at compact-editorial density."},
                 ],
+                "background_family_trial": {
+                    "required": True,
+                    "master": "Generate one text-free atmosphere master with a near-solid copy-safe zone.",
+                    "companions": "Generate 1 to 3 variants with the same spatial logic, material, light, and palette.",
+                    "forbidden": "Do not generate unrelated chapter backgrounds or use generated scenes as documentary evidence.",
+                },
             }
         )
-    state = calibration_state(organization)
+    state = calibration_state(organization, assets_doc=pack["assets"])
     return {
         "schema_version": 1,
         "kind": "org-wechat-visual-directions",
         "organization_id": organization["id"],
         "article_type": article_type,
+        "source_isolation": state["source_isolation"],
+        "input_basis": {
+            "visual_input_source_ids": visual_input_source_ids,
+            "forbidden_visual_inputs": provenance.get("excluded_visual_reference_kinds", []),
+        },
         "calibration_ready": len(directions) >= 2,
         "full_article_allowed": state["ready"],
         "blocking_reasons": (
@@ -71,7 +87,8 @@ def build_directions(org_dir: Path, article_type: str) -> dict[str, Any]:
         ) + state["blocking_reasons"],
         "directions": directions,
         "required_review": {
-            "compare": ["hero", "chapter", "photo-composition", "micro-visual"],
+            "compare": ["hero", "chapter", "photo-composition", "micro-visual", "density-strip"],
+            "background_family": ["master", "1-3 companions", "copy-safe zone", "same-family continuity"],
             "approve_one_route_in": "organization.visual.calibration.approved_routes",
             "record_benchmark": ["file_url", "page_name", "article_node_id"],
             "stop_before_full_article": True,

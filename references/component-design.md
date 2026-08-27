@@ -41,7 +41,7 @@ An individual article block may set `variant` when one deliberate exception is n
 
 ## Image slots
 
-- Mandatory micro kit: floating spot, section transition, inline explainer, and closing motif; at least three different article-specific generated assets.
+- Mandatory micro kit: floating spot, section transition, inline explainer, and closing motif; four different article-specific generated assets, each with verified Alpha and a native Ardot component node.
 - Hero background: 2:3 portrait, subject weighted to one side, large title-safe zone.
 - Section opener: 3:2 landscape, one clear subject, no embedded copy.
 - Gallery: consistent photographic treatment; do not mix generated illustration with documentary evidence in one gallery.

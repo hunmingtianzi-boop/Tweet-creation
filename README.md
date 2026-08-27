@@ -4,15 +4,11 @@
 
 不是“换 Logo 和颜色”的统一模板。新公众号会先建立组织包，再按该组织的受众、语气、视觉母题、文章类型和真实资料生成文章与文件资产。
 
-## Ardot 效果样稿
+## Source-zero 默认模式
 
-当前保留用户实际认可的 Ocean「灵动丰富版」作为构图方法、留白和手机阅读节奏的基准：
+新公众号只从本轮明确允许的组织资料、原始文案、品牌文件和真实照片开始视觉校准。工作流不会打开 `examples/`、另一组织的 pack、旧推文截图/PDF 或旧 Ardot 文件来“找风格”。仓库中的历史目录仅用于迁移兼容审计，不是视觉基准，也不参与测试。
 
-![Ocean 招新 Ardot Hero](examples/ocean-recruitment-review/ardot-hero.png)
-
-[Ardot 基准文件｜招新推文·灵动丰富版 2026](https://ardot.tencent.com/file/718358960022995)（文章根节点 `51:2`）。这是 Ocean 的效果基准，不是让其他组织照抄海洋风格。
-
-泛化迁移后的首个独立组织实战是[拓浙 AI 生态 2026 秋季招新](examples/tuozhe-2026-autumn-recruitment/README.md)：它使用真实黑客松照片和四个文章专属透明小组件，形成“开放工作台”路线。[Ardot 源文件](https://ardot.tencent.com/file/719045826140352)的文章根节点为 `3:10`，组件库为 `3:17`。
+机器门槛会检查 source-zero 输入清单、四类旧视觉排除项、同家族底图、四枚文章专属微组件、真实 Alpha、Ardot 原生组件 node 证据，以及带哈希的 390 px Ardot 截图。
 
 ## 能力
 
@@ -21,13 +17,13 @@
 - 先写 4–10 章叙事分镜，再选组件和生图，避免 block 直接变卡片。
 - 语气、品牌色、视觉路线、文章类型与事实来源建模。
 - 按公众号与文章类型生成资产计划。
-- 排版前强制生成文章专属的浮动插图、章节转场、行内解释图和收尾视觉，并先做成 Ardot 小组件。
+- 排版前强制生成四枚互不相同的文章专属浮动插图、章节转场、行内解释图和收尾视觉，并先做成 Ardot 小组件。
 - 封面背景、章节视觉、透明/开放边缘插画、技术解释图与照片派生资产的生成和注册。
-- AI 底图按“一个母版 + 1–3 个同系列变体”校准，章节只改变裁切、透明度和局部构图，不随机换风格。
+- AI 底图按“一个母版 + 1–3 个同系列变体”登记 family/variant/copy-safe zone，章节只改变裁切、透明度和局部构图，不随机换风格。
 - Ardot 语义变量模式、原生组件、390 px 长文画板和分段视觉 QA。
 - 由文章 JSON 生成可执行的 Ardot 装配清单。
 - 默认开放式构图；闭合方框不超过正文区块的 20%、不连续，并至少保留三处不对称或越界视觉。
-- 默认 `compact-editorial` 信息密度：15–17 px 正文、1.45–1.62 行高、轻微负字距、8–14 px 段距，并校验内容占用率与最大无意空洞。
+- 默认 `compact-editorial` 信息密度：15–17 px 正文、1.45–1.62 行高、轻微负字距、8–14 px 段距、24–40 px 章内主间隔，并校验内容占用率与最大无意空洞。
 - 16 类语义区块与隐藏的微信内联 HTML 投递适配。
 - 事实来源、占位符、图片、Logo、二维码和微信安全格式校验。
 - 默认只生成草稿交付物，正式发布需要单独确认。
@@ -77,7 +73,13 @@ python3 scripts/build_visual_kit.py article.json \
   --output output/new-account-id/article-slug/visual-kit-plan.json
 ```
 
-逐张生图、验图，每张都必须绑定正文原句、具体主体/动作、分镜章节和构图职责。只有 `ready_for_layout: true` 才生成 Ardot 装配清单：
+逐张生图、验图，每张都必须绑定正文原句、具体主体/动作、分镜章节和构图职责。四张图分别运行像素级 Alpha、尺寸与角色宽高比检查：
+
+```bash
+python3 scripts/inspect_asset.py path/to/micro.png --role floating-spot
+```
+
+把四张图做成 Ardot 原生组件，将 component file/node/name 证据写回文章。只有 `ready_for_layout: true` 才生成 Ardot 装配清单：
 
 ```bash
 python3 scripts/build_ardot_manifest.py article.json \
@@ -100,7 +102,7 @@ python3 scripts/compile_wechat.py article.json \
   --check
 ```
 
-详细的调研、迁移、资产生成、素材注册与投递流程见 [使用说明](references/%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E.md)。
+详细流程见[使用说明](references/%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E.md)，跨公众号边界见[organization pack 迁移](references/organization-pack-migration.md)，改进依据见[source-zero 审计](references/source-zero-audit.md)。
 
 ## 目录
 
@@ -115,9 +117,7 @@ python3 scripts/compile_wechat.py article.json \
 └── tests/
 ```
 
-`organizations/` 内包含浙江大学海洋机器人协会迁移样本和拓浙 AI 生态的已校准组织包。其他公众号应通过调研新增独立组织包与 Ardot 品牌模式。
-
-共享的 [Org WeChat Studio 组件系统](https://ardot.tencent.com/file/718644779257522) 只用于语义基础和组织模式，不再作为效果基准。
+`organizations/` 与 `examples/` 中的历史内容不得作为新公众号的视觉输入。其他公众号应从空 organization pack 开始，新增独立组织证据、Ardot 品牌模式、底图家族和文章组件。
 
 `article.json` 是内容源，Ardot 是视觉源；`wechat.html` 只是最终传输文件。
 

@@ -7,11 +7,13 @@ import argparse
 import json
 import re
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from asset_quality import validate_micro_asset
 
-SKILL_ROOT = Path(__file__).resolve().parent.parent
+
 HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
 SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 PACK_FILES = (
@@ -47,6 +49,20 @@ VISUAL_KIT_ROLES = {
     "closing-motif",
 }
 DENSITY_MODES = {"compact-editorial", "standard", "spacious-feature"}
+VISUAL_ASSET_ROLES = {
+    "documentary-evidence",
+    "illustrative-atmosphere",
+    "editorial-explainer",
+    "article-micro",
+    "identity",
+    "functional",
+}
+SOURCE_ZERO_EXCLUSIONS = {
+    "prior-article-layout",
+    "prior-ardot-file",
+    "prior-article-screenshot",
+    "other-organization-visual-pack",
+}
 
 
 def read_json(path: Path) -> Any:
@@ -215,15 +231,26 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
         if calibration.get("density_mode") not in DENSITY_MODES:
             errors.append("approved visual calibration requires a valid density_mode")
         background_family = calibration.get("background_family")
-        if background_family is not None:
+        if background_family is None:
+            errors.append("approved visual calibration requires a generated background_family")
+        else:
             background_family = require_dict(
                 background_family,
                 "organization.visual.calibration.background_family",
                 errors,
             )
-            for field in ("id", "strategy"):
+            for field in ("id", "strategy", "master_asset_id", "copy_safe_zone"):
                 if not isinstance(background_family.get(field), str) or not background_family.get(field, "").strip():
                     errors.append(f"approved visual calibration background_family requires {field}")
+            if background_family.get("strategy") != "generated-family":
+                errors.append("approved visual calibration background_family.strategy must be generated-family")
+            companions = require_list(
+                background_family.get("companion_asset_ids"),
+                "organization.visual.calibration.background_family.companion_asset_ids",
+                errors,
+            )
+            if not 1 <= len(companions) <= 3:
+                errors.append("approved background family requires 1 to 3 companion assets")
     elif org.get("status") == "confirmed":
         warnings.append("confirmed organization lacks approved visual calibration; full article production is blocked")
 
@@ -316,11 +343,85 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
             )
             if any(not isinstance(value, str) or not SLUG.fullmatch(value) for value in values):
                 errors.append(f"asset {asset_id}.generated_for_articles must contain article slugs")
+        visual_role = asset.get("visual_role")
+        if visual_role is not None and visual_role not in VISUAL_ASSET_ROLES:
+            errors.append(f"asset {asset_id}.visual_role is invalid")
+        if asset.get("origin") == "generated-illustrative" and roles:
+            quality = asset.get("quality")
+            if not isinstance(quality, dict) or quality.get("alpha_verified") is not True:
+                warnings.append(f"generated micro asset {asset_id} lacks stored alpha verification")
+        family_id = asset.get("background_family_id")
+        variant = asset.get("background_variant")
+        if family_id is not None or variant is not None:
+            if asset.get("kind") != "background" or asset.get("origin") != "generated-illustrative":
+                errors.append(f"asset {asset_id} background family metadata requires a generated background")
+            if not isinstance(family_id, str) or not family_id:
+                errors.append(f"asset {asset_id} background_family_id is required")
+            if variant not in {"master", "companion"}:
+                errors.append(f"asset {asset_id} background_variant must be master or companion")
+    asset_registry = {
+        item.get("id"): item for item in assets if isinstance(item, dict) and item.get("id")
+    }
+    if calibration_status == "approved" and isinstance(background_family, dict):
+        family_id = background_family.get("id")
+        master_id = background_family.get("master_asset_id")
+        raw_companion_ids = background_family.get("companion_asset_ids", [])
+        companion_ids = raw_companion_ids if isinstance(raw_companion_ids, list) else []
+        for asset_id, expected_variant in [
+            (master_id, "master"),
+            *((asset_id, "companion") for asset_id in companion_ids if isinstance(asset_id, str)),
+        ]:
+            asset = asset_registry.get(asset_id)
+            if not asset:
+                errors.append(f"approved background family references unknown asset: {asset_id}")
+                continue
+            if asset.get("kind") != "background" or asset.get("origin") != "generated-illustrative":
+                errors.append(f"background family asset must be a generated background: {asset_id}")
+            if asset.get("background_family_id") != family_id:
+                errors.append(f"background family asset has mismatched family ID: {asset_id}")
+            if asset.get("background_variant") != expected_variant:
+                errors.append(
+                    f"background family asset {asset_id} must declare background_variant={expected_variant}"
+                )
 
     provenance = require_dict(org.get("provenance"), "organization.provenance", errors)
     for source_id in require_list(provenance.get("source_ids"), "organization.provenance.source_ids", errors):
         if source_id not in source_ids:
             errors.append(f"organization.provenance references unknown source: {source_id}")
+    policy = provenance.get("visual_reference_policy")
+    if policy is not None and policy != "source-zero":
+        errors.append("organization.provenance.visual_reference_policy must be source-zero")
+    visual_input_source_ids = require_list(
+        provenance.get("visual_input_source_ids", []),
+        "organization.provenance.visual_input_source_ids",
+        errors,
+    )
+    for source_id in visual_input_source_ids:
+        if source_id not in source_ids:
+            errors.append(f"organization visual input references unknown source: {source_id}")
+    exclusions = require_list(
+        provenance.get("excluded_visual_reference_kinds", []),
+        "organization.provenance.excluded_visual_reference_kinds",
+        errors,
+    )
+    if org.get("status") == "confirmed":
+        if policy != "source-zero":
+            errors.append("confirmed organization requires source-zero visual isolation")
+        if not visual_input_source_ids:
+            errors.append("confirmed organization requires visual_input_source_ids")
+        missing_exclusions = sorted(SOURCE_ZERO_EXCLUSIONS - set(exclusions))
+        if missing_exclusions:
+            errors.append(
+                "confirmed organization is missing excluded visual reference kinds: "
+                + ", ".join(missing_exclusions)
+            )
+        isolation_reviewed_at = provenance.get("isolation_reviewed_at")
+        try:
+            datetime.fromisoformat(str(isolation_reviewed_at).replace("Z", "+00:00"))
+        except ValueError:
+            errors.append("confirmed organization requires ISO isolation_reviewed_at")
+    elif policy != "source-zero":
+        warnings.append("organization lacks source-zero visual isolation; full article production is blocked")
 
     ardot_status = ardot_doc.get("status")
     if ardot_status not in {"not-linked", "linked"}:
@@ -436,7 +537,20 @@ def scaffold(org_id: str, name: str) -> dict[str, Any]:
             "default_action": "draft-only",
             "formal_publish_requires_confirmation": True,
         },
-        "provenance": {"source_ids": [], "reviewed_at": None, "notes": "待完成首次组织调研"},
+        "provenance": {
+            "source_ids": [],
+            "reviewed_at": None,
+            "notes": "待完成首次组织调研",
+            "visual_reference_policy": "source-zero",
+            "visual_input_source_ids": [],
+            "excluded_visual_reference_kinds": [
+                "prior-article-layout",
+                "prior-ardot-file",
+                "prior-article-screenshot",
+                "other-organization-visual-pack",
+            ],
+            "isolation_reviewed_at": None,
+        },
     }
     organization["visual"] = {
         "tokens": {
@@ -497,7 +611,7 @@ def scaffold(org_id: str, name: str) -> dict[str, Any]:
         "page_names": {
             "foundations": "00 Foundations",
             "components": "01 Components",
-            "example": f"Example / {name}",
+            "example": f"Calibration / {name}",
         },
         "component_aliases": {},
     }
@@ -541,7 +655,7 @@ def command_init(args: argparse.Namespace) -> None:
 
 
 def command_list(args: argparse.Namespace) -> None:
-    roots = args.root or [Path.cwd() / "organizations", SKILL_ROOT / "organizations"]
+    roots = args.root or [Path.cwd() / "organizations"]
     results: list[dict[str, Any]] = []
     seen: set[Path] = set()
     for root in roots:
@@ -845,8 +959,12 @@ def build_asset_plan(pack_dir: Path, article_type: str) -> dict[str, Any]:
         "slots": slots,
         "rules": [
             "Generate and approve all four micro-component slots before assembling the article layout.",
+            "Use four distinct article-specific micro assets; one bitmap cannot satisfy two roles.",
+            "Run inspect_asset.py for each micro asset and require decoded PNG Alpha with real transparent pixels.",
             "Turn the approved micro illustrations into reusable Ardot spot, transition, explainer, and closing components before composing the long article.",
-            "Search assets.json before generating anything.",
+            "Record each native Ardot component file URL, node ID, and exact name on the article visual-kit item.",
+            "Use only the calibrated background family master and companions for AI atmosphere continuity.",
+            "Real photographs carry documentary evidence; generated backgrounds carry atmosphere and never substitute for events or outcomes.",
             "Generated images must not contain Chinese copy, dates, metrics, logos, or QR codes.",
             "Inspect every generated asset before registration.",
             "Register approved files in assets.json before article compilation.",
@@ -879,6 +997,32 @@ def command_register_asset(args: argparse.Namespace) -> None:
         candidate = (args.pack / location).resolve()
         if not candidate.exists() or not candidate.is_file():
             raise SystemExit(f"asset file does not exist: {candidate}")
+    else:
+        candidate = None
+    roles = getattr(args, "role", None) or []
+    if roles:
+        if args.origin != "generated-illustrative":
+            raise SystemExit("micro-visual roles require generated-illustrative origin")
+        if args.kind not in {"illustration", "decoration"}:
+            raise SystemExit("micro-visual roles require illustration or decoration kind")
+        if candidate is None:
+            raise SystemExit("micro-visual alpha verification requires a local PNG file")
+        quality_reports = [validate_micro_asset(candidate, role) for role in roles]
+        failures = [error for report in quality_reports for error in report["errors"]]
+        if failures:
+            raise SystemExit("micro-visual quality check failed: " + "; ".join(failures))
+    else:
+        quality_reports = []
+    background_family_id = getattr(args, "background_family_id", None)
+    background_variant = getattr(args, "background_variant", None)
+    visual_role = getattr(args, "visual_role", None)
+    if background_family_id or background_variant:
+        if args.kind != "background" or args.origin != "generated-illustrative":
+            raise SystemExit("background family metadata requires a generated-illustrative background")
+        if not background_family_id or not background_variant:
+            raise SystemExit("use --background-family-id and --background-variant together")
+    if args.kind == "photo" and visual_role == "documentary-evidence" and not args.source_id:
+        raise SystemExit("documentary photo registration requires --source-id")
     assets_path = args.pack / "assets.json"
     document = read_json(assets_path)
     items = document.setdefault("assets", [])
@@ -893,14 +1037,27 @@ def command_register_asset(args: argparse.Namespace) -> None:
         "uses": args.use or ["all"],
         "origin": args.origin,
     }
-    if getattr(args, "role", None):
-        item["roles"] = args.role
+    if roles:
+        item["roles"] = roles
+        inspection = quality_reports[0]["inspection"]
+        item["quality"] = {
+            "alpha_verified": True,
+            "sha256": inspection["sha256"],
+            "width_px": inspection["width_px"],
+            "height_px": inspection["height_px"],
+            "transparent_pixel_ratio": inspection["transparent_pixel_ratio"],
+        }
     if getattr(args, "generated_for", None):
         if args.origin != "generated-illustrative":
             raise SystemExit("--generated-for is only valid for generated-illustrative assets")
         item["generated_for_articles"] = args.generated_for
     if args.source_id:
         item["source_id"] = args.source_id
+    if visual_role:
+        item["visual_role"] = visual_role
+    if background_family_id:
+        item["background_family_id"] = background_family_id
+        item["background_variant"] = background_variant
     items.append(item)
     write_json(assets_path, document)
     report = validate_pack(args.pack)
@@ -977,6 +1134,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Article slug this illustration was freshly generated for",
     )
     register_parser.add_argument("--source-id")
+    register_parser.add_argument("--visual-role", choices=sorted(VISUAL_ASSET_ROLES))
+    register_parser.add_argument("--background-family-id")
+    register_parser.add_argument("--background-variant", choices=("master", "companion"))
     register_parser.set_defaults(func=command_register_asset)
     return parser
 

@@ -37,8 +37,11 @@
 - `body_line_height_ratio`
 - `letter_spacing_px`
 - `paragraph_gap_px`
+- `major_gap_px`
 - `content_occupancy_ratio`
 - `largest_empty_region_ratio`
+- `chapter_id`
+- 与对应截图一致的 `screenshot_sha256`
 - 可选 `intentional_whitespace: true` 与原因
 
-数据必须来自实际 Ardot 截图和节点属性。校验脚本负责范围检查，截图负责证明这些数字对应真实版面。
+`density.measured_from` 必须为 `ardot-node-properties-and-screenshot` 并记录 `measured_at`。数据必须来自实际 Ardot 节点属性和同一 article root 的 390 px 截图。校验脚本负责范围、哈希和文件尺寸检查，截图负责证明这些数字对应真实版面。

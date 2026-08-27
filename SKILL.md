@@ -7,12 +7,12 @@ description: Research an organization, create or update its reusable organizatio
 
 Create organization-specific WeChat articles without reducing the organization to a logo and color swap. Separate stable publishing mechanics from the organization’s identity and the facts of the current article.
 
-For the complete operator guide, commands, file locations, and migration example, read [references/使用说明.md](references/使用说明.md).
+For commands and file locations, read [references/使用说明.md](references/使用说明.md). For a new account, also read [references/organization-pack-migration.md](references/organization-pack-migration.md). The current hardening rationale is recorded in [references/source-zero-audit.md](references/source-zero-audit.md).
 
 ## Route the request
 
 1. Identify the organization and article type.
-2. Search for an organization pack in the user-provided location, the workspace `organizations/<organization-id>/`, then this skill’s bundled `organizations/` directory.
+2. Use only an organization pack explicitly supplied for this organization or the workspace `organizations/<organization-id>/`. Never inspect bundled examples, another organization pack, prior article layouts, screenshots, PDFs, or Ardot files to infer the new visual direction.
 3. If a pack exists, validate it before authoring:
 
    ```bash
@@ -20,7 +20,7 @@ For the complete operator guide, commands, file locations, and migration example
    python3 scripts/orgs.py recommend path/to/organization-pack ARTICLE_TYPE
    ```
 
-4. If no pack exists, perform organization onboarding before composing. Read [references/onboarding.md](references/onboarding.md) and [references/org-pack-schema.md](references/org-pack-schema.md). Initialize a destination only when the user has asked to create or save the workflow:
+4. If no pack exists, perform source-zero onboarding before composing. Read [references/onboarding.md](references/onboarding.md) and [references/org-pack-schema.md](references/org-pack-schema.md). Initialize a destination only when the user has asked to create or save the workflow:
 
    ```bash
    python3 scripts/orgs.py init ORGANIZATION_ID --name "Organization name" --root organizations
@@ -33,7 +33,7 @@ For the complete operator guide, commands, file locations, and migration example
      --output output/organization-id/visual-directions.json
    ```
 
-   Show only a hero, chapter, photo treatment, and micro visual for each direction. Stop until one route is approved and its Ardot file/page/node is recorded under `organization.visual.calibration`. A provisional organization never proceeds to a full article.
+   Show only a hero, chapter, real-photo treatment, micro visual, and density strip for each direction. If generated backgrounds are used, create one master plus 1–3 companions in the same family during calibration. Stop until one route, the family asset IDs/copy-safe zone, and its Ardot file/page/node are recorded under `organization.visual.calibration`. A provisional organization never proceeds to a full article.
 6. For an article, read [references/article-schema.md](references/article-schema.md), [references/storyboard.md](references/storyboard.md), [references/ardot-workflow.md](references/ardot-workflow.md), and [references/organic-layout.md](references/organic-layout.md). Write and approve a 4–10 chapter narrative storyboard before generating visuals:
 
    ```bash
@@ -49,9 +49,9 @@ For the complete operator guide, commands, file locations, and migration example
      --output output/article-slug/visual-kit-plan.json
    ```
 
-   Generate, inspect, save, and register the missing `floating-spot`, `section-transition`, `inline-explainer`, and `closing-motif` assets. Record the approved IDs in `article.visual_kit.assets`. Do not continue while `ready_for_layout` is false.
+   Generate, inspect, save, and register one distinct asset for each of `floating-spot`, `section-transition`, `inline-explainer`, and `closing-motif`. Run `python3 scripts/inspect_asset.py FILE --role ROLE` for every asset. Create four native Ardot components, then record each component `file_url`, `node_id`, and exact `name` in `article.visual_kit.assets`. Rerun the plan and do not continue while `ready_for_layout` is false.
    Every slot must quote one exact `source_text`, name a specific `concrete_subject`, visible `action`, storyboard chapter, placement, and composition job. Never prompt from a bulk dump of the article. Each generated asset must be registered with its visual role and the current `article_id`; generic decorations do not satisfy this gate.
-8. Build the deterministic Ardot assembly manifest before editing the design:
+8. After the four native micro components exist, build the deterministic Ardot assembly manifest:
 
    ```bash
    python3 scripts/build_ardot_manifest.py article.json \
@@ -60,7 +60,7 @@ For the complete operator guide, commands, file locations, and migration example
    ```
 
 9. Assemble the article chapter by chapter in Ardot. A chapter may reuse primitives, but must not become a mechanical stack of block components.
-10. Read [references/visual-review.md](references/visual-review.md). Capture five distinct Ardot node screenshots (`hero`, `chapter`, `evidence`, `complex-section`, `cta`) in a separate review JSON, then validate it:
+10. Read [references/visual-review.md](references/visual-review.md). Export five distinct 390 px Ardot nodes (`hero`, `chapter`, `evidence`, `complex-section`, `cta`) from the same article root. Use visual review schema v2 with local PNG paths, SHA-256, pixel dimensions, capture timestamps, chapter IDs, and density-to-screenshot hash binding, then validate it:
 
    ```bash
    python3 scripts/build_visual_review.py visual-review.json --article article.json
@@ -70,20 +70,20 @@ For the complete operator guide, commands, file locations, and migration example
 
 ## Organization model
 
-- Infer identity from official evidence and representative past communication, not from organization category or logo alone.
+- Infer identity from current official/user-provided evidence, not from organization category or logo alone. Past copy may inform voice only when explicitly allowed; its layout and imagery never enter source-zero visual calibration.
 - Model voice and visual character separately. Preserve the organization’s factual and institutional boundaries even when using a more expressive visual route.
 - Use the five profile axes as evidence-backed signals, not labels: authority, technical depth, warmth, experimentation, and action orientation.
 - Offer two or three small visual calibration strips during first-time onboarding. Approve visual evidence, not route names or prompt prose.
-- Treat bundled packs marked `migrated-draft` or `provisional` as hypotheses requiring confirmation before external delivery.
+- Treat any explicit pack marked `migrated-draft` or `provisional` as a hypothesis requiring source-zero onboarding and confirmation before full-article work.
 
 ## Evidence and assets
 
 - Use official or user-provided sources for names, dates, metrics, people, partners, eligibility rules, and claims.
 - Keep uncertain information visibly marked during drafting. `--check` must fail while placeholders or unsupported metric/quote claims remain.
 - Preserve user-supplied logos and QR codes exactly. Never recreate a logo or create/replace a QR code with image generation.
-- Prefer real photographs for real people, facilities, events, products, and projects. Treat generated subjects as illustrative unless grounded in supplied references.
+- Register real photographs as `documentary-evidence` with a source ID when they prove people, facilities, events, products, or projects. Register AI backgrounds as `illustrative-atmosphere`; they provide continuity and never enter evidence galleries or impersonate a real scene.
 - Prefer text-free generated imagery. Add Chinese copy, dates, metrics, partner names, and logos during deterministic layout.
-- Every article requires an article-specific micro-illustration kit before layout. Reusing identity files and documentary photos does not waive this requirement. Use at least three distinct generated micro assets across four visual roles.
+- Every article requires four distinct article-specific generated micro assets before layout, one per role. Reusing identity files, old decorations, or documentary photos never satisfies this gate.
 - Reject generated assets that are rectangular, framed, generic, text-bearing, or only appear transparent because a checkerboard was baked into the pixels. Verify actual Alpha when transparency is required.
 - Search the organization asset registry before generating a generic visual:
 
@@ -116,7 +116,7 @@ For the complete operator guide, commands, file locations, and migration example
 - Judge openness, rhythm, clipping, scale variation, photo/illustration harmony, mobile legibility, and subject relevance from real Ardot screenshots. Never let article JSON self-certify its own visual quality.
 - Vary long-article rhythm through open text, generated micro illustrations, continuous paths, full-width transitions, image breaks, and quiet whitespace. Never solve missing visual rhythm by adding cards.
 - Optimize for phone reading with an explicit density mode. Default to `compact-editorial`: 15–17 px body text, 1.45–1.62 body line-height, -0.2–0 px Chinese letter spacing, 8–14 px paragraph spacing, and 24–40 px major intra-section gaps. Do not use “generous whitespace” as an excuse for low information density.
-- Before full layout, calibrate any AI background as one master artwork plus 1–3 same-family companion crops/variants. Keep copy-safe areas near-solid, vary crop and opacity across chapters, and never generate unrelated backgrounds chapter by chapter.
+- Before full layout, register one AI background master plus 1–3 same-family companions with a shared family ID, explicit master/companion variants, and a copy-safe zone. Keep copy-safe areas near-solid, vary crop and opacity across chapters, and never generate unrelated backgrounds chapter by chapter.
 - Record selected organization ID, route ID, component IDs, source IDs, and unresolved warnings in the compile report.
 
 ## Authoring and delivery
@@ -140,16 +140,18 @@ For the complete operator guide, commands, file locations, and migration example
 Treat any of the following as blocking for final delivery:
 
 - failed organization-pack validation;
+- missing source-zero provenance, allowed visual input source IDs, excluded legacy-visual categories, or isolation review time;
 - unresolved placeholders;
 - missing local assets;
-- missing or incomplete `article.visual_kit`, fewer than three unique generated micro assets, or any missing visual role;
+- missing or incomplete `article.visual_kit`, fewer than four distinct generated micro assets, any missing visual role, failed pixel Alpha/aspect check, or missing native Ardot component node evidence;
 - article layout started before the micro illustrations were made into Ardot components;
 - more than 20% boxed content sections, two consecutive boxes, or every block owning a background/border/radius container;
 - missing organization/route calibration benchmark or provisional organization status;
+- missing generated background family, master, 1–3 companions, copy-safe zone, or mismatched family metadata;
 - missing or incomplete narrative storyboard;
 - a visual-kit item without grounded source copy, a specific subject/action, or a chapter/composition role;
 - missing or failing screenshot-backed `visual_review_file` before final transport;
-- missing `information_density` / `background_family_coherence` screenshot checks, fewer than five density samples, body line-height outside the selected mode, or an accidental empty region larger than 20% of a sampled section;
+- missing `information_density` / `background_family_coherence` screenshot checks, unhashed/non-390 px Ardot exports, fewer than five density samples, `compact-editorial` major gaps outside 24–40 px, body line-height outside the selected mode, or an accidental empty region larger than 20% of a sampled section;
 - a metric without a source ID;
 - a quote without attribution or source ID;
 - mismatched organization IDs across registries;
