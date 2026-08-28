@@ -1,0 +1,68 @@
+{
+  "experiment_id": "tuozhe-ecosystem-interaction-mvp",
+  "source_policy": "source-zero",
+  "title": "AI 不只是一门课",
+  "display_title": ["AI 不只", "是一门课"],
+  "subtitle": "拓浙 AI 生态，把学习接到真实世界",
+  "eyebrow": "TUOZHE AI ECOSYSTEM · 2026",
+  "lead": "从找到一条信息、完成第一个作品，到在黑客松和产业项目里解决真实问题——我们想搭起的，是一条能持续向前的 AI 成长路径。",
+  "thesis": "用真实问题培养人，用真实交付检验能力，再让项目经验回到下一轮学习。",
+  "ecosystem": [
+    {
+      "index": "01",
+      "label": "找到入口",
+      "name": "拓途浙享",
+      "summary": "汇聚校园活动、AI 内容、项目与赛事，让机会更容易被看见。"
+    },
+    {
+      "index": "02",
+      "label": "建立能力",
+      "name": "AI 社区",
+      "summary": "从基础学习和第一个小作品出发，逐步进入跨学科协作。"
+    },
+    {
+      "index": "03",
+      "label": "现场检验",
+      "name": "浙客松",
+      "summary": "围绕真实赛题，在限定时间内走完理解、开发、验证和展示。"
+    },
+    {
+      "index": "04",
+      "label": "走进场景",
+      "name": "产业实践",
+      "summary": "把作品推进到教育、医疗、文旅等真实业务，以结果形成评价。"
+    }
+  ],
+  "bridge_title": "同一条路，允许不同起点",
+  "bridge_body": "技术成员可以从开发切入；文科与非技术成员也可以从研究、产品、内容、运营或项目管理切入。真正重要的不是先会多少工具，而是能否理解问题、完成协作并交付结果。",
+  "moments": [
+    {
+      "image": "organizations/tuozhe-ai-ecosystem/assets/photos/hackathon-focus.jpg",
+      "alt": "浙客松现场，参赛者在电脑前开发项目",
+      "caption": "从一个真实问题开始动手"
+    },
+    {
+      "image": "organizations/tuozhe-ai-ecosystem/assets/photos/hackathon-exchange.jpg",
+      "alt": "浙客松现场，参与者围在一起交流方案",
+      "caption": "跨专业的人在现场交换判断"
+    },
+    {
+      "image": "organizations/tuozhe-ai-ecosystem/assets/photos/ai-x-beauty-group.jpg",
+      "alt": "AI 与美妆企业联名赛参赛者合影",
+      "caption": "让方案接受真实场景检验"
+    }
+  ],
+  "metrics": [
+    {"value": "3000+", "label": "网站注册用户"},
+    {"value": "1000+", "label": "累计收录校园活动"},
+    {"value": "300", "label": "首届浙客松报名"}
+  ],
+  "closing_title": "让一次尝试，长成下一次机会",
+  "closing_body": "学习不是终点，比赛也不是终点。作品、评价和方法会继续进入社区与项目，成为下一位参与者可以接住的起点。",
+  "cta": "关注拓浙 AI 生态，和我们一起从问题出发。",
+  "fact_notes": [
+    "拓浙 AI 生态以浙江大学为起点。",
+    "首届浙客松共有 300 人报名、100 人正式参赛。",
+    "网站已有 3000+ 注册用户、累计收录 1000+ 校园活动。"
+  ]
+}

@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "file": {
+    "name": "公众号动态组件 A-B MVP · 拓浙 AI 生态",
+    "url": "https://ardot.tencent.com/file/719663191870370",
+    "file_id": "719663191870370",
+    "page_id": "0:1"
+  },
+  "source_policy": {
+    "mode": "source-zero",
+    "visual_inputs": [
+      "user-supplied raw event photos",
+      "new visual direction derived for this experiment"
+    ],
+    "excluded": [
+      "prior article layout",
+      "prior article screenshot or PDF styling",
+      "prior Ardot article board",
+      "other organization visual pack"
+    ]
+  },
+  "boards": [
+    {
+      "variant": "a-baseline",
+      "node_id": "4:1",
+      "width_px": 390,
+      "height_px": 1900,
+      "screenshot": "qa/ardot-a.png",
+      "sha256": "6fea9f8feab526c1325b3452228e3cb7a403fb826ddda2dee2161f8946b5a72e"
+    },
+    {
+      "variant": "b-dynamic",
+      "node_id": "4:2",
+      "width_px": 390,
+      "height_px": 1900,
+      "screenshot": "qa/ardot-b.png",
+      "sha256": "b4951c52cdcba378bdccdc638bfae382bb31b7232f70c2ed102361bc1425dbc7"
+    }
+  ],
+  "native_components": [
+    {
+      "name": "WeChat/Interaction/TapReveal/State=Closed/MVP",
+      "node_id": "4:3",
+      "screenshot": "qa/ardot-tap-closed.png",
+      "sha256": "d3cd93014d3c1254696f96a6051716110704cda19012a8e6e11db8a8323537f5"
+    },
+    {
+      "name": "WeChat/Interaction/TapReveal/State=Open/MVP",
+      "node_id": "4:4",
+      "screenshot": "qa/ardot-tap-open.png",
+      "sha256": "2093d71d29e21a534c5b177f752a13945bcc5aeb8903acbbf8477b89f3c888e9"
+    },
+    {
+      "name": "WeChat/Interaction/SwipePhoto/Item/MVP",
+      "node_id": "4:5"
+    },
+    {
+      "name": "WeChat/Baseline/StaticPathItem/MVP",
+      "node_id": "4:6"
+    }
+  ],
+  "runtime_mapping": [
+    {
+      "ardot_component": "WeChat/Interaction/TapReveal/State=Closed|Open/MVP",
+      "html_selector": "[data-interaction=\"tap-reveal\"]",
+      "fallback": "b-dynamic/wechat-fallback.html"
+    },
+    {
+      "ardot_component": "WeChat/Interaction/SwipePhoto/Item/MVP",
+      "html_selector": "[data-interaction=\"horizontal-swipe\"]",
+      "fallback": "b-dynamic/wechat-fallback.html"
+    }
+  ]
+}

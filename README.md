@@ -122,6 +122,10 @@ python3 scripts/compile_wechat.py article.json \
 
 `article.json` 是内容源，Ardot 是视觉源；`wechat.html` 只是最终传输文件。
 
+## 动态组件 A/B MVP
+
+仓库内提供一个同输入对照实验：A 使用静态基线排版，B 只替换为轻触展开和横向滑动组件，并保留微信静态降级文件。入口见 [experiments/interaction-mvp/README.md](experiments/interaction-mvp/README.md)。该实验用于验证交互是否真的改善阅读，不会把未经验证的动态结构直接并入默认生产工作流。
+
 ## 安全边界
 
 - Logo 和二维码只能来自用户或官方资料。
