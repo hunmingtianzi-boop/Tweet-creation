@@ -8,13 +8,14 @@
 
 新公众号只从本轮明确允许的组织资料、原始文案、品牌文件和真实照片开始视觉校准。工作流不会打开 `examples/`、另一组织的 pack、旧推文截图/PDF 或旧 Ardot 文件来“找风格”。仓库中的历史目录仅用于迁移兼容审计，不是视觉基准，也不参与测试。
 
-机器门槛会检查 source-zero 输入清单、四类旧视觉排除项、同家族底图、四枚文章专属微组件、真实 Alpha、Ardot 原生组件 node 证据、表现型字体的原生文本 node/style 证据，以及带哈希的 390 px Ardot 截图。
+机器门槛会检查 source-zero 输入清单、四类旧视觉排除项、同家族底图、四枚文章专属微组件、常规文章 2–3 个 semantic interaction modules 与逐实例 fallback hash、真实 Alpha、Ardot 原生组件 node 证据、表现型字体的原生文本 node/style 证据，以及带哈希的 390 px Ardot 截图。
 
 ## 能力
 
 - 新组织调研与组织包初始化。
 - 全文前先做 2–3 组 Ardot 小样校准，未批准路线不得开始整篇。
 - 先写 4–10 章叙事分镜，再选组件和生图，避免 block 直接变卡片。
+- 常规文章创作层默认规划 2–3 个语义动态模块；四张并列点击卡仍只算一个模块，逐卡 transport instance 分别保留静态 key/hash。
 - 语气、品牌色、视觉路线、文章类型与事实来源建模。
 - 按公众号与文章类型生成资产计划。
 - 排版前强制生成四枚互不相同的文章专属浮动插图、章节转场、行内解释图和收尾视觉，并先做成 Ardot 小组件。
@@ -67,6 +68,8 @@ python3 scripts/orgs.py asset-plan \
 python3 scripts/build_storyboard.py article.json \
   --output output/new-account-id/article-slug/storyboard-plan.json
 ```
+
+在 `article.json` 写入 `interaction_plan`：常规文章使用 `dynamic-default`，2 个模块分布在 `early` + `middle`，3 个再增加 `late`。先绑定 chapter、source blocks 和逐实例语义哈希；当前 Ardot revision 的三态截图在全文装配后补齐。详见 [动态组件构图与计数](references/interaction-composition.md)。
 
 为本篇文章生成小组件/小插图计划：
 
@@ -126,7 +129,7 @@ python3 scripts/compile_wechat.py article.json \
 
 ## 动态组件 A/B MVP
 
-仓库内提供一个同输入对照实验：A 使用静态基线排版，B 只替换为无 JavaScript、无 ID、元素自身 `begin="click"` 的 SVG 揭开组件与 CSS 横向滑动，并保留语义哈希匹配的静态降级文件。入口见 [experiments/interaction-mvp/README.md](experiments/interaction-mvp/README.md)。候选生成成功不等于生产启用；保存回读和目标账号 iOS/Android 能力档案都通过后才可选择动态 payload。
+仓库内提供一个同输入对照实验：A 使用静态基线排版，B 只替换为无 JavaScript、无 ID、元素自身 `begin="click"` 的 SVG 揭开组件与 CSS 横向滑动，并保留语义哈希匹配的静态降级文件。主工作流进一步固定了创作层默认 2–3 个 semantic modules；transport marker 数量不等于 module 数量。入口见 [experiments/interaction-mvp/README.md](experiments/interaction-mvp/README.md)。候选生成成功不等于生产启用；保存回读和目标账号 iOS/Android 能力档案都通过后才可选择动态 payload。
 
 ## 安全边界
 

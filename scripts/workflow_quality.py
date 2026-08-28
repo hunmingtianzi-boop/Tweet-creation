@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from datetime import datetime
@@ -82,6 +83,23 @@ ALLOWED_ART_TYPE_TECHNIQUES = {
     "vector-accent",
     "vertical-flow",
 }
+ALLOWED_INTERACTION_AUTHORING_MODES = {"dynamic-default", "static-exception"}
+ALLOWED_INTERACTION_PATTERNS = {
+    "tap-reveal-group",
+    "progressive-reveal",
+    "metric-reveal",
+    "process-reveal",
+    "horizontal-swipe",
+}
+ALLOWED_INTERACTION_TRANSPORT_MODES = {"svg-smil-self", "horizontal-swipe"}
+ALLOWED_INTERACTION_PLACEMENT_BANDS = {"early", "middle", "late"}
+ALLOWED_STATIC_EXCEPTION_CATEGORIES = {
+    "user-requested-static",
+    "short-utility-notice",
+    "editorially-unsuitable",
+    "accessibility-priority",
+}
+INTERACTION_STATE_NAMES = ("closed", "open", "fallback")
 GENERIC_VISUAL_SUBJECTS = {
     "ai",
     "ai科技",
@@ -406,6 +424,373 @@ def concrete_subject_is_specific(subject: Any) -> bool:
     )
 
 
+def interaction_semantic_hash(source_texts: list[str]) -> str:
+    """Hash the ordered, normalized copy represented by one transport instance."""
+    normalized = [re.sub(r"\s+", " ", item).strip() for item in source_texts]
+    payload = json.dumps(normalized, ensure_ascii=False, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def validate_interaction_plan(
+    article: dict[str, Any],
+    ardot: dict[str, Any],
+    article_path: Path | None = None,
+    *,
+    require_evidence: bool = True,
+) -> dict[str, Any]:
+    """Validate 2–3 authored modules, then optionally require final Ardot evidence."""
+    errors: list[str] = []
+    plan = article.get("interaction_plan")
+    if not isinstance(plan, dict):
+        plan = {}
+        errors.append(
+            "article requires interaction_plan; the default authoring mode uses 2 to 3 semantic dynamic modules"
+        )
+    if plan.get("status") != "approved":
+        errors.append("article.interaction_plan.status must be approved")
+    authoring_mode = plan.get("authoring_mode")
+    if authoring_mode not in ALLOWED_INTERACTION_AUTHORING_MODES:
+        errors.append(
+            "article.interaction_plan.authoring_mode must be dynamic-default or static-exception"
+        )
+    modules_raw = plan.get("modules")
+    modules = [item for item in modules_raw if isinstance(item, dict)] if isinstance(modules_raw, list) else []
+    if not isinstance(modules_raw, list) or len(modules) != len(modules_raw):
+        errors.append("article.interaction_plan.modules must be an array of objects")
+    target_count = plan.get("target_module_count")
+    if not isinstance(target_count, int) or isinstance(target_count, bool):
+        errors.append("article.interaction_plan.target_module_count must be an integer")
+        target_count = -1
+    if authoring_mode == "dynamic-default":
+        if target_count not in {2, 3}:
+            errors.append("dynamic-default interaction plans require target_module_count of 2 or 3")
+        if not 2 <= len(modules) <= 3:
+            errors.append("dynamic-default interaction plans require 2 to 3 semantic modules")
+        if target_count != len(modules):
+            errors.append("interaction target_module_count must equal the number of semantic modules")
+        if isinstance(plan.get("exception"), dict):
+            errors.append("dynamic-default interaction plans must not declare a static exception")
+    elif authoring_mode == "static-exception":
+        if target_count not in {0, 1} or len(modules) not in {0, 1} or target_count != len(modules):
+            errors.append("static-exception interaction plans may contain at most one semantic module")
+        exception = plan.get("exception")
+        if not isinstance(exception, dict):
+            exception = {}
+            errors.append("static-exception interaction plans require an explicit exception record")
+        if exception.get("category") not in ALLOWED_STATIC_EXCEPTION_CATEGORIES:
+            errors.append("static interaction exception category is invalid")
+        reason = exception.get("reason")
+        if not isinstance(reason, str) or len(reason.strip()) < 12:
+            errors.append("static interaction exception requires a specific reason of at least 12 characters")
+        if exception.get("confirmed_by") not in {"user", "editor"}:
+            errors.append("static interaction exception must be confirmed_by user or editor")
+
+    revision_hash = plan.get("ardot_revision_hash")
+    if require_evidence and modules and not isinstance(revision_hash, str):
+        errors.append("final interaction evidence requires ardot_revision_hash")
+    elif require_evidence and modules and not re.fullmatch(r"[0-9a-f]{64}", revision_hash or ""):
+        errors.append("interaction ardot_revision_hash must be a lowercase SHA-256")
+    article_root_node_id = plan.get("article_root_node_id")
+    if require_evidence and modules and (
+        not isinstance(article_root_node_id, str) or not article_root_node_id
+    ):
+        errors.append("final interaction evidence requires article_root_node_id")
+
+    storyboard = article.get("storyboard") if isinstance(article.get("storyboard"), dict) else {}
+    storyboard_chapters = [
+        item
+        for item in storyboard.get("chapters", [])
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    ]
+    chapter_by_id = {
+        item.get("id"): item
+        for item in storyboard_chapters
+    }
+    chapter_ids = set(chapter_by_id)
+    chapter_index_by_id = {
+        item["id"]: index for index, item in enumerate(storyboard_chapters)
+    }
+    article_blocks = article.get("blocks") if isinstance(article.get("blocks"), list) else []
+    design_file = ardot.get("design_file") if isinstance(ardot.get("design_file"), dict) else {}
+    design_url = design_file.get("url")
+    module_ids: set[str] = set()
+    instance_ids: set[str] = set()
+    fallback_keys: set[str] = set()
+    semantic_hashes: set[str] = set()
+    module_chapters: set[str] = set()
+    placement_bands: set[str] = set()
+    purposes: set[str] = set()
+    evidence_node_ids: set[str] = set()
+    evidence_paths: set[Path] = set()
+    source_text_count = 0
+    instance_count = 0
+    module_reports: list[dict[str, Any]] = []
+    for index, module in enumerate(modules):
+        prefix = f"interaction module {index}"
+        module_id = module.get("id")
+        if not isinstance(module_id, str) or not SLUG.fullmatch(module_id):
+            errors.append(f"{prefix} requires a lowercase hyphenated id")
+        elif module_id in module_ids:
+            errors.append(f"interaction module id is duplicated: {module_id}")
+        else:
+            module_ids.add(module_id)
+        pattern = module.get("pattern")
+        if pattern not in ALLOWED_INTERACTION_PATTERNS:
+            errors.append(f"{prefix} has unsupported pattern: {pattern}")
+        candidate_modes_raw = module.get("candidate_modes")
+        candidate_modes = (
+            [item for item in candidate_modes_raw if isinstance(item, str)]
+            if isinstance(candidate_modes_raw, list)
+            else []
+        )
+        if (
+            not isinstance(candidate_modes_raw, list)
+            or not candidate_modes
+            or len(candidate_modes) != len(candidate_modes_raw)
+            or len(candidate_modes) != len(set(candidate_modes))
+        ):
+            errors.append(f"{prefix} requires one or more distinct candidate_modes")
+        unsupported_modes = sorted(set(candidate_modes) - ALLOWED_INTERACTION_TRANSPORT_MODES)
+        if unsupported_modes:
+            errors.append(f"{prefix} has unsupported candidate_modes: {', '.join(unsupported_modes)}")
+        expected_transport = "horizontal-swipe" if pattern == "horizontal-swipe" else "svg-smil-self"
+        if pattern in ALLOWED_INTERACTION_PATTERNS and expected_transport not in candidate_modes:
+            errors.append(f"{prefix} pattern {pattern} requires candidate mode {expected_transport}")
+        chapter_id = module.get("storyboard_chapter")
+        if chapter_id not in chapter_ids:
+            errors.append(f"{prefix} references unknown storyboard chapter: {chapter_id}")
+        elif chapter_id in module_chapters:
+            errors.append(f"dynamic modules must be distributed across distinct chapters: {chapter_id}")
+        else:
+            module_chapters.add(chapter_id)
+        placement_band = module.get("placement_band")
+        if placement_band not in ALLOWED_INTERACTION_PLACEMENT_BANDS:
+            errors.append(f"{prefix} has invalid placement_band: {placement_band}")
+        elif placement_band in placement_bands:
+            errors.append(f"dynamic modules must use distinct placement bands: {placement_band}")
+        else:
+            placement_bands.add(placement_band)
+        if chapter_id in chapter_index_by_id and storyboard_chapters:
+            chapter_index = chapter_index_by_id[chapter_id]
+            expected_band = ("early", "middle", "late")[
+                min(2, chapter_index * 3 // len(storyboard_chapters))
+            ]
+            if placement_band in ALLOWED_INTERACTION_PLACEMENT_BANDS and placement_band != expected_band:
+                errors.append(
+                    f"{prefix} chapter {chapter_id} belongs to {expected_band}, not {placement_band}"
+                )
+        purpose = module.get("purpose")
+        if not isinstance(purpose, str) or len(purpose.strip()) < 8:
+            errors.append(f"{prefix} requires a specific editorial purpose")
+        else:
+            normalized_purpose = re.sub(r"\s+", "", purpose).lower()
+            if normalized_purpose in purposes:
+                errors.append(f"interaction modules must use distinct editorial purposes: {purpose}")
+            purposes.add(normalized_purpose)
+        block_indices_raw = module.get("source_block_indices")
+        block_indices = (
+            [item for item in block_indices_raw if isinstance(item, int) and not isinstance(item, bool)]
+            if isinstance(block_indices_raw, list)
+            else []
+        )
+        if (
+            not isinstance(block_indices_raw, list)
+            or not block_indices
+            or len(block_indices) != len(block_indices_raw)
+        ):
+            errors.append(f"{prefix} requires integer source_block_indices")
+        elif len(block_indices) != len(set(block_indices)):
+            errors.append(f"{prefix} source_block_indices must be distinct")
+        valid_block_indices = [item for item in block_indices if 0 <= item < len(article_blocks)]
+        if len(valid_block_indices) != len(block_indices):
+            errors.append(f"{prefix} has an out-of-range source block index")
+        chapter_block_indices = set(chapter_by_id.get(chapter_id, {}).get("block_indices", []))
+        if valid_block_indices and not set(valid_block_indices).issubset(chapter_block_indices):
+            errors.append(f"{prefix} source blocks must belong to storyboard chapter {chapter_id}")
+        module_texts = article_texts(
+            {"blocks": [article_blocks[item] for item in valid_block_indices]}
+        )
+
+        instances_raw = module.get("instances")
+        instances = (
+            [item for item in instances_raw if isinstance(item, dict)]
+            if isinstance(instances_raw, list)
+            else []
+        )
+        if (
+            not isinstance(instances_raw, list)
+            or not instances
+            or len(instances) != len(instances_raw)
+        ):
+            errors.append(f"{prefix} requires one or more transport instances")
+        instance_reports: list[dict[str, Any]] = []
+        for instance_index, instance in enumerate(instances):
+            instance_prefix = f"{prefix} instance {instance_index}"
+            instance_id = instance.get("id")
+            if not isinstance(instance_id, str) or not SLUG.fullmatch(instance_id):
+                errors.append(f"{instance_prefix} requires a lowercase hyphenated id")
+            elif instance_id in instance_ids:
+                errors.append(f"interaction instance id is duplicated: {instance_id}")
+            else:
+                instance_ids.add(instance_id)
+            source_texts_raw = instance.get("source_texts")
+            source_texts = (
+                [item for item in source_texts_raw if isinstance(item, str) and item.strip()]
+                if isinstance(source_texts_raw, list)
+                else []
+            )
+            if (
+                not isinstance(source_texts_raw, list)
+                or not source_texts
+                or len(source_texts) != len(source_texts_raw)
+            ):
+                errors.append(f"{instance_prefix} requires one or more source_texts")
+            if len(source_texts) != len(set(source_texts)):
+                errors.append(f"{instance_prefix} source_texts must be distinct")
+            for source_text in source_texts:
+                if not source_text_is_grounded(source_text, module_texts):
+                    errors.append(
+                        f"{instance_prefix} source_text is not grounded in its source blocks: {source_text}"
+                    )
+            source_text_count += len(source_texts)
+            expected_hash = interaction_semantic_hash(source_texts)
+            semantic_hash = instance.get("semantic_hash")
+            if semantic_hash != expected_hash:
+                errors.append(f"{instance_prefix} semantic_hash does not match its ordered source_texts")
+            elif semantic_hash in semantic_hashes:
+                errors.append(f"interaction semantic content is duplicated: {semantic_hash}")
+            else:
+                semantic_hashes.add(semantic_hash)
+            fallback_key = instance.get("fallback_key")
+            if not isinstance(fallback_key, str) or not SLUG.fullmatch(fallback_key):
+                errors.append(f"{instance_prefix} requires a lowercase hyphenated fallback_key")
+            elif fallback_key in fallback_keys:
+                errors.append(f"interaction fallback_key is duplicated: {fallback_key}")
+            else:
+                fallback_keys.add(fallback_key)
+            instance_reports.append(
+                {
+                    "id": instance_id,
+                    "source_text_count": len(source_texts),
+                    "fallback_key": fallback_key,
+                    "semantic_hash": expected_hash,
+                }
+            )
+        instance_count += len(instances)
+
+        if require_evidence:
+            component = module.get("ardot_component")
+            if not isinstance(component, dict):
+                component = {}
+                errors.append(f"{prefix} requires ardot_component evidence")
+            if component.get("revision_hash") != revision_hash:
+                errors.append(f"{prefix} Ardot evidence revision_hash must match the article plan")
+            expected_instance_ids = [item["id"] for item in instance_reports]
+            if component.get("covered_instance_ids") != expected_instance_ids:
+                errors.append(
+                    f"{prefix} Ardot evidence must cover every transport instance in order"
+                )
+            expected_semantic_hashes = [item["semantic_hash"] for item in instance_reports]
+            if component.get("covered_semantic_hashes") != expected_semantic_hashes:
+                errors.append(
+                    f"{prefix} Ardot evidence must cover every transport semantic hash in order"
+                )
+            if component.get("file_url") != design_url:
+                errors.append(f"{prefix} must belong to the organization Ardot file")
+            if not isinstance(component.get("name"), str) or not component.get("name"):
+                errors.append(f"{prefix} ardot_component.name is required")
+            states = component.get("states")
+            if not isinstance(states, dict):
+                states = {}
+                errors.append(f"{prefix} requires closed/open/fallback Ardot states")
+            state_nodes: set[str] = set()
+            state_paths: set[Path] = set()
+            state_hashes: dict[str, str] = {}
+            for state_name in INTERACTION_STATE_NAMES:
+                state = states.get(state_name)
+                if not isinstance(state, dict):
+                    errors.append(f"{prefix} is missing Ardot state: {state_name}")
+                    continue
+                node_id = state.get("node_id")
+                if not isinstance(node_id, str) or not node_id:
+                    errors.append(f"{prefix} {state_name} state requires node_id")
+                elif node_id in state_nodes or node_id in evidence_node_ids:
+                    errors.append(f"{prefix} reuses an Ardot state node: {node_id}")
+                else:
+                    state_nodes.add(node_id)
+                    evidence_node_ids.add(node_id)
+                screenshot = state.get("screenshot")
+                declared_hash = state.get("sha256")
+                if not isinstance(declared_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", declared_hash):
+                    errors.append(f"{prefix} {state_name} state requires a lowercase screenshot SHA-256")
+                else:
+                    state_hashes[state_name] = declared_hash
+                if not isinstance(screenshot, str) or not screenshot:
+                    errors.append(f"{prefix} {state_name} state requires a local screenshot")
+                    continue
+                if re.match(r"^https?://", screenshot):
+                    errors.append(f"{prefix} {state_name} screenshot must be a local immutable export")
+                    continue
+                if article_path is None:
+                    errors.append(f"{prefix} cannot verify state screenshots without article_path")
+                    continue
+                screenshot_path = (article_path.parent / screenshot).resolve()
+                if screenshot_path in state_paths or screenshot_path in evidence_paths:
+                    errors.append(f"{prefix} reuses an interaction state screenshot: {screenshot}")
+                    continue
+                state_paths.add(screenshot_path)
+                evidence_paths.add(screenshot_path)
+                if not screenshot_path.exists() or not screenshot_path.is_file():
+                    errors.append(f"{prefix} interaction state screenshot is missing: {screenshot}")
+                    continue
+                actual_hash = file_sha256(screenshot_path)
+                if declared_hash != actual_hash:
+                    errors.append(f"{prefix} {state_name} screenshot sha256 does not match the file")
+                try:
+                    inspection = inspect_png(screenshot_path)
+                except ValueError as exc:
+                    errors.append(f"{prefix} {state_name} screenshot is not a valid PNG: {exc}")
+                else:
+                    if inspection["width_px"] != 390:
+                        errors.append(
+                            f"{prefix} {state_name} screenshot must be a 390 px Ardot export; found {inspection['width_px']}"
+                        )
+            if state_hashes.get("closed") == state_hashes.get("open") and state_hashes.get("closed"):
+                errors.append(f"{prefix} closed and open evidence must show different states")
+        module_reports.append(
+            {
+                "id": module_id,
+                "pattern": pattern,
+                "candidate_modes": candidate_modes,
+                "storyboard_chapter": chapter_id,
+                "placement_band": placement_band,
+                "source_block_indices": valid_block_indices,
+                "instance_count": len(instances),
+                "instances": instance_reports,
+            }
+        )
+
+    if authoring_mode == "dynamic-default" and len(modules) == 2 and placement_bands != {"early", "middle"}:
+        errors.append("a 2-module dynamic-default plan must distribute modules across early and middle")
+    if authoring_mode == "dynamic-default" and len(modules) == 3 and placement_bands != {"early", "middle", "late"}:
+        errors.append("a 3-module dynamic-default plan must distribute modules across early, middle, and late")
+
+    return {
+        "ready": not errors,
+        "status": plan.get("status"),
+        "authoring_mode": authoring_mode,
+        "target_module_count": target_count,
+        "module_count": len(modules),
+        "instance_count": instance_count,
+        "source_text_count": source_text_count,
+        "modules": module_reports,
+        "evidence_required": require_evidence,
+        "policy_version": "wechat-svg-smil-self-v1",
+        "production_default": "static-fallback-until-account-runtime-certification",
+        "errors": errors,
+    }
+
+
 def validate_typography_plan(
     article: dict[str, Any],
     organization: dict[str, Any],
@@ -600,6 +985,17 @@ def validate_visual_review(
         errors.append("visual review capture.captured_at must be an ISO timestamp")
     if capture.get("article_root_node_id") != ardot.get("article_node_id"):
         errors.append("visual review capture must reference the Ardot article root node")
+    interaction_plan = (
+        article.get("interaction_plan")
+        if isinstance(article.get("interaction_plan"), dict)
+        else {}
+    )
+    interaction_modules = interaction_plan.get("modules")
+    if isinstance(interaction_modules, list) and interaction_modules:
+        if ardot.get("article_node_id") != interaction_plan.get("article_root_node_id"):
+            errors.append("visual review article root must match interaction_plan.article_root_node_id")
+        if capture.get("revision_hash") != interaction_plan.get("ardot_revision_hash"):
+            errors.append("visual review capture revision_hash must match the interaction plan")
     screenshots = review.get("screenshots")
     screenshot_items = [item for item in screenshots if isinstance(item, dict)] if isinstance(screenshots, list) else []
     roles = {item.get("role") for item in screenshot_items if isinstance(item.get("role"), str)}

@@ -7,6 +7,8 @@
 - 两版共用 `content.json`，文案、顺序、照片、色彩、字体和 390 px 宽度完全一致。
 - B 版同时生成 `wechat-fallback.html` 与 `interaction-policy-report.json`。保存回读或目标客户端能力档案不通过时，投递器必须更新同一草稿为与 A 同信息量、语义哈希匹配的静态表达。
 
+按主工作流当前计数口径，B 版包含 2 个创作层 semantic modules：`ecosystem-path` 是一个揭开 + 横滑复合组（4 个 SVG transport instances，但只算 1 个 module），`field-moments` 是一个照片横滑 module。这里的 marker 数量不等于 module 数量。这个 MVP 的 `ardot-evidence.json` 早于当前三态/覆盖列表 schema，只用于 transport 回归；缺少完整 `closed/open/fallback` 覆盖证据的节点不能作为新文章最终编译的证明。
+
 构建：
 
 ```bash

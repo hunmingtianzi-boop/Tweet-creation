@@ -1,7 +1,7 @@
 interface:
   display_name: "Organization WeChat Studio"
-  short_description: "Build source-zero, Ardot-native WeChat article systems"
+  short_description: "Build source-zero Ardot WeChat articles with safe interaction"
   brand_color: "#1648C8"
-  default_prompt: "Use $org-wechat-studio to build a source-zero organization pack, calibrate visuals from current materials, create article-specific assets, and assemble an Ardot-native WeChat article."
+  default_prompt: "Use $org-wechat-studio to build a source-zero organization pack, calibrate visuals from current materials, create article-specific assets, plan 2–3 semantic interaction modules by default, and assemble an Ardot-native WeChat article with static-safe delivery."
 policy:
   allow_implicit_invocation: true

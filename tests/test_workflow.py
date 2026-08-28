@@ -20,6 +20,10 @@ from build_visual_directions import build_directions  # noqa: E402
 from build_visual_kit import build_visual_kit_plan  # noqa: E402
 from compile_wechat import compile_article  # noqa: E402
 from orgs import command_init, scaffold, validate_pack, write_json  # noqa: E402
+from workflow_quality import (  # noqa: E402
+    interaction_semantic_hash,
+    validate_interaction_plan,
+)
 
 
 ROLES = (
@@ -280,6 +284,79 @@ def make_article(root: Path, pack: Path) -> Path:
                 },
             }
         )
+    interaction_specs = [
+        {
+            "id": "capability-reveal",
+            "pattern": "tap-reveal-group",
+            "candidate_modes": ["svg-smil-self", "horizontal-swipe"],
+            "storyboard_chapter": "identity",
+            "placement_band": "early",
+            "purpose": "让读者按需展开能力之间的关系",
+            "source_block_indices": [1],
+            "instances": [
+                {
+                    "id": "capability-path",
+                    "source_texts": ["不同能力沿同一条路径汇合。"],
+                    "fallback_key": "capability-path",
+                }
+            ],
+        },
+        {
+            "id": "prototype-process",
+            "pattern": "process-reveal",
+            "candidate_modes": ["svg-smil-self"],
+            "storyboard_chapter": "evidence",
+            "placement_band": "middle",
+            "purpose": "把原型完成过程拆成可逐步读取的信息",
+            "source_block_indices": [2],
+            "instances": [
+                {
+                    "id": "prototype-steps",
+                    "source_texts": ["原型在四个动作之间逐步完成。"],
+                    "fallback_key": "prototype-steps",
+                }
+            ],
+        },
+    ]
+    interaction_modules = []
+    state_names = ("closed", "open", "fallback")
+    for module_index, spec in enumerate(interaction_specs, 1):
+        states = {}
+        for state_index, state_name in enumerate(state_names, 1):
+            screenshot = root / "qa" / f"interaction-{module_index}-{state_name}.png"
+            write_png(
+                screenshot,
+                390,
+                240 + module_index,
+                alpha=False,
+                color=(30 + module_index * 35, 60 + state_index * 30, 100 + state_index * 25),
+            )
+            states[state_name] = {
+                "node_id": f"50:{module_index * 10 + state_index}",
+                "screenshot": f"qa/{screenshot.name}",
+                "sha256": file_sha256(screenshot),
+            }
+        instances = [
+            {
+                **instance,
+                "semantic_hash": interaction_semantic_hash(instance["source_texts"]),
+            }
+            for instance in spec["instances"]
+        ]
+        interaction_modules.append(
+            {
+                **spec,
+                "instances": instances,
+                "ardot_component": {
+                    "file_url": "https://ardot.example/fresh",
+                    "name": f"WeChat/Interaction/{spec['id']}/Fresh",
+                    "revision_hash": "a" * 64,
+                    "covered_instance_ids": [item["id"] for item in instances],
+                    "covered_semantic_hashes": [item["semantic_hash"] for item in instances],
+                    "states": states,
+                },
+            }
+        )
     article = {
         "schema_version": 1,
         "article_id": "fresh-article",
@@ -288,6 +365,14 @@ def make_article(root: Path, pack: Path) -> Path:
         "title": "Fresh article",
         "storyboard": {"status": "approved", "chapters": chapters},
         "visual_kit": {"status": "approved", "assets": visual_assets},
+        "interaction_plan": {
+            "status": "approved",
+            "authoring_mode": "dynamic-default",
+            "target_module_count": 2,
+            "article_root_node_id": "30:0",
+            "ardot_revision_hash": "a" * 64,
+            "modules": interaction_modules,
+        },
         "typography": {
             "status": "approved",
             "moments": [
@@ -393,6 +478,7 @@ def add_visual_review(article_path: Path) -> Path:
             "source": "ardot-node-export",
             "captured_at": "2026-08-27T10:00:00+08:00",
             "article_root_node_id": "30:0",
+            "revision_hash": article["interaction_plan"].get("ardot_revision_hash", "0" * 64),
         },
         "screenshots": screenshots,
         "density": {
@@ -589,6 +675,182 @@ class VisualKitTests(FreshWorkflowTestCase):
         self.assertFalse(report["ready_for_visual_kit"])
 
 
+class InteractionPlanTests(FreshWorkflowTestCase):
+    def _report(self, *, require_evidence: bool = True) -> dict:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        ardot = json.loads((self.pack / "ardot.json").read_text(encoding="utf-8"))
+        return validate_interaction_plan(
+            article,
+            ardot,
+            self.article,
+            require_evidence=require_evidence,
+        )
+
+    def test_default_plan_has_two_semantic_modules(self) -> None:
+        report = self._report()
+        self.assertTrue(report["ready"], report["errors"])
+        self.assertEqual(report["module_count"], 2)
+        self.assertEqual(report["instance_count"], 2)
+        self.assertEqual(
+            report["production_default"],
+            "static-fallback-until-account-runtime-certification",
+        )
+
+    def test_four_reveal_cards_count_as_one_module_and_four_instances(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        card_copy = [
+            "不同能力沿同一条路径汇合。",
+            "策划部门把问题整理成清晰任务。",
+            "技术部门把任务推进为可测试原型。",
+            "传播部门把成果翻译成读者能理解的故事。",
+        ]
+        article["blocks"][1]["paragraphs"] = card_copy
+        instances = [
+            {
+                "id": f"department-{index}",
+                "source_texts": [text],
+                "fallback_key": f"department-{index}",
+                "semantic_hash": interaction_semantic_hash([text]),
+            }
+            for index, text in enumerate(card_copy, 1)
+        ]
+        article["interaction_plan"]["modules"][0]["instances"] = instances
+        component = article["interaction_plan"]["modules"][0]["ardot_component"]
+        component["covered_instance_ids"] = [item["id"] for item in instances]
+        component["covered_semantic_hashes"] = [item["semantic_hash"] for item in instances]
+        write_json(self.article, article)
+        report = self._report()
+        self.assertTrue(report["ready"], report["errors"])
+        self.assertEqual(report["module_count"], 2)
+        self.assertEqual(report["instance_count"], 5)
+        self.assertEqual(report["modules"][0]["instance_count"], 4)
+
+    def test_default_plan_rejects_more_than_three_modules(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article["interaction_plan"]["target_module_count"] = 4
+        article["interaction_plan"]["modules"].extend(
+            [
+                {
+                    **article["interaction_plan"]["modules"][0],
+                    "id": "extra-reveal-one",
+                },
+                {
+                    **article["interaction_plan"]["modules"][1],
+                    "id": "extra-reveal-two",
+                },
+            ]
+        )
+        write_json(self.article, article)
+        report = self._report(require_evidence=False)
+        self.assertFalse(report["ready"])
+        self.assertTrue(any("2 to 3 semantic modules" in item for item in report["errors"]))
+
+    def test_static_exception_requires_explicit_editorial_record(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article["interaction_plan"] = {
+            "status": "approved",
+            "authoring_mode": "static-exception",
+            "target_module_count": 0,
+            "modules": [],
+            "exception": {
+                "category": "user-requested-static",
+                "reason": "用户明确要求本篇只保留静态阅读体验。",
+                "confirmed_by": "user",
+            },
+        }
+        write_json(self.article, article)
+        report = self._report()
+        self.assertTrue(report["ready"], report["errors"])
+        article["interaction_plan"]["exception"].pop("reason")
+        write_json(self.article, article)
+        report = self._report()
+        self.assertFalse(report["ready"])
+        self.assertTrue(any("specific reason" in item for item in report["errors"]))
+
+    def test_modules_must_be_distributed_across_early_and_middle(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article["interaction_plan"]["modules"][1]["placement_band"] = "early"
+        write_json(self.article, article)
+        report = self._report(require_evidence=False)
+        self.assertFalse(report["ready"])
+        self.assertTrue(any("early and middle" in item for item in report["errors"]))
+
+    def test_placement_band_must_match_actual_storyboard_position(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        module = article["interaction_plan"]["modules"][0]
+        module["storyboard_chapter"] = "join"
+        module["source_block_indices"] = [3]
+        source = "把已经完成的原型交给下一位伙伴。"
+        module["instances"][0]["source_texts"] = [source]
+        module["instances"][0]["semantic_hash"] = interaction_semantic_hash([source])
+        write_json(self.article, article)
+        report = self._report(require_evidence=False)
+        self.assertFalse(report["ready"])
+        self.assertTrue(any("belongs to late, not early" in item for item in report["errors"]))
+
+    def test_modules_must_have_distinct_editorial_purposes(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article["interaction_plan"]["modules"][1]["purpose"] = (
+            article["interaction_plan"]["modules"][0]["purpose"]
+        )
+        write_json(self.article, article)
+        report = self._report(require_evidence=False)
+        self.assertFalse(report["ready"])
+        self.assertTrue(any("distinct editorial purposes" in item for item in report["errors"]))
+
+    def test_transport_instance_hash_is_bound_to_source_copy(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article["interaction_plan"]["modules"][0]["instances"][0]["semantic_hash"] = (
+            "sha256:" + "0" * 64
+        )
+        write_json(self.article, article)
+        report = self._report(require_evidence=False)
+        self.assertFalse(report["ready"])
+        self.assertTrue(any("semantic_hash" in item for item in report["errors"]))
+
+    def test_manifest_allows_planning_before_evidence_but_compile_does_not(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article["interaction_plan"].pop("ardot_revision_hash")
+        article["interaction_plan"].pop("article_root_node_id")
+        for module in article["interaction_plan"]["modules"]:
+            module.pop("ardot_component")
+        write_json(self.article, article)
+        manifest = build_manifest(self.article, self.pack)
+        self.assertTrue(manifest["interaction_plan"]["ready"])
+        self.assertFalse(manifest["interaction_plan"]["evidence_required"])
+        add_visual_review(self.article)
+        report = compile_article(self.article, self.pack, self.root / "output", check=True)
+        self.assertFalse(report["ok"])
+        self.assertTrue(any("final interaction evidence" in item for item in report["errors"]))
+
+    def test_tampered_interaction_state_screenshot_blocks_compile(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        relative = article["interaction_plan"]["modules"][0]["ardot_component"]["states"]["closed"]["screenshot"]
+        write_png(self.root / relative, 390, 241, alpha=False, color=(240, 20, 20))
+        add_visual_review(self.article)
+        report = compile_article(self.article, self.pack, self.root / "output", check=True)
+        self.assertFalse(report["ok"])
+        self.assertTrue(any("interaction module 0 closed screenshot sha256" in item for item in report["errors"]))
+
+    def test_group_evidence_must_cover_every_transport_instance(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        component = article["interaction_plan"]["modules"][0]["ardot_component"]
+        component["covered_instance_ids"] = []
+        write_json(self.article, article)
+        report = self._report()
+        self.assertFalse(report["ready"])
+        self.assertTrue(any("cover every transport instance" in item for item in report["errors"]))
+
+    def test_visual_review_revision_must_match_interaction_evidence(self) -> None:
+        review_path = add_visual_review(self.article)
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        review["capture"]["revision_hash"] = "b" * 64
+        write_json(review_path, review)
+        report = compile_article(self.article, self.pack, self.root / "output", check=True)
+        self.assertFalse(report["ok"])
+        self.assertTrue(any("revision_hash must match" in item for item in report["errors"]))
+
+
 class ArdotAndCompilerTests(FreshWorkflowTestCase):
     def test_manifest_is_native_dense_and_open(self) -> None:
         manifest = build_manifest(self.article, self.pack)
@@ -602,6 +864,9 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
         )
         self.assertTrue(manifest["typography"]["ready"])
         self.assertEqual(manifest["typography"]["moment_count"], 2)
+        self.assertTrue(manifest["interaction_plan"]["ready"])
+        self.assertEqual(manifest["interaction_plan"]["module_count"], 2)
+        self.assertFalse(manifest["interaction_plan"]["evidence_required"])
         self.assertTrue(all(block["container_policy"] == "open-by-default" for block in manifest["blocks"]))
 
     def test_compile_passes_only_with_hashed_390px_ardot_evidence(self) -> None:
@@ -614,6 +879,11 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
             "wechat-svg-smil-self-v1",
         )
         self.assertEqual(report["interaction_policy"]["status"], "static")
+        self.assertEqual(report["interaction_authoring"]["module_count"], 2)
+        self.assertEqual(
+            report["interaction_authoring"]["production_default"],
+            "static-fallback-until-account-runtime-certification",
+        )
 
     def test_tampered_screenshot_hash_blocks_transport(self) -> None:
         review_path = add_visual_review(self.article)

@@ -32,6 +32,9 @@
 - At least three moments visibly break symmetry or enter from the text edge.
 - Long articles vary section rhythm through open text, micro illustrations, continuous paths, image breaks, full-width transitions, and quiet whitespace.
 - Every semantic block does not own a background, border, radius, or shadow.
+- A normal article has 2–3 semantic interaction modules, not 2–3 child cards or SVG nodes. Two occupy actual early and middle storyboard chapters; three add a late chapter. Modules use distinct reader purposes and source blocks and do not appear as an adjacent component wall.
+- A repeated-card group counts as one module. Every child transport instance still has unique grounded copy, fallback key, and `sha256:<64 hex>`; decorative motion, mandatory micro illustrations, and display type do not count.
+- A 0–1 module exception records an allowed category, a specific reason, and explicit user/editor confirmation. Missing account capability evidence selects static delivery and does not itself justify skipping the authoring plan.
 - A separate visual review v2 records five distinct local 390 px Ardot node exports, hashes, dimensions, capture metadata, density-to-screenshot bindings, and all fourteen required visual checks; article JSON cannot self-certify the design.
 - Images have useful alt text and important subjects remain legible on a phone.
 - No clipped text, overflow, accidental large empty region, or component instance with the wrong organization mode remains.
@@ -41,7 +44,8 @@
 
 - `wechat.html` uses inline styles, with no `<script>`, `<style>`, form, iframe, or external stylesheet dependency.
 - Dynamic candidates use policy `wechat-svg-smil-self-v1`: only no-ID inline SVG `<set>` / `<animateTransform>` with self `begin="click"`, plus inline CSS horizontal swipe. Reject `<details>`, `<summary>`, JavaScript, `on*`, `javascript:`, every transport `id`, `foo.click`, `<use>`, fragment references, `<foreignObject>`, and unprobed SMIL.
-- Every dynamic component and its static information-equivalent share a `data-fallback-key` and normalized content hash. Missing or mismatched hashes block the candidate.
+- Every transport instance and its static information-equivalent share a unique `data-fallback-key` and normalized `sha256:<64 hex>` content hash. Missing, duplicated, or mismatched hashes block the candidate.
+- Every semantic module has current-revision native Ardot `closed`, `open`, and `fallback` state evidence. Its group component lists all covered instance IDs and semantic hashes in order; all three states have distinct nodes, local 390 px exports, and matching file hashes, and closed/open cannot be identical.
 - Saved-draft readback matches per-component fallback hashes and SMIL signatures. Readback proves sanitizer survival only; it does not certify runtime behavior.
 - Dynamic delivery requires an unexpired profile for the exact target account and policy version, with recorded iOS and Android WeChat versions and preview evidence. Missing, pending, failed, expired, or mismatched profiles force the static fallback in the same draft.
 - All local body images are ready to upload and replace with WeChat-hosted URLs.

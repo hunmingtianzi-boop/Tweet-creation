@@ -98,6 +98,95 @@ The compiler accepts UTF-8 JSON:
 
 The same JSON drives both Ardot assembly and the final WeChat adapter. Ardot is the visual source of truth. A block may set optional `variant`; otherwise the selected route supplies the variant and `ardot.json` maps it to an exact native component.
 
+## Interaction plan
+
+常规文章必须在 `article.json` 中使用 `dynamic-default` 规划 2–3 个创作层 semantic modules。module 是一个连续区域和一个读者任务；一个 module 可以包含多个实际 transport instances。例如四个部门分别点击展开，仍是一个 module，但需要四个逐项 key/hash。完整规则见 [interaction-composition.md](interaction-composition.md)。
+
+```json
+{
+  "interaction_plan": {
+    "status": "approved",
+    "authoring_mode": "dynamic-default",
+    "target_module_count": 2,
+    "article_root_node_id": "51:2",
+    "ardot_revision_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "modules": [
+      {
+        "id": "department-reveal",
+        "pattern": "tap-reveal-group",
+        "candidate_modes": ["svg-smil-self", "horizontal-swipe"],
+        "storyboard_chapter": "identity",
+        "source_block_indices": [2],
+        "placement_band": "early",
+        "purpose": "让读者按需展开并比较各部门职责",
+        "instances": [
+          {
+            "id": "planning-department",
+            "source_texts": ["策划部负责把问题变成任务。"],
+            "fallback_key": "planning-department",
+            "semantic_hash": "sha256:3e5e57411939ee4b8c192740dd0fa5166cdd655788a8d1b2ce1510cffd68d63f"
+          },
+          {
+            "id": "technical-department",
+            "source_texts": ["技术部负责把任务变成原型。"],
+            "fallback_key": "technical-department",
+            "semantic_hash": "sha256:8d1a08ef940420c6b54387e58f60cd16546bc03cf3110586afef31c1bfd45706"
+          }
+        ],
+        "ardot_component": {
+          "file_url": "https://ardot.example/current-organization",
+          "name": "WeChat/Interaction/DepartmentReveal/Current Mode",
+          "revision_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "covered_instance_ids": ["planning-department", "technical-department"],
+          "covered_semantic_hashes": [
+            "sha256:3e5e57411939ee4b8c192740dd0fa5166cdd655788a8d1b2ce1510cffd68d63f",
+            "sha256:8d1a08ef940420c6b54387e58f60cd16546bc03cf3110586afef31c1bfd45706"
+          ],
+          "states": {
+            "closed": {"node_id": "60:1", "screenshot": "qa/department-closed.png", "sha256": "<actual file SHA-256>"},
+            "open": {"node_id": "60:2", "screenshot": "qa/department-open.png", "sha256": "<actual file SHA-256>"},
+            "fallback": {"node_id": "60:3", "screenshot": "qa/department-fallback.png", "sha256": "<actual file SHA-256>"}
+          }
+        }
+      },
+      {
+        "id": "process-reveal",
+        "pattern": "process-reveal",
+        "candidate_modes": ["svg-smil-self"],
+        "storyboard_chapter": "process",
+        "source_block_indices": [4],
+        "placement_band": "middle",
+        "purpose": "让读者分步理解原型推进过程",
+        "instances": [
+          {
+            "id": "process-steps",
+            "source_texts": ["按准备、试做、验证三个阶段推进。"],
+            "fallback_key": "process-steps",
+            "semantic_hash": "sha256:591c57e57577764ad3c4d993a90ec931a3267bbbd580107f437a8b289325c708"
+          }
+        ],
+        "ardot_component": {
+          "file_url": "https://ardot.example/current-organization",
+          "name": "WeChat/Interaction/ProcessReveal/Current Mode",
+          "revision_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "covered_instance_ids": ["process-steps"],
+          "covered_semantic_hashes": ["sha256:591c57e57577764ad3c4d993a90ec931a3267bbbd580107f437a8b289325c708"],
+          "states": {
+            "closed": {"node_id": "61:1", "screenshot": "qa/process-closed.png", "sha256": "<actual file SHA-256>"},
+            "open": {"node_id": "61:2", "screenshot": "qa/process-open.png", "sha256": "<actual file SHA-256>"},
+            "fallback": {"node_id": "61:3", "screenshot": "qa/process-fallback.png", "sha256": "<actual file SHA-256>"}
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+`build_ardot_manifest.py` 在装配前只校验 module 数量、分布、source block 落点、instance key/hash 与静态例外；此时三态节点可以尚未完成。`compile_wechat.py --check` 才要求当前 article root、revision、组件覆盖列表，以及每个 module 的 `closed/open/fallback` 本地 390 px Ardot 截图和真实文件哈希。最终 `visual_review.ardot.article_node_id` 与 `capture.revision_hash` 还必须分别等于 interaction plan 的 root 与 revision。
+
+如果原始材料只有 0–1 个合理交互机会，或用户明确要求静态，改用 `authoring_mode: static-exception`，并写入允许的 `category`、至少 12 字的具体 `reason` 与 `confirmed_by: user|editor`。目标账号暂无能力档案不属于创作例外；它只让投递层选静态等价版。
+
 Before visual authoring, validate the 4–10 chapter storyboard:
 
 ```bash

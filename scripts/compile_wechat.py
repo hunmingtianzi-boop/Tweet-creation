@@ -16,7 +16,12 @@ from typing import Any
 from build_storyboard import build_storyboard_plan
 from build_visual_kit import build_visual_kit_plan
 from wechat_interaction_policy import audit_transport
-from workflow_quality import calibration_state, validate_typography_plan, validate_visual_review
+from workflow_quality import (
+    calibration_state,
+    validate_interaction_plan,
+    validate_typography_plan,
+    validate_visual_review,
+)
 
 
 REMOTE_SRC = re.compile(r"^(?:https?://|data:)", re.I)
@@ -524,6 +529,8 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
         }
     typography = validate_typography_plan(spec, ctx.organization, ardot_doc)
     ctx.errors.extend(typography["errors"])
+    interaction_plan = validate_interaction_plan(spec, ardot_doc, spec_path)
+    ctx.errors.extend(interaction_plan["errors"])
     serialized = json.dumps(spec, ensure_ascii=False)
     markers = sorted(set(match.group(0) for match in PLACEHOLDERS.finditer(serialized)))
     if markers:
@@ -591,6 +598,17 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
             visual_review = loaded_review
             visual_review_report = validate_visual_review(visual_review, spec, spec_path)
             ctx.errors.extend(visual_review_report["errors"])
+            if interaction_plan["module_count"]:
+                review_ardot = (
+                    visual_review.get("ardot")
+                    if isinstance(visual_review.get("ardot"), dict)
+                    else {}
+                )
+                expected_design_url = ardot_doc.get("design_file", {}).get("url")
+                if review_ardot.get("file_url") != expected_design_url:
+                    ctx.errors.append(
+                        "interaction visual review must belong to the organization Ardot file"
+                    )
             expected_density = ctx.organization.get("visual", {}).get("calibration", {}).get("density_mode")
             if visual_review_report.get("density_mode") != expected_density:
                 ctx.errors.append(
@@ -702,6 +720,7 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
             "ready": visual_kit_plan["ready_for_layout"],
         },
         "typography": typography,
+        "interaction_authoring": interaction_plan,
         "visual_review": visual_review_report,
         "interaction_policy": interaction_policy,
         "component_ids": list(dict.fromkeys(ctx.component_ids)),

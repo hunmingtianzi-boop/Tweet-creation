@@ -40,6 +40,17 @@ An individual article block may set `variant` when one deliberate exception is n
 - Use cards only when items are independently comparable. A semantic block does not automatically deserve its own background, border, radius, or shadow. Use rails, bands, whitespace, asymmetric illustration placement, or one continuous path for sequences.
 - Real people, events, facilities, projects, and outcomes use real or officially supplied photography. Generated images are illustrative brand assets only.
 
+## Interaction rhythm
+
+- 常规文章默认 2–3 个 semantic interaction modules；2 个分布在 `early` + `middle`，3 个再增加 `late`，每个属于不同 storyboard chapter。
+- 一个 module 是一个连续版面区域与一个读者任务。四张部门揭开卡是一个 module、四个 transport instances；照片横滑组整体是一个 module。
+- 每个 module 必须解决按需展开、顺序/并列浏览或逐步解释中的一种。纯装饰运动、文章专属微插图和表现型字体不计数。
+- module 内可以组合 `svg-smil-self` 与 `horizontal-swipe`，但每个实际 instance 都有独立 fallback key/hash 和静态等价内容。
+- 交互不豁免开放式构图、20% 方框比例与禁止连续盒子的规则。不要把 2–3 个 module 排成相邻组件墙。
+- 原文只有 0–1 个合理机会时，记录 user/editor-confirmed `static-exception`；不得拆分同一区域、重复文案或隐藏必要事实来凑数。
+
+详见 [interaction-composition.md](interaction-composition.md)。
+
 ## Image slots
 
 - Mandatory micro kit: floating spot, section transition, inline explainer, and closing motif; four different article-specific generated assets, each with verified Alpha and a native Ardot component node.

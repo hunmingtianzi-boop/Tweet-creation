@@ -10,6 +10,8 @@
 
 独立 review JSON 使用 `schema_version: 2`，需要 Ardot 文件、页面、文章根节点，以及 `capture.source: ardot-node-export`、导出时间和相同 article root。每张截图必须是本地 390 px PNG，并记录节点 ID、章节 ID、SHA-256、实际宽高；远程 URL、重复文件或哈希不符均失败。
 
+当文章有 interaction modules 时，`ardot.article_node_id` 还必须等于 `interaction_plan.article_root_node_id`，`capture.revision_hash` 必须等于 `interaction_plan.ardot_revision_hash`，review 与交互 group components 也必须属于当前组织的同一 Ardot 文件。这防止把旧截图与新 revision 字段拼接成伪证据。
+
 还要为这五个节点记录 `density.mode`、`measured_from: ardot-node-properties-and-screenshot`、测量时间与密度样本。每个样本用 `screenshot_sha256` 绑定对应截图，并包含 `major_gap_px` 与实测 `body_text_contrast_ratio >= 4.5`；字段见 [information-density.md](information-density.md)。以下检查必须全部为 `pass`：
 
 `subject_relevance`, `style_coherence`, `no_clipped_ornaments`, `scale_variation`, `photo_illustration_harmony`, `no_generic_ai_decoration`, `no_unexplained_labels`, `editorial_rhythm`, `mobile_legibility`, `open_composition`, `information_density`, `background_family_coherence`, `background_surface_unity`, `reading_surface_contrast`, `expressive_typography`, `art_type_construction`, `no_baked_art_text`.

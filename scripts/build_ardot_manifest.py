@@ -12,7 +12,11 @@ from typing import Any
 from build_visual_kit import build_visual_kit_plan
 from build_storyboard import build_storyboard_plan
 from orgs import load_pack, validate_pack
-from workflow_quality import calibration_state, validate_typography_plan
+from workflow_quality import (
+    calibration_state,
+    validate_interaction_plan,
+    validate_typography_plan,
+)
 
 
 TOKEN_NAMES = {
@@ -150,6 +154,12 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
     visual_kit_plan = build_visual_kit_plan(article_path, org_dir)
     ardot = pack["ardot"]
     typography = validate_typography_plan(article, organization, ardot)
+    interaction_plan = validate_interaction_plan(
+        article,
+        ardot,
+        article_path,
+        require_evidence=False,
+    )
     kit_asset_by_role = {
         item["role"]: item.get("asset_id")
         for item in visual_kit_plan["slots"]
@@ -256,6 +266,7 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
         "variables": variables,
         "visual_kit": visual_kit_plan,
         "typography": typography,
+        "interaction_plan": interaction_plan,
         "chapters": chapters,
         "blocks": blocks,
         "assets": assets,
@@ -264,7 +275,10 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
             "STOP if storyboard.ready_for_visual_kit is false",
             "STOP if visual_kit.ready_for_layout is false",
             "STOP if typography.ready is false",
+            "STOP if interaction_plan.ready is false",
             "generate four distinct micro illustrations, verify real Alpha, register them, and record native Ardot component evidence before article layout",
+            "author 2–3 semantic dynamic modules by default; a repeated card group counts as one module, and fewer modules require an explicit user/editor static exception",
+            "build every dynamic module as native editable closed, open, and information-equivalent fallback states from the current Ardot revision",
             "place only the pixel-validated background-family master and companions on the declared surface mode, varying crop and opacity instead of style",
             "apply 2–4 approved expressive typography recipes with at least two non-font construction techniques and native editable text/accent layers; keep body copy standard and never bake Chinese display text into images",
             "apply or update the organization variable mode",
@@ -282,6 +296,7 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
                 and storyboard["ready_for_visual_kit"]
                 and visual_kit_plan["ready_for_layout"]
                 and typography["ready"]
+                and interaction_plan["ready"]
             ),
             "blocking": [
                 "organization or selected route lacks an approved Ardot calibration benchmark",
@@ -289,6 +304,7 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
                 "article lacks an approved narrative storyboard with complete block coverage",
                 "article-specific visual kit lacks any required role or does not use four distinct generated micro assets",
                 "expressive typography is missing, font-swap-only, flattened, ungrounded, unlicensed, or lacks approved recipe/construction/node evidence",
+                "interaction plan is missing the default 2–3 semantic modules, grounded transport instances, or valid chapter distribution; final compile separately requires current-revision state evidence",
                 "layout started before micro illustrations became native Ardot components",
                 "missing component variant",
                 "unresolved asset",
@@ -308,6 +324,9 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
                 "default_container": "none",
                 "expressive_typography_moments": "2-4 when strategy is expressive-native",
                 "expressive_typography_recipe": "at least 2 non-font techniques and 2 editable construction layers",
+                "dynamic_modules_per_article": "2-3 semantic modules by default",
+                "dynamic_group_counting": "one repeated-card group equals one semantic module",
+                "dynamic_transport_default": "static fallback until target-account iOS/Android certification",
                 "background_family_surface": "one light/dark mode with pixel-checked copy safety and contrast >= 4.5",
                 "body_copy_typography": "standard-readable",
             },
