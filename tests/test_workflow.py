@@ -30,14 +30,21 @@ ROLES = (
 )
 
 
-def write_png(path: Path, width: int, height: int, *, alpha: bool = True) -> None:
+def write_png(
+    path: Path,
+    width: int,
+    height: int,
+    *,
+    alpha: bool = True,
+    color: tuple[int, int, int] = (30, 100, 180),
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     color_type = 6 if alpha else 2
     rows = []
     for y in range(height):
         row = bytearray()
         for x in range(width):
-            row.extend((30, 100, 180))
+            row.extend(color)
             if alpha:
                 border = min(x, y, width - 1 - x, height - 1 - y)
                 row.append(0 if border < 8 else 255)
@@ -98,7 +105,11 @@ def make_pack(root: Path) -> Path:
             "strategy": "generated-family",
             "master_asset_id": "background.master",
             "companion_asset_ids": ["background.companion"],
-            "copy_safe_zone": "center 68% remains near-solid",
+            "surface_mode": "dark",
+            "copy_safe_zone": {"x": 0.12, "y": 0.16, "width": 0.76, "height": 0.58},
+            "body_text_color": "#FFFFFF",
+            "minimum_contrast_ratio": 4.5,
+            "maximum_copy_safe_stddev": 0.10,
         },
         "typography": {
             "strategy": "expressive-native",
@@ -106,6 +117,22 @@ def make_pack(root: Path) -> Path:
             "font_policy": "licensed-or-system-only",
             "body_copy_remains_standard": True,
             "approved_treatments": ["stacked-title", "mixed-weight", "stroke-offset"],
+            "approved_recipes": [
+                {
+                    "id": "hero-stack",
+                    "treatment": "stacked-title",
+                    "techniques": ["intentional-line-break", "scale-contrast", "vector-accent"],
+                    "minimum_editable_layers": 3,
+                    "fallback_text_style": "Display/Hero/Fallback",
+                },
+                {
+                    "id": "chapter-mix",
+                    "treatment": "mixed-weight",
+                    "techniques": ["mixed-weight", "color-contrast"],
+                    "minimum_editable_layers": 2,
+                    "fallback_text_style": "Display/Chapter/Fallback",
+                },
+            ],
             "maximum_moments_per_article": 4,
         },
         "reviewed_at": "2026-08-27T09:00:00+08:00",
@@ -269,6 +296,14 @@ def make_article(root: Path, pack: Path) -> Path:
                     "storyboard_chapter": "opening",
                     "source_text": "第一步从一个真实问题开始。",
                     "treatment": "stacked-title",
+                    "recipe_id": "hero-stack",
+                    "construction": {
+                        "techniques": ["intentional-line-break", "scale-contrast", "vector-accent"],
+                        "native_text_node_ids": ["41:1", "41:1a"],
+                        "accent_node_ids": ["42:1"],
+                        "line_count": 2,
+                        "scale_ratio": 1.3,
+                    },
                     "editable_text": True,
                     "font_source": "licensed-or-system",
                     "fallback_text_style": "Display/Hero/Fallback",
@@ -284,6 +319,13 @@ def make_article(root: Path, pack: Path) -> Path:
                     "storyboard_chapter": "identity",
                     "source_text": "不同能力沿同一条路径汇合。",
                     "treatment": "mixed-weight",
+                    "recipe_id": "chapter-mix",
+                    "construction": {
+                        "techniques": ["mixed-weight", "color-contrast"],
+                        "native_text_node_ids": ["41:2", "41:2a"],
+                        "accent_node_ids": [],
+                        "line_count": 1,
+                    },
                     "editable_text": True,
                     "font_source": "licensed-or-system",
                     "fallback_text_style": "Display/Chapter/Fallback",
@@ -339,6 +381,7 @@ def add_visual_review(article_path: Path) -> Path:
                 "major_gap_px": 32,
                 "content_occupancy_ratio": 0.78,
                 "largest_empty_region_ratio": 0.14,
+                "body_text_contrast_ratio": 7.0,
             }
         )
     review = {
@@ -366,6 +409,7 @@ def add_visual_review(article_path: Path) -> Path:
                 "editorial_rhythm", "mobile_legibility", "open_composition", "information_density",
                 "background_family_coherence",
                 "expressive_typography", "no_baked_art_text",
+                "art_type_construction", "background_surface_unity", "reading_surface_contrast",
             )
         },
         "status": "approved",
@@ -418,6 +462,31 @@ class OrganizationPackTests(FreshWorkflowTestCase):
         self.assertFalse(report["ok"])
         self.assertTrue(any("background_family" in item for item in report["errors"]))
 
+    def test_background_family_rejects_black_white_surface_jump(self) -> None:
+        companion = self.pack / "assets" / "generated" / "background-companion.png"
+        write_png(companion, 390, 780, alpha=False, color=(250, 250, 250))
+        report = validate_pack(self.pack)
+        self.assertFalse(report["ok"])
+        self.assertTrue(
+            any("surface mode" in item or "luminance span" in item for item in report["errors"]),
+            report["errors"],
+        )
+
+    def test_background_family_rejects_low_contrast_copy_surface(self) -> None:
+        organization = json.loads((self.pack / "organization.json").read_text(encoding="utf-8"))
+        organization["visual"]["calibration"]["background_family"]["body_text_color"] = "#1E64B4"
+        write_json(self.pack / "organization.json", organization)
+        report = validate_pack(self.pack)
+        self.assertFalse(report["ok"])
+        self.assertTrue(any("contrast" in item for item in report["errors"]), report["errors"])
+
+    def test_background_family_requires_final_opaque_pixels(self) -> None:
+        companion = self.pack / "assets" / "generated" / "background-companion.png"
+        write_png(companion, 390, 780, alpha=True)
+        report = validate_pack(self.pack)
+        self.assertFalse(report["ok"])
+        self.assertTrue(any("final opaque PNG" in item for item in report["errors"]), report["errors"])
+
     def test_typography_calibration_is_mandatory(self) -> None:
         organization = json.loads((self.pack / "organization.json").read_text(encoding="utf-8"))
         organization["visual"]["calibration"].pop("typography")
@@ -468,6 +537,12 @@ class VisualKitTests(FreshWorkflowTestCase):
         plan = build_directions(self.pack, "introduction")
         self.assertEqual(len(plan["directions"]), 2)
         self.assertTrue(all(len(item["calibration_strip"]) == 5 for item in plan["directions"]))
+        family_trial = plan["directions"][0]["background_family_trial"]
+        self.assertEqual(family_trial["approval_contract"]["minimum_contrast_ratio"], 4.5)
+        self.assertIn("one of light or dark", family_trial["approval_contract"]["surface_mode"])
+        typography_trial = plan["directions"][0]["typography_trial"]
+        self.assertTrue(typography_trial["approve_as_recipes"])
+        self.assertIn("A font swap alone", typography_trial["forbidden"])
         serialized = json.dumps(plan, ensure_ascii=False)
         self.assertIn("prior article layouts", serialized)
         self.assertIn("background_family_trial", serialized)
@@ -490,6 +565,22 @@ class VisualKitTests(FreshWorkflowTestCase):
         self.assertFalse(manifest["qa"]["ready_for_layout"])
         self.assertTrue(any("reuses an Ardot text node" in item for item in manifest["typography"]["errors"]))
 
+    def test_art_type_font_swap_without_construction_is_blocked(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article["typography"]["moments"][0]["construction"] = {
+            "techniques": [],
+            "native_text_node_ids": ["41:1"],
+            "accent_node_ids": [],
+            "line_count": 1,
+        }
+        write_json(self.article, article)
+        manifest = build_manifest(self.article, self.pack)
+        self.assertFalse(manifest["qa"]["ready_for_layout"])
+        self.assertTrue(
+            any("font swap alone" in item for item in manifest["typography"]["errors"]),
+            manifest["typography"]["errors"],
+        )
+
     def test_storyboard_density_intent_is_mandatory(self) -> None:
         article = json.loads(self.article.read_text(encoding="utf-8"))
         article["storyboard"]["chapters"][1].pop("density_intent")
@@ -504,6 +595,11 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
         self.assertTrue(manifest["qa"]["ready_for_layout"])
         self.assertEqual(manifest["handoff"]["source_of_truth"], "ardot-native")
         self.assertEqual(manifest["qa"]["layout_policy"]["minimum_unique_generated_micro_assets"], 4)
+        self.assertTrue(manifest["calibration"]["background_family_quality"]["ok"])
+        self.assertEqual(
+            manifest["qa"]["layout_policy"]["background_family_surface"],
+            "one light/dark mode with pixel-checked copy safety and contrast >= 4.5",
+        )
         self.assertTrue(manifest["typography"]["ready"])
         self.assertEqual(manifest["typography"]["moment_count"], 2)
         self.assertTrue(all(block["container_policy"] == "open-by-default" for block in manifest["blocks"]))
@@ -531,6 +627,15 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
         report = compile_article(self.article, self.pack, self.root / "output", check=True)
         self.assertFalse(report["ok"])
         self.assertTrue(any("major_gap_px" in item for item in report["errors"]))
+
+    def test_body_text_contrast_is_enforced(self) -> None:
+        review_path = add_visual_review(self.article)
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        review["density"]["samples"][1]["body_text_contrast_ratio"] = 2.4
+        write_json(review_path, review)
+        report = compile_article(self.article, self.pack, self.root / "output", check=True)
+        self.assertFalse(report["ok"])
+        self.assertTrue(any("contrast" in item for item in report["errors"]))
 
     def test_source_zero_declaration_is_a_compile_gate(self) -> None:
         add_visual_review(self.article)

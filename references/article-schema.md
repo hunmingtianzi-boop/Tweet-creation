@@ -123,7 +123,7 @@ python3 scripts/build_ardot_manifest.py article.json \
 
 Every storyboard chapter must declare `density_intent`; ordinary chapters default to `compact-editorial`, while intentional open space is reserved for Hero, transition, or ending moments. After assembly, create a separate screenshot-backed visual review and store its path in `visual_review_file`. It must cover five distinct Ardot nodes, include five density samples, and pass every check in [visual-review.md](visual-review.md). A Boolean or count written inside the article cannot self-approve the design.
 
-When organization calibration chooses `expressive-native`, `typography.moments` must contain at least two grounded display moments (up to the organization maximum) across at least two semantic roles and treatments. Each moment stays as a native editable Ardot text node, uses a licensed or system font, has a standard fallback, and records file/node/style/name evidence. See [expressive-typography.md](expressive-typography.md). Do not reference an image or asset ID for display copy.
+When organization calibration chooses `expressive-native`, `typography.moments` must contain at least two grounded display moments (up to the organization maximum) across at least two semantic roles and treatments. Each moment references an approved `recipe_id` and contains a `construction` object with at least two allowed non-font techniques, the recipe's full technique set, unique `native_text_node_ids` / `accent_node_ids`, 1–4 lines, and `scale_ratio >= 1.15` when scale contrast is used. Its primary Ardot text node must appear in that construction. Each moment uses licensed/system fonts, stays editable, has a standard fallback, and records file/node/style/name evidence. A font swap alone fails. See [expressive-typography.md](expressive-typography.md). Do not reference an image or asset ID for display copy.
 
 ## Supported blocks
 
@@ -157,5 +157,5 @@ Asset registry IDs such as `visual.hero-example` resolve from the organization p
 - Missing local images block `--check`.
 - Missing visual-kit roles, fewer than four distinct current-article generated micro assets, failed Alpha/aspect validation, missing native Ardot component evidence, or non-generated assets in the kit block `--check`.
 - A missing organization/route calibration, incomplete storyboard, ungrounded visual subject, or failed `visual_review_file` blocks `--check`.
-- Missing expressive typography evidence, a baked title image, an unlicensed font, or an ungrounded display phrase blocks `--check` when the organization uses `expressive-native`.
+- Missing expressive typography recipe/construction evidence, fewer than two non-font techniques or editable layers, a font-swap-only moment, a baked title image, an unlicensed font, or an ungrounded display phrase blocks `--check` when the organization uses `expressive-native`.
 - A QR image that is not explicitly official or user-supplied blocks `--check`.

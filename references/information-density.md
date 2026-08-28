@@ -22,9 +22,9 @@
 
 ## AI 连贯底图
 
-1. 在组织视觉校准阶段生成一张 master 底图和 1–3 张 companion 变体，登记统一 family ID、提示词摘要、色彩、材质、光线和禁用项。
-2. 伴生图必须继承同一空间逻辑、笔触和调色，不只是“颜色差不多”。文章中通过裁切、透明度、局部放大和前后景关系制造变化。
-3. 裸底图和叠字小样都要审核。正文区域保持纯色或近纯色复制安全区，插图运动线可以穿过转场，但不能穿过长段正文。
+1. 在组织视觉校准阶段生成一张 master 底图和 1–3 张 companion 变体，登记统一 family ID、提示词摘要、色彩、材质、光线和禁用项，并选择整个 family 唯一的 `surface_mode: light|dark`。
+2. 伴生图必须继承同一空间逻辑、笔触、明暗面和调色，不只是“颜色差不多”。黑/白大色块跨章节跳变属于直接失败。文章中通过裁切、透明度、局部放大和前后景关系制造变化。
+3. 裸底图和叠字小样都要审核。用归一化坐标记录复制安全区，声明正文颜色、最低对比度 `4.5` 与复制区最大亮度标准差 `0.10`；注册已经合成到最终阅读面的不透明 PNG 后由 `orgs.py validate` 检查实际像素。带透明像素的 family 底图不能通过，因为其真实对比度取决于未知下层。插图运动线可以穿过转场，但不能穿过长段正文。
 4. 真实照片承担活动、人物和成果证据。AI 底图负责气氛与连续性，不能冒充现场，也不能包含生成中文、Logo、二维码或合作方标志。
 5. 不逐章节随机生图；若新章节需要不同叙事场景，先扩展同一 family，再放入全文。
 
@@ -40,8 +40,9 @@
 - `major_gap_px`
 - `content_occupancy_ratio`
 - `largest_empty_region_ratio`
+- `body_text_contrast_ratio`
 - `chapter_id`
 - 与对应截图一致的 `screenshot_sha256`
 - 可选 `intentional_whitespace: true` 与原因
 
-`density.measured_from` 必须为 `ardot-node-properties-and-screenshot` 并记录 `measured_at`。数据必须来自实际 Ardot 节点属性和同一 article root 的 390 px 截图。校验脚本负责范围、哈希和文件尺寸检查，截图负责证明这些数字对应真实版面。
+`density.measured_from` 必须为 `ardot-node-properties-and-screenshot` 并记录 `measured_at`。数据必须来自实际 Ardot 节点属性和同一 article root 的 390 px 截图。校验脚本负责范围、对比度、哈希和文件尺寸检查，截图负责证明这些数字对应真实版面。

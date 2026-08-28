@@ -11,8 +11,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from asset_quality import validate_micro_asset
-from workflow_quality import ALLOWED_ART_TYPE_TREATMENTS, ALLOWED_TYPOGRAPHY_STRATEGIES
+from asset_quality import validate_background_family_assets, validate_micro_asset
+from workflow_quality import (
+    ALLOWED_ART_TYPE_TREATMENTS,
+    ALLOWED_ART_TYPE_TECHNIQUES,
+    ALLOWED_TYPOGRAPHY_STRATEGIES,
+)
 
 
 HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
@@ -113,6 +117,7 @@ def duplicate_ids(items: list[Any]) -> list[str]:
 def validate_pack(pack_dir: Path) -> dict[str, Any]:
     errors: list[str] = []
     warnings: list[str] = []
+    background_quality: dict[str, Any] | None = None
     for filename in PACK_FILES:
         if not (pack_dir / filename).exists():
             errors.append(f"missing file: {filename}")
@@ -240,11 +245,31 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
                 "organization.visual.calibration.background_family",
                 errors,
             )
-            for field in ("id", "strategy", "master_asset_id", "copy_safe_zone"):
+            for field in ("id", "strategy", "master_asset_id"):
                 if not isinstance(background_family.get(field), str) or not background_family.get(field, "").strip():
                     errors.append(f"approved visual calibration background_family requires {field}")
             if background_family.get("strategy") != "generated-family":
                 errors.append("approved visual calibration background_family.strategy must be generated-family")
+            if background_family.get("surface_mode") not in {"light", "dark"}:
+                errors.append("approved background family surface_mode must be light or dark")
+            copy_safe_zone = require_dict(
+                background_family.get("copy_safe_zone"),
+                "organization.visual.calibration.background_family.copy_safe_zone",
+                errors,
+            )
+            for field in ("x", "y", "width", "height"):
+                value = copy_safe_zone.get(field)
+                if not isinstance(value, (int, float)) or isinstance(value, bool):
+                    errors.append(f"approved background family copy_safe_zone.{field} must be numeric")
+            body_text_color = background_family.get("body_text_color")
+            if not isinstance(body_text_color, str) or not HEX_COLOR.fullmatch(body_text_color):
+                errors.append("approved background family body_text_color must be a #RRGGBB color")
+            minimum_contrast = background_family.get("minimum_contrast_ratio")
+            if not isinstance(minimum_contrast, (int, float)) or isinstance(minimum_contrast, bool) or minimum_contrast < 4.5:
+                errors.append("approved background family minimum_contrast_ratio must be at least 4.5")
+            maximum_stddev = background_family.get("maximum_copy_safe_stddev")
+            if not isinstance(maximum_stddev, (int, float)) or isinstance(maximum_stddev, bool) or not 0 < maximum_stddev <= 0.12:
+                errors.append("approved background family maximum_copy_safe_stddev must be between 0 and 0.12")
             companions = require_list(
                 background_family.get("companion_asset_ids"),
                 "organization.visual.calibration.background_family.companion_asset_ids",
@@ -282,6 +307,36 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
             or not 2 <= maximum_moments <= 4
         ):
             errors.append("approved typography maximum_moments_per_article must be 2 to 4")
+        recipes = require_list(
+            typography.get("approved_recipes"),
+            "organization.visual.calibration.typography.approved_recipes",
+            errors,
+        )
+        if typography.get("strategy") == "expressive-native" and len(recipes) < 2:
+            errors.append("expressive typography requires at least 2 approved construction recipes")
+        recipe_ids: set[str] = set()
+        for index, recipe_raw in enumerate(recipes):
+            recipe = require_dict(recipe_raw, f"approved typography recipe {index}", errors)
+            recipe_id = recipe.get("id")
+            if not isinstance(recipe_id, str) or not SLUG.fullmatch(recipe_id):
+                errors.append(f"approved typography recipe {index} requires a slug id")
+            elif recipe_id in recipe_ids:
+                errors.append(f"duplicate typography recipe id: {recipe_id}")
+            else:
+                recipe_ids.add(recipe_id)
+            if recipe.get("treatment") not in treatments:
+                errors.append(f"approved typography recipe {index} must use an approved treatment")
+            techniques = require_list(recipe.get("techniques"), f"approved typography recipe {index}.techniques", errors)
+            technique_set = {item for item in techniques if isinstance(item, str)}
+            if len(technique_set) < 2:
+                errors.append(f"approved typography recipe {index} needs at least 2 non-font construction techniques")
+            for technique in sorted(technique_set - ALLOWED_ART_TYPE_TECHNIQUES):
+                errors.append(f"approved typography recipe {index} has invalid technique: {technique}")
+            minimum_layers = recipe.get("minimum_editable_layers")
+            if not isinstance(minimum_layers, int) or isinstance(minimum_layers, bool) or minimum_layers < 2:
+                errors.append(f"approved typography recipe {index} minimum_editable_layers must be at least 2")
+            if not isinstance(recipe.get("fallback_text_style"), str) or not recipe.get("fallback_text_style"):
+                errors.append(f"approved typography recipe {index} requires fallback_text_style")
     elif org.get("status") == "confirmed":
         warnings.append("confirmed organization lacks approved visual calibration; full article production is blocked")
 
@@ -414,6 +469,26 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
                 errors.append(
                     f"background family asset {asset_id} must declare background_variant={expected_variant}"
                 )
+        family_assets: list[tuple[str, Path]] = []
+        for asset_id in [master_id, *companion_ids]:
+            asset = asset_registry.get(asset_id)
+            location = asset.get("location") if isinstance(asset, dict) else None
+            if not isinstance(location, str) or re.match(r"^(?:https?://|data:)", location):
+                errors.append(f"background family requires a local PNG for tonal analysis: {asset_id}")
+                continue
+            candidate = (pack_dir / location).resolve()
+            if candidate.exists():
+                family_assets.append((asset_id, candidate))
+        if len(family_assets) == 1 + len(companion_ids):
+            background_quality = validate_background_family_assets(
+                family_assets,
+                surface_mode=background_family.get("surface_mode"),
+                copy_safe_zone=background_family.get("copy_safe_zone", {}),
+                body_text_color=background_family.get("body_text_color", ""),
+                minimum_contrast_ratio=background_family.get("minimum_contrast_ratio", 4.5),
+                maximum_copy_safe_stddev=background_family.get("maximum_copy_safe_stddev", 0.10),
+            )
+            errors.extend(background_quality["errors"])
 
     provenance = require_dict(org.get("provenance"), "organization.provenance", errors)
     for source_id in require_list(provenance.get("source_ids"), "organization.provenance.source_ids", errors):
@@ -476,6 +551,7 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
         "visual_calibration": {
             "status": calibration_status,
             "approved_routes": approved_routes,
+            "background_family_quality": background_quality,
         },
         "counts": {
             "routes": len(routes),
@@ -606,6 +682,7 @@ def scaffold(org_id: str, name: str) -> dict[str, Any]:
                 "font_policy": "licensed-or-system-only",
                 "body_copy_remains_standard": True,
                 "approved_treatments": [],
+                "approved_recipes": [],
                 "maximum_moments_per_article": 4,
             },
             "reviewed_at": None, "review_basis": [],

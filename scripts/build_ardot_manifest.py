@@ -143,6 +143,9 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
         raise ValueError("article organization_id does not match the organization pack")
     route = choose_route(article, organization)
     calibration = calibration_state(organization, route["id"], pack["assets"])
+    calibration["background_family_quality"] = report.get("visual_calibration", {}).get(
+        "background_family_quality"
+    )
     storyboard = build_storyboard_plan(article_path)
     visual_kit_plan = build_visual_kit_plan(article_path, org_dir)
     ardot = pack["ardot"]
@@ -262,8 +265,8 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
             "STOP if visual_kit.ready_for_layout is false",
             "STOP if typography.ready is false",
             "generate four distinct micro illustrations, verify real Alpha, register them, and record native Ardot component evidence before article layout",
-            "place only the calibrated background-family master and companions, varying crop and opacity instead of style",
-            "apply 2–4 approved expressive typography moments as native editable Ardot text styles; keep body copy standard and never bake Chinese display text into images",
+            "place only the pixel-validated background-family master and companions on the declared surface mode, varying crop and opacity instead of style",
+            "apply 2–4 approved expressive typography recipes with at least two non-font construction techniques and native editable text/accent layers; keep body copy standard and never bake Chinese display text into images",
             "apply or update the organization variable mode",
             "fetch reusable components by exact ardot_component name",
             "create missing semantic component variants before article assembly",
@@ -282,9 +285,10 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
             ),
             "blocking": [
                 "organization or selected route lacks an approved Ardot calibration benchmark",
+                "background family pixels fail surface-mode unity, copy-zone variance, tonal continuity, or 4.5:1 body-text contrast",
                 "article lacks an approved narrative storyboard with complete block coverage",
                 "article-specific visual kit lacks any required role or does not use four distinct generated micro assets",
-                "expressive typography is missing, flattened, ungrounded, unlicensed, or lacks native Ardot text-style evidence",
+                "expressive typography is missing, font-swap-only, flattened, ungrounded, unlicensed, or lacks approved recipe/construction/node evidence",
                 "layout started before micro illustrations became native Ardot components",
                 "missing component variant",
                 "unresolved asset",
@@ -303,6 +307,8 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
                 "minimum_asymmetric_or_edge_breaking_moments": 3,
                 "default_container": "none",
                 "expressive_typography_moments": "2-4 when strategy is expressive-native",
+                "expressive_typography_recipe": "at least 2 non-font techniques and 2 editable construction layers",
+                "background_family_surface": "one light/dark mode with pixel-checked copy safety and contrast >= 4.5",
                 "body_copy_typography": "standard-readable",
             },
             "unresolved_assets": unresolved,

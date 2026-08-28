@@ -14,16 +14,15 @@
 
 表现型路线至少覆盖两种语义角色和两种处理手法。正文、长引用、日期、名单、数据与关键投递信息保持标准可读字体。
 
-## 可用手法
+## 可用构造手法
 
-- `mixed-weight`：同一短句的粗细对比；
-- `stacked-title`：有意识的多行堆叠和尺度反差；
-- `baseline-shift`：少量字的基线偏移；
-- `stroke-offset`：由原生文本派生的偏移描边；
-- `outline-shadow`：可回到原始文本的轮廓/影子层；
-- `hand-drawn-accent`：手绘线、圈注或底线作为独立矢量点缀；
-- `compressed-display`：授权或系统字体的紧凑展示款；
-- `vertical-accent`：仅在短标签中使用的竖排强调。
+批准的 treatment 可以继续使用 `mixed-weight`、`stacked-title`、`baseline-shift`、`stroke-offset`、`outline-shadow`、`hand-drawn-accent`、`compressed-display`、`vertical-accent`。但 treatment 只是路线名，真正验收的是下面这些可观察、非字体替换的 construction technique：
+
+- `intentional-line-break`、`scale-contrast`、`baseline-offset`、`rotation`；
+- `color-contrast`、`mixed-weight`、`outline-layer`、`offset-layer`；
+- `vector-accent`、`vertical-flow`。
+
+每个批准 recipe 至少包含两种 technique；每个文章时刻也必须实际实现该 recipe 的全部 technique，并保留至少两个可编辑文字/点缀图层。只换字体、字重或字号但没有组合结构，不算艺术字。
 
 不得使用未授权字体；不得将关键文字只保留为轮廓、位图或图像切片；不得用 AI 生成中文书法、标题字或含字底图。
 
@@ -38,24 +37,69 @@
   "font_policy": "licensed-or-system-only",
   "body_copy_remains_standard": true,
   "approved_treatments": ["stacked-title", "mixed-weight", "stroke-offset"],
+  "approved_recipes": [
+    {
+      "id": "hero-stack",
+      "treatment": "stacked-title",
+      "techniques": ["intentional-line-break", "scale-contrast", "vector-accent"],
+      "minimum_editable_layers": 3,
+      "fallback_text_style": "Display/Hero/Fallback"
+    },
+    {
+      "id": "chapter-mix",
+      "treatment": "mixed-weight",
+      "techniques": ["mixed-weight", "color-contrast"],
+      "minimum_editable_layers": 2,
+      "fallback_text_style": "Display/Chapter/Fallback"
+    }
+  ],
   "maximum_moments_per_article": 4
 }
 ```
 
-校准条至少对比 Hero 与章节标题，同时检查组织识别度、390 px 断行、字重层级、字体授权和标准回退。新组织必须从本轮材料推导字体性格，不得查看旧推文的标题字寻找参考。
+校准条至少对比 Hero 与章节标题，并至少批准两个 recipe，同时检查组织识别度、390 px 断行、图层结构、字体授权和标准回退。新组织必须从本轮材料推导字体性格，不得查看旧推文的标题字寻找参考。
 
 ## 文章证据
 
 `article.typography.moments` 的每一项必须：
 
 - 引用正文中的 `source_text`，不超过 40 个字符；
-- 绑定已批准的 storyboard chapter、语义角色和处理手法；
+- 绑定已批准的 storyboard chapter、语义角色、`recipe_id` 和对应处理手法；
 - 声明 `editable_text: true` 与 `font_source: licensed-or-system`；
 - 提供标准 `fallback_text_style`；
-- 记录当前组织 Ardot 文件中的 `file_url`、唯一文本 `node_id`、文本 `style_id` 和精确 `name`。
+- 写入 `construction.techniques`、`native_text_node_ids`、`accent_node_ids`、`line_count`；使用 `scale-contrast` 时还要写 `scale_ratio >= 1.15`；
+- 记录当前组织 Ardot 文件中的 `file_url`、唯一文本 `node_id`、文本 `style_id` 和精确 `name`，且该 node ID 必须出现在 `construction.native_text_node_ids`。
+
+示例：
+
+```json
+{
+  "role": "hero-title",
+  "storyboard_chapter": "opening",
+  "source_text": "让智能体真正开始工作",
+  "recipe_id": "hero-stack",
+  "treatment": "stacked-title",
+  "editable_text": true,
+  "font_source": "licensed-or-system",
+  "fallback_text_style": "Display/Hero/Fallback",
+  "construction": {
+    "techniques": ["intentional-line-break", "scale-contrast", "vector-accent"],
+    "native_text_node_ids": ["41:1", "41:2"],
+    "accent_node_ids": ["41:3"],
+    "line_count": 2,
+    "scale_ratio": 1.35
+  },
+  "ardot_text_style": {
+    "file_url": "https://ardot.example/current-org",
+    "node_id": "41:1",
+    "style_id": "40:1",
+    "name": "Type/Display/HeroStack"
+  }
+}
+```
 
 `asset_id`、`src`、`image` 或 `raster_text` 等字图字段会直接阻断装配。
 
 ## 微信传输
 
-Ardot 原生文本是唯一设计源。微信适配时优先使用安全内联文本样式，字体不可用时回退到 `fallback_text_style`。若平台无法表达某个装饰效果，可在批准后从 Ardot 原生文本派生局部图片，但必须保留可编辑源节点和可读的文本回退；派生图不能取代设计源，也不得由生图模型生成文字。
+Ardot 原生文本与独立矢量点缀是唯一设计源。微信适配时优先使用安全内联文本样式，字体不可用时回退到 `fallback_text_style`。若平台无法表达某个装饰效果，可在批准后从 Ardot 原生结构派生局部图片，但必须保留可编辑源节点和可读的文本回退；派生图不能取代设计源，也不得由生图模型生成文字。

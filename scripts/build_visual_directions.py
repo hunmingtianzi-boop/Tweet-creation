@@ -70,20 +70,32 @@ def build_directions(org_dir: Path, article_type: str) -> dict[str, Any]:
                 "background_family_trial": {
                     "required": True,
                     "master": "Generate one text-free atmosphere master with a near-solid copy-safe zone.",
-                    "companions": "Generate 1 to 3 variants with the same spatial logic, material, light, and palette.",
-                    "forbidden": "Do not generate unrelated chapter backgrounds or use generated scenes as documentary evidence.",
+                    "companions": "Generate 1 to 3 variants with the same spatial logic, material, light direction, palette, and declared surface mode.",
+                    "approval_contract": {
+                        "surface_mode": "choose exactly one of light or dark for the whole family",
+                        "copy_safe_zone": "record normalized x/y/width/height",
+                        "body_text_color": "record one hex color used for the contrast preflight",
+                        "minimum_contrast_ratio": 4.5,
+                        "maximum_copy_safe_stddev": 0.10,
+                    },
+                    "preflight": "Export final opaque PNGs, register the master and companions, then run orgs.py validate. Do not begin an article root until pixel inspection passes.",
+                    "forbidden": "Do not mix light and dark chapter surfaces, accept a high-variance copy zone, generate unrelated chapter backgrounds, or use generated scenes as documentary evidence.",
                 },
                 "typography_trial": {
                     "recommended_strategy": typography_strategy,
                     "compare": ["hero-title", "chapter-title"],
                     "candidate_treatments": ["stacked-title", "mixed-weight", "stroke-offset"],
+                    "approve_as_recipes": True,
                     "requirements": [
                         "native editable Ardot text nodes",
                         "licensed or system fonts only",
                         "standard readable body copy",
                         "fallback text style for every expressive moment",
+                        "at least two non-font construction techniques per approved recipe",
+                        "at least two editable text/accent layers per expressive moment",
+                        "record recipe ID, construction techniques, and Ardot node IDs",
                     ],
-                    "forbidden": "No AI-generated Chinese lettering bitmap, flattened title image, or outlined-only critical copy.",
+                    "forbidden": "A font swap alone is not art type. No AI-generated Chinese lettering bitmap, flattened title image, or outlined-only critical copy.",
                 },
             }
         )
@@ -106,8 +118,8 @@ def build_directions(org_dir: Path, article_type: str) -> dict[str, Any]:
         "directions": directions,
         "required_review": {
             "compare": ["hero", "chapter", "photo-composition", "micro-visual", "density-strip"],
-            "background_family": ["master", "1-3 companions", "copy-safe zone", "same-family continuity"],
-            "typography": ["strategy", "approved treatments", "editable text", "body-copy fallback"],
+            "background_family": ["master", "1-3 companions", "one surface mode", "normalized copy-safe zone", "4.5:1 text contrast", "copy-zone variance <= 0.10", "pixel-checked continuity"],
+            "typography": ["strategy", "at least two approved construction recipes", "at least two non-font techniques", "editable text/accent layers", "body-copy fallback"],
             "approve_one_route_in": "organization.visual.calibration.approved_routes",
             "record_benchmark": ["file_url", "page_name", "article_node_id"],
             "stop_before_full_article": True,

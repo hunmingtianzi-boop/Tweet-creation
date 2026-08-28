@@ -28,6 +28,9 @@ REQUIRED_VISUAL_CHECKS = {
     "background_family_coherence",
     "expressive_typography",
     "no_baked_art_text",
+    "art_type_construction",
+    "background_surface_unity",
+    "reading_surface_contrast",
 }
 REQUIRED_SCREENSHOT_ROLES = {"hero", "chapter", "evidence", "complex-section", "cta"}
 ALLOWED_DENSITY_MODES = {"compact-editorial", "standard", "spacious-feature"}
@@ -66,6 +69,18 @@ ALLOWED_ART_TYPE_TREATMENTS = {
     "hand-drawn-accent",
     "compressed-display",
     "vertical-accent",
+}
+ALLOWED_ART_TYPE_TECHNIQUES = {
+    "intentional-line-break",
+    "scale-contrast",
+    "baseline-offset",
+    "rotation",
+    "color-contrast",
+    "mixed-weight",
+    "outline-layer",
+    "offset-layer",
+    "vector-accent",
+    "vertical-flow",
 }
 GENERIC_VISUAL_SUBJECTS = {
     "ai",
@@ -180,8 +195,26 @@ def background_family_state(
     ids = [item for item in [master_id, *companions] if isinstance(item, str) and item]
     if len(ids) != len(set(ids)):
         reasons.append("background_family master and companion asset IDs must be distinct")
-    if not isinstance(family.get("copy_safe_zone"), str) or not family.get("copy_safe_zone", "").strip():
-        reasons.append("background_family.copy_safe_zone is required")
+    if family.get("surface_mode") not in {"light", "dark"}:
+        reasons.append("background_family.surface_mode must be light or dark")
+    copy_safe_zone = family.get("copy_safe_zone")
+    if not isinstance(copy_safe_zone, dict):
+        copy_safe_zone = {}
+        reasons.append("background_family.copy_safe_zone must be a normalized geometry object")
+    else:
+        for field in ("x", "y", "width", "height"):
+            value = copy_safe_zone.get(field)
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                reasons.append(f"background_family.copy_safe_zone.{field} must be numeric")
+    body_text_color = family.get("body_text_color")
+    if not isinstance(body_text_color, str) or not re.fullmatch(r"#[0-9A-Fa-f]{6}", body_text_color):
+        reasons.append("background_family.body_text_color must be a #RRGGBB color")
+    minimum_contrast_ratio = family.get("minimum_contrast_ratio")
+    if not isinstance(minimum_contrast_ratio, (int, float)) or isinstance(minimum_contrast_ratio, bool) or minimum_contrast_ratio < 4.5:
+        reasons.append("background_family.minimum_contrast_ratio must be at least 4.5")
+    maximum_copy_safe_stddev = family.get("maximum_copy_safe_stddev")
+    if not isinstance(maximum_copy_safe_stddev, (int, float)) or isinstance(maximum_copy_safe_stddev, bool) or not 0 < maximum_copy_safe_stddev <= 0.12:
+        reasons.append("background_family.maximum_copy_safe_stddev must be between 0 and 0.12")
     if assets_doc is not None:
         registry = {
             item.get("id"): item
@@ -209,6 +242,11 @@ def background_family_state(
         "strategy": family.get("strategy"),
         "master_asset_id": master_id,
         "companion_asset_ids": companions,
+        "surface_mode": family.get("surface_mode"),
+        "copy_safe_zone": copy_safe_zone,
+        "body_text_color": body_text_color,
+        "minimum_contrast_ratio": minimum_contrast_ratio,
+        "maximum_copy_safe_stddev": maximum_copy_safe_stddev,
         "blocking_reasons": reasons,
     }
 
@@ -245,11 +283,41 @@ def typography_calibration_state(organization: dict[str, Any]) -> dict[str, Any]
     if not isinstance(maximum, int) or isinstance(maximum, bool) or not 2 <= maximum <= 4:
         reasons.append("typography.maximum_moments_per_article must be 2 to 4")
         maximum = 4
+    recipes_raw = typography.get("approved_recipes")
+    recipes = [item for item in recipes_raw if isinstance(item, dict)] if isinstance(recipes_raw, list) else []
+    if strategy == "expressive-native" and len(recipes) < 2:
+        reasons.append("expressive typography requires at least 2 approved construction recipes")
+    recipe_ids: set[str] = set()
+    for index, recipe in enumerate(recipes):
+        recipe_id = recipe.get("id")
+        if not isinstance(recipe_id, str) or not SLUG.fullmatch(recipe_id):
+            reasons.append(f"typography recipe {index} requires a slug id")
+        elif recipe_id in recipe_ids:
+            reasons.append(f"typography recipe id is duplicated: {recipe_id}")
+        else:
+            recipe_ids.add(recipe_id)
+        if recipe.get("treatment") not in approved_treatments:
+            reasons.append(f"typography recipe {index} must use an approved treatment")
+        techniques = recipe.get("techniques")
+        technique_set = {item for item in techniques if isinstance(item, str)} if isinstance(techniques, list) else set()
+        if len(technique_set) < 2:
+            reasons.append(f"typography recipe {index} needs at least 2 non-font construction techniques")
+        invalid_techniques = sorted(technique_set - ALLOWED_ART_TYPE_TECHNIQUES)
+        if invalid_techniques:
+            reasons.append(
+                f"typography recipe {index} has invalid techniques: " + ", ".join(invalid_techniques)
+            )
+        minimum_layers = recipe.get("minimum_editable_layers")
+        if not isinstance(minimum_layers, int) or isinstance(minimum_layers, bool) or minimum_layers < 2:
+            reasons.append(f"typography recipe {index} minimum_editable_layers must be at least 2")
+        if not isinstance(recipe.get("fallback_text_style"), str) or not recipe.get("fallback_text_style"):
+            reasons.append(f"typography recipe {index} requires fallback_text_style")
     return {
         "ready": not reasons,
         "strategy": strategy,
         "approved_treatments": approved_treatments,
         "maximum_moments_per_article": maximum,
+        "approved_recipes": recipes,
         "blocking_reasons": reasons,
     }
 
@@ -380,6 +448,12 @@ def validate_typography_plan(
     design_file = ardot.get("design_file") if isinstance(ardot.get("design_file"), dict) else {}
     design_url = design_file.get("url")
     approved_treatments = set(calibration["approved_treatments"])
+    recipes = {
+        item.get("id"): item
+        for item in calibration.get("approved_recipes", [])
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+    construction_node_ids: set[str] = set()
     for index, moment in enumerate(moments):
         role = moment.get("role")
         if role not in ALLOWED_ART_TYPE_ROLES:
@@ -405,6 +479,60 @@ def validate_typography_plan(
             errors.append(f"typography moment {index} font_source must be licensed-or-system")
         if not isinstance(moment.get("fallback_text_style"), str) or not moment.get("fallback_text_style"):
             errors.append(f"typography moment {index} requires fallback_text_style")
+        recipe_id = moment.get("recipe_id")
+        recipe = recipes.get(recipe_id)
+        if not recipe:
+            errors.append(f"typography moment {index} must reference an approved recipe_id")
+            recipe = {}
+        elif recipe.get("treatment") != treatment:
+            errors.append(f"typography moment {index} treatment must match its approved recipe")
+        construction = moment.get("construction")
+        if not isinstance(construction, dict):
+            construction = {}
+            errors.append(f"typography moment {index} requires a construction plan")
+        techniques_raw = construction.get("techniques")
+        technique_set = {
+            item for item in techniques_raw if isinstance(item, str)
+        } if isinstance(techniques_raw, list) else set()
+        if len(technique_set) < 2:
+            errors.append(
+                f"typography moment {index} needs at least 2 non-font construction techniques; font swap alone is forbidden"
+            )
+        invalid_techniques = sorted(technique_set - ALLOWED_ART_TYPE_TECHNIQUES)
+        if invalid_techniques:
+            errors.append(
+                f"typography moment {index} has invalid construction techniques: "
+                + ", ".join(invalid_techniques)
+            )
+        required_techniques = {
+            item for item in recipe.get("techniques", []) if isinstance(item, str)
+        }
+        if recipe and not required_techniques.issubset(technique_set):
+            missing = sorted(required_techniques - technique_set)
+            errors.append(
+                f"typography moment {index} is missing recipe techniques: " + ", ".join(missing)
+            )
+        native_nodes_raw = construction.get("native_text_node_ids")
+        native_nodes = [item for item in native_nodes_raw if isinstance(item, str) and item] if isinstance(native_nodes_raw, list) else []
+        accent_nodes_raw = construction.get("accent_node_ids", [])
+        accent_nodes = [item for item in accent_nodes_raw if isinstance(item, str) and item] if isinstance(accent_nodes_raw, list) else []
+        editable_layers = len(set(native_nodes + accent_nodes))
+        minimum_layers = recipe.get("minimum_editable_layers", 2)
+        if editable_layers < minimum_layers:
+            errors.append(
+                f"typography moment {index} requires at least {minimum_layers} editable construction layers"
+            )
+        for node_id in native_nodes + accent_nodes:
+            if node_id in construction_node_ids:
+                errors.append(f"typography moment {index} reuses an expressive construction node: {node_id}")
+            construction_node_ids.add(node_id)
+        line_count = construction.get("line_count")
+        if not isinstance(line_count, int) or isinstance(line_count, bool) or not 1 <= line_count <= 4:
+            errors.append(f"typography moment {index} line_count must be between 1 and 4")
+        if "scale-contrast" in technique_set:
+            scale_ratio = construction.get("scale_ratio")
+            if not isinstance(scale_ratio, (int, float)) or isinstance(scale_ratio, bool) or scale_ratio < 1.15:
+                errors.append(f"typography moment {index} scale-contrast requires scale_ratio >= 1.15")
         text_style = moment.get("ardot_text_style")
         if not isinstance(text_style, dict):
             errors.append(f"typography moment {index} requires ardot_text_style evidence")
@@ -419,6 +547,10 @@ def validate_typography_plan(
             if text_node_id in text_node_ids:
                 errors.append(f"typography moment {index} reuses an Ardot text node")
             text_node_ids.add(text_node_id)
+            if native_nodes and text_node_id not in native_nodes:
+                errors.append(
+                    f"typography moment {index} ardot text node must appear in construction.native_text_node_ids"
+                )
         forbidden_asset_fields = {"asset_id", "src", "image", "raster_text"} & set(moment)
         if forbidden_asset_fields:
             errors.append(
@@ -578,6 +710,11 @@ def validate_visual_review(
             )
         if intentional and not sample.get("intentional_whitespace_reason"):
             errors.append(f"density sample {index} intentional whitespace requires a reason")
+        contrast = sample.get("body_text_contrast_ratio")
+        if not isinstance(contrast, (int, float)) or isinstance(contrast, bool):
+            errors.append(f"density sample {index} requires numeric body_text_contrast_ratio")
+        elif float(contrast) < 4.5:
+            errors.append(f"density sample {index} body_text_contrast_ratio must be at least 4.5")
     if len(density_node_ids) < 5:
         errors.append("visual review requires density samples for at least 5 distinct screenshot nodes")
     checks = review.get("checks")

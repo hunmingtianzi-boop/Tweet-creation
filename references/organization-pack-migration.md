@@ -16,8 +16,8 @@
 - 本公众号的真实照片 registry；
 - 本轮 source-zero 视觉输入与隔离声明；
 - Ardot calibration page、variable mode 和 route benchmark；
-- generated background family 的 master/companions；
-- 从当前组织材料校准的表现型字体策略、处理清单和 Ardot 文本样式；
+- generated background family 的 master/companions、唯一 surface mode、复制安全区和像素验收；
+- 从当前组织材料校准的表现型字体策略、至少两个 construction recipes 和 Ardot 文本/矢量样式；
 - 每篇文章四枚专属微组件及其 Ardot component nodes；
 - 每篇文章 visual review v2。
 
@@ -33,11 +33,11 @@
 1. 运行 `orgs.py init` 建立空 pack，不复制已有 pack。
 2. 只登记本轮原始材料到 `sources.json`；填写 `provenance.visual_input_source_ids` 和四类 `excluded_visual_reference_kinds`。
 3. 从组织证据推导 2–3 条路线，生成五项 calibration strip；先校准再全文。
-4. 生成并登记同一家族的 master 与 1–3 个 companion；两类资产分别标记 `background_variant`。
-5. 将批准的 Ardot file/page/root、density mode 和 background family 写回 organization pack，状态才可改为 `confirmed`。
-6. 在同一校准条中批准 `typography` 策略、授权边界、原生处理手法与每篇上限；不复制另一公众号的字效。
+4. 生成并登记同一家族的 master 与 1–3 个 companion；两类资产分别标记 `background_variant`。为整个 family 声明单一 light/dark surface mode、归一化复制安全区、正文颜色、最低 4.5 对比度与复制区方差上限。
+5. 运行 `orgs.py validate` 分析所有底图实际像素；明暗模式混杂、大块相反色、复制区不均匀、文字对比不足或 family 色调跨度过大时必须重做校准资产，不能进入文章 root。通过后才将批准的 Ardot file/page/root、density mode 和 background family 写回 organization pack，并把状态改为 `confirmed`。
+6. 在同一校准条中批准 `typography` 策略、授权边界、至少两个原生 construction recipes 与每篇上限；每个 recipe 至少两种非字体构造手法和两个可编辑图层，不复制另一公众号的字效。
 7. 为当前文章生成四枚不同微组件，逐张运行 Alpha 检查，注册为 `article-micro`，再在 Ardot 建原生组件并回写 node 证据。
-8. 为当前文章写 2–4 个有语义的表现型文字时刻，回写唯一 Ardot 文本 node/style 证据。
-9. 完成文章后从同一 article root 导出五类 390 px 截图，生成 visual review v2，最后运行 `compile_wechat.py --check`。
+8. 为当前文章写 2–4 个有语义的表现型文字时刻，引用批准 recipe，回写唯一 Ardot 文本/点缀 node 与 style 证据。
+9. 完成文章后从同一 article root 导出五类 390 px 截图，记录每个样本的正文对比度，并通过 `background_surface_unity`、`reading_surface_contrast` 与 `art_type_construction` 等 visual review v2 检查，最后运行 `compile_wechat.py --check`。
 
 任何一步若需要查看旧视觉来“找感觉”，应停止并回到本轮原始材料、组织物件、真实照片和校准条，而不是把旧风格解释为品牌事实。
