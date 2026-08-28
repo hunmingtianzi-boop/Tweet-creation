@@ -643,6 +643,13 @@ def scaffold(org_id: str, name: str) -> dict[str, Any]:
             "delivery": "wechat-inline-html",
             "default_action": "draft-only",
             "formal_publish_requires_confirmation": True,
+            "interaction_policy": {
+                "default_payload": "static",
+                "policy_version": "wechat-svg-smil-self-v1",
+                "candidate_modes": ["svg-smil-self", "horizontal-swipe"],
+                "requires_static_fallback": True,
+                "account_capability_profile_location": "delivery-environment-only",
+            },
         },
         "provenance": {
             "source_ids": [],

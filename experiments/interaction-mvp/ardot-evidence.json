@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "file": {
     "name": "公众号动态组件 A-B MVP · 拓浙 AI 生态",
     "url": "https://ardot.tencent.com/file/719663191870370",
@@ -62,13 +62,24 @@
   "runtime_mapping": [
     {
       "ardot_component": "WeChat/Interaction/TapReveal/State=Closed|Open/MVP",
-      "html_selector": "[data-interaction=\"tap-reveal\"]",
-      "fallback": "b-dynamic/wechat-fallback.html"
+      "transport_mode": "svg-smil-self-v1",
+      "html_selector": "[data-interaction=\"svg-smil-self\"]",
+      "fallback": "b-dynamic/wechat-fallback.html",
+      "fallback_component": "WeChat/Baseline/StaticPathItem/MVP",
+      "policy_version": "wechat-svg-smil-self-v1"
     },
     {
       "ardot_component": "WeChat/Interaction/SwipePhoto/Item/MVP",
+      "transport_mode": "horizontal-swipe",
       "html_selector": "[data-interaction=\"horizontal-swipe\"]",
-      "fallback": "b-dynamic/wechat-fallback.html"
+      "fallback": "b-dynamic/wechat-fallback.html",
+      "policy_version": "wechat-svg-smil-self-v1"
     }
-  ]
+  ],
+  "capability_evidence": {
+    "probe_source": "../../tests/fixtures/wechat-capability/probe-v2-source.html",
+    "probe_sha256": "6b8abcb8b0699f9d4fb3fbfabc8745e99d646194dee05da595200bb0b63781bb",
+    "draft_readback": "../../tests/fixtures/wechat-capability/probe-v2-readback.json",
+    "mobile_runtime_status": "pending"
+  }
 }

@@ -133,7 +133,9 @@ For commands and file locations, read [references/使用说明.md](references/�
   ```
 
 - `index.html` and `wechat.html` are transport/debug artifacts, not the design source.
+- When Ardot contains an approved interaction, hand it to the last-mile publisher under policy `wechat-svg-smil-self-v1`. The only dynamic candidates are no-ID self-trigger `<set>` / `<animateTransform begin="click">` SVG and inline CSS horizontal swipe. JavaScript, `<details>`, transport IDs, cross-ID timing, fragment references, and unprobed SMIL are forbidden. Every candidate requires a semantic-hash-matched static fallback.
 - Before creating a WeChat draft, upload body images to the organization’s connected account and replace local paths with returned WeChat URLs. Upload the cover through the account’s supported cover-material flow.
+- A dynamic candidate remains disabled until saved-draft structure readback and an unexpired target-account iOS/Android capability profile both pass. Structure preservation alone is not runtime proof; otherwise update the same draft with the static fallback.
 - Default to draft creation only. Formal publication always requires a separate explicit confirmation.
 
 ## Quality gate
@@ -159,6 +161,9 @@ Treat any of the following as blocking for final delivery:
 - mismatched organization IDs across registries;
 - generated or unverified QR/logo assets;
 - scripts, forms, or non-inline stylesheet dependencies in `wechat.html`;
+- JavaScript, `<details>`, any transport `id`, cross-ID SMIL timing, SVG fragment references, non-WeChat SVG image URLs, or an interaction outside `wechat-svg-smil-self-v1`;
+- an interactive component without matching `data-fallback-key` / semantic hash, closed/open/fallback Ardot evidence, saved-draft signature readback, or a current capability profile for the exact target account;
+- a draft payload without a current target-account cover `thumb_media_id`, or a saved draft whose cover cannot be verified;
 - `compile-report.json` with `ok: false`.
 
 Detailed density bands and AI-background continuity rules are in [references/information-density.md](references/information-density.md).

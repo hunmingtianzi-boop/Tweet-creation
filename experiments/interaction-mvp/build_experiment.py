@@ -8,12 +8,20 @@ import hashlib
 import html
 import json
 import shutil
+import sys
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
 EXPERIMENT = Path(__file__).resolve().parent
 DEFAULT_CONTENT = EXPERIMENT / "content.json"
+SCRIPTS = ROOT / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+from wechat_interaction_policy import POLICY_VERSION, audit_transport  # noqa: E402
+
+
 PALETTE = {
     "paper": "#F3F0E7",
     "paper2": "#E9E4D8",
@@ -38,6 +46,16 @@ def content_digest(content: dict) -> str:
 
 def inline_style(**items: str) -> str:
     return ";".join(f"{key.replace('_', '-')}:{value}" for key, value in items.items())
+
+
+def svg_text_lines(value: object, width: int = 17) -> list[str]:
+    text = str(value).strip()
+    return [text[index : index + width] for index in range(0, len(text), width)] or [""]
+
+
+def fallback_hash(*values: object) -> str:
+    normalized = "\n".join(" ".join(str(value).split()) for value in values)
+    return "sha256:" + hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 def copy_assets(content: dict, variant_dir: Path) -> list[dict[str, str]]:
@@ -77,7 +95,8 @@ def static_path(content: dict) -> str:
     rows = []
     for i, item in enumerate(content["ecosystem"]):
         color = PALETTE["coral"] if i % 2 == 0 else PALETTE["teal"]
-        rows.append(f'''<div style="display:grid;grid-template-columns:48px 1fr;gap:13px;padding:17px 0;border-top:1px solid rgba(31,107,102,.25);">
+        semantic_hash = fallback_hash(item["index"], item["label"], item["name"], item["summary"])
+        rows.append(f'''<div data-fallback-key="ecosystem-{esc(item['index'])}" data-fallback-hash="{semantic_hash}" style="display:grid;grid-template-columns:48px 1fr;gap:13px;padding:17px 0;border-top:1px solid rgba(31,107,102,.25);">
   <div style="font-size:25px;font-weight:950;letter-spacing:-.06em;color:{color};">{esc(item['index'])}</div>
   <div><div style="font-size:11px;font-weight:850;letter-spacing:.13em;color:{color};">{esc(item['label'])}</div>
   <div style="margin-top:3px;font-size:21px;font-weight:900;color:{PALETTE['ink']};">{esc(item['name'])}</div>
@@ -93,17 +112,28 @@ def interactive_path(content: dict) -> str:
     cards = []
     for i, item in enumerate(content["ecosystem"]):
         color = PALETTE["coral"] if i % 2 == 0 else PALETTE["teal"]
-        cards.append(f'''<details data-interaction="tap-reveal" style="min-width:78%;scroll-snap-align:start;padding:0;background:{PALETTE['white']};border-top:7px solid {color};box-shadow:0 9px 22px rgba(23,58,59,.09);">
-  <summary style="cursor:pointer;list-style:none;padding:18px 18px 16px;color:{PALETTE['ink']};">
-    <span style="display:block;font-size:30px;font-weight:950;letter-spacing:-.06em;color:{color};">{esc(item['index'])}</span>
-    <span style="display:block;margin-top:16px;font-size:11px;font-weight:850;letter-spacing:.13em;color:{color};">{esc(item['label'])}</span>
-    <span style="display:block;margin-top:3px;font-size:22px;font-weight:900;">{esc(item['name'])}</span>
-    <span style="display:block;margin-top:12px;font-size:12px;font-weight:800;color:{color};">轻触展开 ↓</span>
-  </summary>
-  <div style="padding:0 18px 18px;font-size:14px;line-height:1.62;color:{PALETTE['body']};">{esc(item['summary'])}</div>
-</details>''')
-    return f'''<section data-component="ecosystem.tap-reveal-rail" style="padding:25px 0 22px;background:{PALETTE['paper']};">
-  <div style="padding:0 22px 15px;"><div style="font-size:11px;font-weight:850;letter-spacing:.16em;color:{PALETTE['teal']};">向左滑动 · 轻触展开</div></div>
+        semantic_hash = fallback_hash(item["index"], item["label"], item["name"], item["summary"])
+        summary_lines = "".join(
+            f'<tspan x="22" dy="{0 if line_index == 0 else 23}">{esc(line)}</tspan>'
+            for line_index, line in enumerate(svg_text_lines(item["summary"]))
+        )
+        cards.append(f'''<svg data-interaction="svg-smil-self" data-policy-version="{POLICY_VERSION}" data-fallback-key="ecosystem-{esc(item['index'])}" data-fallback-hash="{semantic_hash}" data-component="ecosystem.svg-reveal" role="img" aria-label="{esc(item['name'])}：{esc(item['summary'])}" viewBox="0 0 300 270" style="display:block;min-width:78%;height:auto;scroll-snap-align:start;background:{PALETTE['white']};border-top:7px solid {color};box-shadow:0 9px 22px rgba(23,58,59,.09);">
+  <rect x="0" y="0" width="300" height="270" fill="{PALETTE['white']}"></rect>
+  <text x="22" y="43" fill="{color}" font-size="13" font-weight="800" letter-spacing="1.4">{esc(item['label'])}</text>
+  <text x="22" y="80" fill="{PALETTE['ink']}" font-size="25" font-weight="900">{esc(item['name'])}</text>
+  <text x="22" y="122" fill="{PALETTE['body']}" font-size="16" font-weight="500">{summary_lines}</text>
+  <text x="22" y="238" fill="{color}" font-size="12" font-weight="800">内容已揭开 · 左右滑动继续</text>
+  <g data-self-trigger="reveal-cover" aria-hidden="true">
+    <rect x="0" y="0" width="300" height="270" fill="{PALETTE['white']}"></rect>
+    <text x="22" y="61" fill="{color}" font-size="39" font-weight="900">{esc(item['index'])}</text>
+    <text x="22" y="133" fill="{color}" font-size="13" font-weight="800" letter-spacing="1.4">{esc(item['label'])}</text>
+    <text x="22" y="172" fill="{PALETTE['ink']}" font-size="27" font-weight="900">{esc(item['name'])}</text>
+    <text x="22" y="229" fill="{color}" font-size="13" font-weight="800">轻触揭开 ↑</text>
+    <animateTransform attributeName="transform" type="translate" values="0 0;0 -270" dur="0.36s" begin="click" fill="freeze"></animateTransform>
+  </g>
+</svg>''')
+    return f'''<section data-component="ecosystem.svg-reveal-rail" style="padding:25px 0 22px;background:{PALETTE['paper']};">
+  <div style="padding:0 22px 15px;"><div data-swipe-cue="true" style="font-size:11px;font-weight:850;letter-spacing:.16em;color:{PALETTE['teal']};">向左滑动 · 轻触揭开</div></div>
   <div data-interaction="horizontal-swipe" style="display:flex;gap:13px;overflow-x:auto;scroll-snap-type:x mandatory;padding:0 22px 14px;overscroll-behavior-x:contain;">{''.join(cards)}</div>
   <div aria-hidden="true" style="margin:0 22px;height:3px;background:linear-gradient(90deg,{PALETTE['coral']} 0 28%,{PALETTE['mint']} 28% 100%);"></div>
 </section>'''
@@ -120,7 +150,8 @@ def bridge(content: dict) -> str:
 def static_moments(content: dict) -> str:
     figures = []
     for item in content["moments"]:
-        figures.append(f'''<figure style="margin:0 0 15px;">
+        semantic_hash = fallback_hash(item["image"], item["alt"], item["caption"])
+        figures.append(f'''<figure data-fallback-key="moment-{esc(Path(item['image']).stem)}" data-fallback-hash="{semantic_hash}" style="margin:0 0 15px;">
   <img src="assets/{esc(Path(item['image']).name)}" alt="{esc(item['alt'])}" style="display:block;width:100%;height:auto;">
   <figcaption style="padding:8px 2px 0;font-size:12px;line-height:1.5;color:{PALETTE['body']};">{esc(item['caption'])}</figcaption>
 </figure>''')
@@ -133,12 +164,13 @@ def static_moments(content: dict) -> str:
 def interactive_moments(content: dict) -> str:
     figures = []
     for item in content["moments"]:
-        figures.append(f'''<figure style="min-width:86%;margin:0;scroll-snap-align:center;background:{PALETTE['white']};">
+        semantic_hash = fallback_hash(item["image"], item["alt"], item["caption"])
+        figures.append(f'''<figure data-fallback-key="moment-{esc(Path(item['image']).stem)}" data-fallback-hash="{semantic_hash}" style="min-width:86%;margin:0;scroll-snap-align:center;background:{PALETTE['white']};">
   <img src="assets/{esc(Path(item['image']).name)}" alt="{esc(item['alt'])}" style="display:block;width:100%;aspect-ratio:3/2;object-fit:cover;">
   <figcaption style="padding:12px 14px 14px;font-size:13px;line-height:1.5;color:{PALETTE['body']};">{esc(item['caption'])}</figcaption>
 </figure>''')
     return f'''<section data-component="moments.swipe-story" style="padding:29px 0 20px;background:{PALETTE['paper']};">
-  <div style="padding:0 22px;"><h2 style="margin:0;font-size:27px;letter-spacing:-.04em;color:{PALETTE['ink']};">现场，才是能力发生的地方</h2><p style="margin:8px 0 16px;font-size:12px;font-weight:800;color:{PALETTE['coral']};">左右滑动查看 3 个真实片段 →</p></div>
+  <div style="padding:0 22px;"><h2 style="margin:0;font-size:27px;letter-spacing:-.04em;color:{PALETTE['ink']};">现场，才是能力发生的地方</h2><p data-swipe-cue="true" style="margin:8px 0 16px;font-size:12px;font-weight:800;color:{PALETTE['coral']};">左右滑动查看 3 个真实片段 →</p></div>
   <div data-interaction="horizontal-swipe" style="display:flex;gap:13px;overflow-x:auto;scroll-snap-type:x mandatory;padding:0 22px 14px;">{''.join(figures)}</div>
 </section>'''
 
@@ -191,11 +223,11 @@ def importer_document(content: dict, digest: str) -> str:
 *{{box-sizing:border-box}}body{{margin:0;background:#173A3B;color:#173A3B;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}}main{{width:min(680px,calc(100% - 28px));margin:34px auto 70px;background:#F3F0E7;padding:30px}}h1{{margin:0;font-size:30px;letter-spacing:-.04em}}.lead{{font-size:15px;line-height:1.75;color:#345253}}.step{{padding:20px 0;border-top:1px solid #BFD8C9}}.step b{{display:block;margin-bottom:9px}}button,a.action{{appearance:none;display:inline-block;margin:5px 7px 5px 0;padding:11px 15px;border:0;background:#1F6B66;color:#fff;font-size:14px;font-weight:800;text-decoration:none;cursor:pointer}}button.alt{{background:#EA765C}}button.ghost{{background:#E9E4D8;color:#173A3B}}code{{font-family:ui-monospace,monospace;font-size:11px}}#status{{min-height:25px;margin:17px 0 0;padding:10px 12px;background:#FFFEFA;color:#1F6B66;font-size:13px;font-weight:750}}.warn{{padding:13px;background:#F1C85B;font-size:13px;line-height:1.65}}@media(max-width:520px){{main{{padding:22px 18px}}h1{{font-size:25px}}button,a.action{{width:100%;text-align:center;margin-right:0}}}}</style></head><body><main>
 <p style="font-size:10px;font-weight:850;letter-spacing:.18em;color:#1F6B66;">WECHAT IMPORT HANDOFF · {digest[:10]}</p>
 <h1>把 B 动态版导入公众号</h1>
-<p class="lead">这个页面只负责把已经验收的标题、摘要和富文本放进剪贴板。公众号账号登录、封面选择、保存草稿和最终群发仍由你在微信后台完成。</p>
+<p class="lead">这个页面只负责把已经验收的标题、摘要和富文本放进剪贴板。动态候选只使用无 JavaScript、无 ID 引用的 SVG 自触发动画与 CSS 横滑；公众号账号登录、封面选择、保存草稿和最终群发仍由你在微信后台完成。</p>
 <div class="step"><b>1 · 打开公众号后台，新建一篇图文</b><a class="action" href="https://mp.weixin.qq.com/" target="_blank" rel="noopener">打开微信公众号</a></div>
 <div class="step"><b>2 · 复制标题与摘要</b><button onclick="copyText('title')">复制标题</button><button class="ghost" onclick="copyText('digest')">复制摘要</button></div>
 <div class="step"><b>3 · 光标点进正文，再复制并粘贴 B 版</b><button class="alt" onclick="copyArticle('dynamic')">复制 B 动态正文（含照片）</button><button class="ghost" onclick="copyArticle('fallback')">复制静态降级正文</button></div>
-<div class="step"><b>4 · 微信内预览后保存草稿</b><div class="warn">先在手机预览中测试“轻触展开”和“左右滑动”。如果微信清洗了动态结构，直接清空正文并粘贴静态降级版；不要在后台逐段手调。</div></div>
+<div class="step"><b>4 · 微信内预览后保存草稿</b><div class="warn">保存后先回读 SVG、animateTransform、begin=&quot;click&quot; 和横滑标记，再在 iOS/Android 手机预览测试“轻触揭开”和“左右滑动”。任一门槛失败都更新同一草稿为静态降级版；不要在后台逐段手调。</div></div>
 <div id="status" role="status">等待操作。剪贴板内容不会自动发布。</div>
 <p style="font-size:11px;line-height:1.6;color:#587071;">输入哈希：<code>{digest}</code></p>
 </main><script>
@@ -234,17 +266,32 @@ def build(content_path: Path = DEFAULT_CONTENT, output_root: Path | None = None)
         if variant == "b-dynamic":
             fallback = article_fragment(content, "a-baseline").replace('data-variant="a-baseline"', 'data-variant="b-dynamic-fallback"')
             (variant_dir / "wechat-fallback.html").write_text(fallback, encoding="utf-8")
+            interaction_report = audit_transport(fragment, fallback_html=fallback)
+            (variant_dir / "interaction-policy-report.json").write_text(
+                json.dumps(interaction_report, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            if not interaction_report["ok"]:
+                raise ValueError("dynamic interaction candidate violates the fixed WeChat policy")
+        else:
+            interaction_report = audit_transport(fragment)
         records[variant] = {
             "label": label,
             "input_sha256": digest,
             "wechat_sha256": hashlib.sha256(fragment.encode("utf-8")).hexdigest(),
             "assets": assets,
-            "interactions": [] if variant == "a-baseline" else ["tap-reveal", "horizontal-swipe"],
+            "interactions": [] if variant == "a-baseline" else ["svg-smil-self", "horizontal-swipe"],
+            "interaction_policy": {
+                "version": interaction_report["policy_version"],
+                "status": interaction_report["status"],
+                "recommended_payload": interaction_report["recommended_payload"],
+            },
         }
     comparison = {
         "experiment_id": content["experiment_id"],
         "controlled_variables": ["content.json", "copy order", "photo set", "color tokens", "typography", "article width"],
         "independent_variable": "interaction rendering strategy",
+        "interaction_policy_version": POLICY_VERSION,
         "variants": records,
         "parity_passed": records["a-baseline"]["input_sha256"] == records["b-dynamic"]["input_sha256"],
     }

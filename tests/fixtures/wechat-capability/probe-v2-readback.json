@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "policy_version": "wechat-svg-smil-self-v1",
+  "recorded_at": "2026-08-28T18:03:00+08:00",
+  "source_sha256": "6b8abcb8b0699f9d4fb3fbfabc8745e99d646194dee05da595200bb0b63781bb",
+  "draft_id": "redacted-live-probe",
+  "sanitized": true,
+  "prior_cross_id_probe": {
+    "source_used_ids": true,
+    "ids_after_save": 0,
+    "cross_id_begin_attributes_remained_without_targets": true,
+    "conclusion": "Cross-ID SMIL is structurally broken and forbidden."
+  },
+  "observed_structure": {
+    "probe_cases": [
+      "static-svg",
+      "smil-self-reveal",
+      "smil-self-motion",
+      "svg-image",
+      "css-swipe"
+    ],
+    "ids_after_save": 0,
+    "self_trigger_elements": [
+      {
+        "tag": "animateTransform",
+        "begin": "click",
+        "type": "translate",
+        "fill": "freeze"
+      },
+      {
+        "tag": "set",
+        "begin": "click",
+        "fill": "freeze"
+      },
+      {
+        "tag": "animateTransform",
+        "begin": "click",
+        "type": "translate"
+      }
+    ],
+    "svg_image_host": "mmbiz.qpic.cn",
+    "css_horizontal_overflow_preserved": true
+  },
+  "mobile_runtime": {
+    "status": "pending",
+    "reason": "Draft readback proves structure preservation only; iOS and Android preview evidence was not recorded."
+  },
+  "secrets_removed": true
+}

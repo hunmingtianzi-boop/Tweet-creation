@@ -15,12 +15,16 @@ from typing import Any
 
 from build_storyboard import build_storyboard_plan
 from build_visual_kit import build_visual_kit_plan
+from wechat_interaction_policy import audit_transport
 from workflow_quality import calibration_state, validate_typography_plan, validate_visual_review
 
 
 REMOTE_SRC = re.compile(r"^(?:https?://|data:)", re.I)
 PLACEHOLDERS = re.compile(r"(?:待补充|待确认|待提供|PLACEHOLDER|\bTBD\b|\bTODO\b)", re.I)
-UNSAFE_WECHAT = re.compile(r"<(?:script|style|iframe|form|link)\b", re.I)
+UNSAFE_WECHAT = re.compile(
+    r"<(?:script|style|iframe|form|link|details|summary|foreignObject|object|embed)\b",
+    re.I,
+)
 SUPPORTED_BLOCKS = {
     "hero",
     "lead",
@@ -650,6 +654,8 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
     )
     if UNSAFE_WECHAT.search(fragment):
         ctx.errors.append("wechat fragment contains an unsafe tag")
+    interaction_policy = audit_transport(fragment)
+    ctx.errors.extend(interaction_policy["errors"])
     max_chars = ctx.organization.get("publishing", {}).get("max_content_chars")
     if isinstance(max_chars, int) and len(fragment) > max_chars:
         ctx.errors.append(f"wechat fragment exceeds configured max_content_chars: {len(fragment)} > {max_chars}")
@@ -697,6 +703,7 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
         },
         "typography": typography,
         "visual_review": visual_review_report,
+        "interaction_policy": interaction_policy,
         "component_ids": list(dict.fromkeys(ctx.component_ids)),
         "source_ids": sorted(ctx.used_source_ids),
         "copied_assets": ctx.copied_assets,

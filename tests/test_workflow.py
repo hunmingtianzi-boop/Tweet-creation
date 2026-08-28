@@ -609,6 +609,11 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
         report = compile_article(self.article, self.pack, self.root / "output", check=True)
         self.assertTrue(report["ok"], report["errors"])
         self.assertTrue((self.root / "output" / "wechat.html").exists())
+        self.assertEqual(
+            report["interaction_policy"]["policy_version"],
+            "wechat-svg-smil-self-v1",
+        )
+        self.assertEqual(report["interaction_policy"]["status"], "static")
 
     def test_tampered_screenshot_hash_blocks_transport(self) -> None:
         review_path = add_visual_review(self.article)

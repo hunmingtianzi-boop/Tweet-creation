@@ -1,0 +1,7 @@
+interface:
+  display_name: "Ardot WeChat Publisher"
+  short_description: "Send reviewed Ardot articles to WeChat"
+  brand_color: "#07C160"
+  default_prompt: "Use $ardot-wechat-publisher to deliver my reviewed Ardot article to a WeChat Official Account draft, verify the imported result, and publish only after I explicitly confirm."
+policy:
+  allow_implicit_invocation: true

@@ -27,6 +27,8 @@
 - 每个组织先校准表现型字体策略；单篇只在 2–4 个高影响位置使用可编辑 Ardot 标题字，正文保持紧凑可读，禁止 AI 字图。
 - 16 类语义区块与隐藏的微信内联 HTML 投递适配。
 - 事实来源、占位符、图片、Logo、二维码和微信安全格式校验。
+- 固定 `wechat-svg-smil-self-v1` 交互能力：生成无 ID、自触发 SVG/SMIL 与 CSS 横滑候选，强制语义哈希静态回退、草稿结构回读和目标账号 iOS/Android 能力档案；任一门槛失败即降级同一草稿。
+- 封面使用目标账号永久素材 `thumb_media_id` 并在草稿回读中验证，不与正文图片链路混用。
 - 默认只生成草稿交付物，正式发布需要单独确认。
 
 ## 快速开始
@@ -124,7 +126,7 @@ python3 scripts/compile_wechat.py article.json \
 
 ## 动态组件 A/B MVP
 
-仓库内提供一个同输入对照实验：A 使用静态基线排版，B 只替换为轻触展开和横向滑动组件，并保留微信静态降级文件。入口见 [experiments/interaction-mvp/README.md](experiments/interaction-mvp/README.md)。该实验用于验证交互是否真的改善阅读，不会把未经验证的动态结构直接并入默认生产工作流。
+仓库内提供一个同输入对照实验：A 使用静态基线排版，B 只替换为无 JavaScript、无 ID、元素自身 `begin="click"` 的 SVG 揭开组件与 CSS 横向滑动，并保留语义哈希匹配的静态降级文件。入口见 [experiments/interaction-mvp/README.md](experiments/interaction-mvp/README.md)。候选生成成功不等于生产启用；保存回读和目标账号 iOS/Android 能力档案都通过后才可选择动态 payload。
 
 ## 安全边界
 

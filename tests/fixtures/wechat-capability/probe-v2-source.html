@@ -1,0 +1,56 @@
+<section data-probe="wechat-svg-smil-v2" style="margin:0;padding:22px;background:#f3f0e7;color:#173a3b;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;">
+  <h1 style="margin:0 0 8px;font-size:26px;line-height:1.25;">SVG 能力探针 · V2</h1>
+  <p style="margin:0 0 24px;color:#526767;font-size:13px;line-height:1.6;">不依赖 ID；全部交互使用元素自身的 begin=&quot;click&quot;，不含 JavaScript。</p>
+
+  <h2 style="margin:0 0 8px;font-size:18px;">A · 静态 SVG</h2>
+  <svg data-probe-case="static-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 346 108" width="100%" role="img" aria-label="静态 SVG 测试" style="display:block;margin:0 0 24px;background:#fffdf8;">
+    <rect x="0" y="0" width="346" height="108" fill="#fffdf8"/>
+    <circle cx="52" cy="54" r="30" fill="#f1c85b"/>
+    <path d="M34 54 L48 68 L72 38" fill="none" stroke="#1f6b66" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="100" y="49" fill="#173a3b" font-size="18" font-weight="700">静态 SVG 已显示</text>
+    <text x="100" y="74" fill="#526767" font-size="13">中文、路径、形状</text>
+  </svg>
+
+  <h2 style="margin:0 0 8px;font-size:18px;">B · 自触发点击揭开</h2>
+  <svg data-probe-case="smil-self-reveal" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 346 180" width="100%" role="img" aria-label="点击揭开测试" style="display:block;margin:0 0 24px;background:#fffdf8;overflow:hidden;">
+    <rect x="0" y="0" width="346" height="180" fill="#e8f2ed" stroke="#1f6b66" stroke-width="2"/>
+    <text x="28" y="50" fill="#1f6b66" font-size="13" font-weight="700">展开内容</text>
+    <text x="28" y="82" fill="#173a3b" font-size="22" font-weight="700">AI 社区</text>
+    <text x="28" y="110" fill="#526767" font-size="12">从第一个作品出发，进入跨学科协作。</text>
+    <g data-probe-target="self-reveal-cover" style="cursor:pointer;">
+      <rect x="0" y="0" width="346" height="180" fill="#f7efe8" stroke="#ea7660" stroke-width="2"/>
+      <text x="28" y="54" fill="#ea7660" font-size="13" font-weight="700">关闭态</text>
+      <text x="28" y="88" fill="#173a3b" font-size="23" font-weight="700">拓途浙享</text>
+      <rect x="28" y="116" width="126" height="36" fill="#ea7660"/>
+      <text x="48" y="140" fill="#ffffff" font-size="13" font-weight="700">点击揭开 ↓</text>
+      <animateTransform attributeName="transform" type="translate" values="0 0;0 -182" dur="0.35s" begin="click" fill="freeze"/>
+    </g>
+  </svg>
+
+  <h2 style="margin:0 0 8px;font-size:18px;">C · 自触发颜色与运动</h2>
+  <svg data-probe-case="smil-self-motion" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 346 128" width="100%" role="img" aria-label="自触发运动测试" style="display:block;margin:0 0 24px;background:#fffdf8;">
+    <rect x="0" y="0" width="346" height="128" fill="#fffdf8"/>
+    <line x1="38" y1="44" x2="306" y2="44" stroke="#c5d8cc" stroke-width="4"/>
+    <circle data-probe-target="self-motion-dot" cx="46" cy="44" r="19" fill="#f1c85b" style="cursor:pointer;">
+      <set attributeName="fill" to="#ea7660" begin="click" fill="freeze"/>
+      <animateTransform attributeName="transform" type="translate" values="0 0;250 0;0 0" dur="1.4s" begin="click" repeatCount="1"/>
+    </circle>
+    <text x="78" y="50" fill="#173a3b" font-size="13" font-weight="700">点击黄色圆点</text>
+    <text x="38" y="98" fill="#526767" font-size="12">预期：变为珊瑚色并往返一次</text>
+  </svg>
+
+  <h2 style="margin:0 0 8px;font-size:18px;">D · SVG 内微信图片</h2>
+  <svg data-probe-case="svg-image" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 346 180" width="100%" role="img" aria-label="SVG 图片测试" style="display:block;margin:0 0 24px;background:#fffdf8;">
+    <rect x="0" y="0" width="346" height="180" fill="#173a3b"/>
+    <image data-probe-target="svg-image" x="0" y="0" width="210" height="180" preserveAspectRatio="xMidYMid slice" href="https://mmbiz.qpic.cn/mmbiz_png/mflInhLbAuqWk1qGwpXb0jX0NvMOlrtyQ0jBCDRbQPhOQiaI5abCUU4S7REZrAxUDAVicoRLpeNYX7d0yDVHrzMbKST5yHXpljH1T3FwLsR0U/640?wx_fmt=png&amp;from=appmsg"/>
+    <text x="226" y="72" fill="#f1c85b" font-size="16" font-weight="700">SVG</text>
+    <text x="226" y="98" fill="#ffffff" font-size="14">微信图片</text>
+  </svg>
+
+  <h2 style="margin:0 0 8px;font-size:18px;">E · CSS 横向滑动基线</h2>
+  <section data-probe-case="css-swipe" style="display:flex;gap:12px;overflow-x:auto;margin:0;padding:0 0 10px;">
+    <p style="box-sizing:border-box;min-width:210px;margin:0;padding:22px;background:#fffdf8;border-top:4px solid #ea7660;font-weight:700;">横滑 01</p>
+    <p style="box-sizing:border-box;min-width:210px;margin:0;padding:22px;background:#fffdf8;border-top:4px solid #1f6b66;font-weight:700;">横滑 02</p>
+    <p style="box-sizing:border-box;min-width:210px;margin:0;padding:22px;background:#fffdf8;border-top:4px solid #f1c85b;font-weight:700;">横滑 03</p>
+  </section>
+</section>

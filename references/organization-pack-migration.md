@@ -8,6 +8,7 @@
 - 事实、来源、资产、Ardot 和投递适配的文件分层；
 - 390 px、开放式构图、compact-editorial、截图证据与草稿投递门槛；
 - Logo/二维码权限边界和发布确认规则。
+- `wechat-svg-smil-self-v1` 的交互语义、探针协议、静态等价物合同、fallback 哈希和验收步骤。
 
 ## 必须重建
 
@@ -20,6 +21,7 @@
 - 从当前组织材料校准的表现型字体策略、至少两个 construction recipes 和 Ardot 文本/矢量样式；
 - 每篇文章四枚专属微组件及其 Ardot component nodes；
 - 每篇文章 visual review v2。
+- 目标公众号的 sanitizer 回读与 iOS/Android 客户端能力档案；它属于投递环境，不属于 organization pack。
 
 ## 禁止复制
 
@@ -27,6 +29,7 @@
 - 另一个组织的 generated assets、background family、component variant 外观或效果样稿；
 - 旧文章的 `approved`、截图、密度数字或 component node ID；
 - Logo、二维码、照片和品牌色的跨组织替换式复用。
+- 另一公众号的探针结论、草稿 ID、capability profile、`media_id` / `thumb_media_id`、令牌或客户端截图证据。
 
 ## 迁移步骤
 
@@ -39,5 +42,6 @@
 7. 为当前文章生成四枚不同微组件，逐张运行 Alpha 检查，注册为 `article-micro`，再在 Ardot 建原生组件并回写 node 证据。
 8. 为当前文章写 2–4 个有语义的表现型文字时刻，引用批准 recipe，回写唯一 Ardot 文本/点缀 node 与 style 证据。
 9. 完成文章后从同一 article root 导出五类 390 px 截图，记录每个样本的正文对比度，并通过 `background_surface_unity`、`reading_surface_contrast` 与 `art_type_construction` 等 visual review v2 检查，最后运行 `compile_wechat.py --check`。
+10. 如果文章要启用动态组件，为该目标公众号单独运行 `wechat-svg-smil-self-v1` 探针：禁止 JavaScript、`details`、任何 transport `id` 与跨 ID timing；先验证保存回读，再登记带有效期的 iOS/Android 真机证据。只有该账号 profile 为 current/passed 才可保留动态候选，否则同一草稿使用静态回退。
 
 任何一步若需要查看旧视觉来“找感觉”，应停止并回到本轮原始材料、组织物件、真实照片和校准条，而不是把旧风格解释为品牌事实。

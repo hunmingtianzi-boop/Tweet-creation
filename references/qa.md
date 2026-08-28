@@ -40,7 +40,12 @@
 ## WeChat handoff
 
 - `wechat.html` uses inline styles, with no `<script>`, `<style>`, form, iframe, or external stylesheet dependency.
+- Dynamic candidates use policy `wechat-svg-smil-self-v1`: only no-ID inline SVG `<set>` / `<animateTransform>` with self `begin="click"`, plus inline CSS horizontal swipe. Reject `<details>`, `<summary>`, JavaScript, `on*`, `javascript:`, every transport `id`, `foo.click`, `<use>`, fragment references, `<foreignObject>`, and unprobed SMIL.
+- Every dynamic component and its static information-equivalent share a `data-fallback-key` and normalized content hash. Missing or mismatched hashes block the candidate.
+- Saved-draft readback matches per-component fallback hashes and SMIL signatures. Readback proves sanitizer survival only; it does not certify runtime behavior.
+- Dynamic delivery requires an unexpired profile for the exact target account and policy version, with recorded iOS and Android WeChat versions and preview evidence. Missing, pending, failed, expired, or mismatched profiles force the static fallback in the same draft.
 - All local body images are ready to upload and replace with WeChat-hosted URLs.
-- Cover material is handled separately from body images.
+- SVG `<image>` references use only target-account WeChat `mmbiz.qpic.cn` URLs after upload.
+- Cover material is handled separately from body images. The current target account's permanent-material `media_id` is used as `thumb_media_id`, and the saved draft visibly contains the expected cover.
 - `compile-report.json` records organization, route, components, copied assets, warnings, and errors.
 - Create a draft first. Do not perform formal publication without explicit confirmation.
