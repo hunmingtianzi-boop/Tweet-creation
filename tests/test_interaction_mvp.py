@@ -54,6 +54,19 @@ class InteractionMvpTests(unittest.TestCase):
             for item in content["moments"]:
                 self.assertIn(item["caption"], fallback)
 
+    def test_import_assistant_copies_dynamic_and_fallback_with_images(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp)
+            MODULE.build(output_root=output)
+            importer = (output / "import-assistant.html").read_text(encoding="utf-8")
+            self.assertIn("ClipboardItem", importer)
+            self.assertIn("b-dynamic/wechat.html", importer)
+            self.assertIn("b-dynamic/wechat-fallback.html", importer)
+            self.assertIn("复制 B 动态正文（含照片）", importer)
+            for image in ("hackathon-focus.jpg", "hackathon-exchange.jpg", "ai-x-beauty-group.jpg"):
+                self.assertIn(image, importer)
+            self.assertNotIn("token=", importer)
+
     def test_both_variants_copy_the_same_photo_set(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             output = Path(temp)

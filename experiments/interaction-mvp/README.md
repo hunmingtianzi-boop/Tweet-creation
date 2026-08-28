@@ -13,7 +13,15 @@
 python3 experiments/interaction-mvp/build_experiment.py
 ```
 
-查看：打开 `output/compare.html`。桌面端会左右并排；窄屏会上下排列。
+查看：打开 `output/compare.html`。桌面端会左右并排；窄屏会上下排列。点击右上角“导入微信公众号”，进入自助导入助手。
+
+自助导入：
+
+1. 保持本地预览服务运行，打开 `output/import-assistant.html`。
+2. 点击“复制标题”，粘贴到公众号标题。
+3. 点击“复制 B 动态正文（含照片）”，再点进公众号正文区域按 `⌘V`。
+4. 在手机预览中测试轻触和横滑；若微信清洗动态结构，清空正文并改用“复制静态降级正文”。
+5. 自行选择封面，保存草稿。正式群发始终单独确认。
 
 Ardot 编辑源：<https://ardot.tencent.com/file/719663191870370>
 
