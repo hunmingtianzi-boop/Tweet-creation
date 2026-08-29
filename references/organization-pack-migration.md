@@ -10,6 +10,7 @@
 - Logo/二维码权限边界和发布确认规则。
 - `wechat-svg-smil-self-v1` 的交互语义、探针协议、静态等价物合同、fallback 哈希和验收步骤。
 - 创作层默认 2–3 个 semantic interaction modules、module/transport instance 计数边界、两阶段 Ardot 证据合同与显式静态例外 schema。
+- 用户明确选择时，可迁移一个已审核 style preset 的九项抽象 grammar token、六项 non-copy boundary 与 canonical SHA；它只作用于被选 route，不携带来源文章内容。
 
 ## 必须重建
 
@@ -24,6 +25,7 @@
 - 每篇文章 visual review v2。
 - 当前文章实际的 2–3 个读者任务、source blocks、instance copy/key/hash，以及该组织外观下的 `closed/open/fallback` Ardot group components。
 - 目标公众号的 sanitizer 回读与 iOS/Android 客户端能力档案；它属于投递环境，不属于 organization pack。
+- 即使选择同一个 style preset，也要从当前组织重新派生 paper/ink/display/wash tokens、真实照片职责、字体 recipes、背景 family 和 Ardot 原生组件。
 
 ## 禁止复制
 
@@ -32,12 +34,13 @@
 - 旧文章的 `approved`、截图、密度数字或 component node ID；
 - Logo、二维码、照片和品牌色的跨组织替换式复用。
 - 另一公众号的探针结论、草稿 ID、capability profile、`media_id` / `thumb_media_id`、令牌或客户端截图证据。
+- style preset 最初参考中的文字、照片、Logo、具体版式、组件几何、artwork、章节结构或专有视觉物件；后续组织不得为使用 preset 而重新打开最初参考。
 
 ## 迁移步骤
 
 1. 运行 `orgs.py init` 建立空 pack，不复制已有 pack。
-2. 只登记本轮原始材料到 `sources.json`；填写 `provenance.visual_input_source_ids` 和四类 `excluded_visual_reference_kinds`。
-3. 从组织证据推导 2–3 条路线，生成五项 calibration strip；先校准再全文。
+2. 只登记本轮原始材料到 `sources.json`；默认填写 `provenance.visual_input_source_ids` 和四类 `excluded_visual_reference_kinds`。若用户明确选 preset，把 preset JSON 本身登记为 style source，并使用 `explicit-style-grammar` 的 abstract-only scope、review time 与 non-copy 契约。
+3. 从组织证据推导 2–3 条路线，生成五项 calibration strip；preset 只写入被选 route，其他 route 保持 source-zero。先校准再全文。
 4. 生成并登记同一家族的 master 与 1–3 个 companion；两类资产分别标记 `background_variant`。为整个 family 声明单一 light/dark surface mode、归一化复制安全区、正文颜色、最低 4.5 对比度与复制区方差上限。
 5. 运行 `orgs.py validate` 分析所有底图实际像素；明暗模式混杂、大块相反色、复制区不均匀、文字对比不足或 family 色调跨度过大时必须重做校准资产，不能进入文章 root。通过后才将批准的 Ardot file/page/root、density mode 和 background family 写回 organization pack，并把状态改为 `confirmed`。
 6. 在同一校准条中批准 `typography` 策略、授权边界、至少两个原生 construction recipes 与每篇上限；每个 recipe 至少两种非字体构造手法和两个可编辑图层，不复制另一公众号的字效。
@@ -48,4 +51,4 @@
 11. 完成文章后从同一 article root 导出五类 390 px 截图，记录每个样本的正文对比度，并通过 `background_surface_unity`、`reading_surface_contrast` 与 `art_type_construction` 等 visual review v2 检查，最后运行 `compile_wechat.py --check`。
 12. 为目标公众号单独运行 `wechat-svg-smil-self-v1` 探针：禁止 JavaScript、`details`、任何 transport `id` 与跨 ID timing；先验证保存回读，再登记带有效期的 iOS/Android 真机证据。只有该账号 profile 为 current/passed 才可保留动态候选，否则同一草稿使用静态回退。缺失 profile 不取消创作层 module，只改变投递 payload。
 
-任何一步若需要查看旧视觉来“找感觉”，应停止并回到本轮原始材料、组织物件、真实照片和校准条，而不是把旧风格解释为品牌事实。
+任何一步若需要查看旧视觉来“找感觉”，应停止并回到本轮原始材料、组织物件、真实照片和校准条，而不是把旧风格解释为品牌事实。已经沉淀为 preset 的风格只读取仓库中的抽象 grammar 与 SHA，不回看原稿。

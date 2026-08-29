@@ -13,9 +13,13 @@ from typing import Any
 
 from asset_quality import validate_background_family_assets, validate_micro_asset
 from workflow_quality import (
+    ALLOWED_VISUAL_REFERENCE_POLICIES,
     ALLOWED_ART_TYPE_TREATMENTS,
     ALLOWED_ART_TYPE_TECHNIQUES,
     ALLOWED_TYPOGRAPHY_STRATEGIES,
+    EXPLICIT_STYLE_REFERENCE_SCOPE,
+    REQUIRED_STYLE_NON_COPY_CONSTRAINTS,
+    style_grammar_errors,
 )
 
 
@@ -491,12 +495,20 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
             errors.extend(background_quality["errors"])
 
     provenance = require_dict(org.get("provenance"), "organization.provenance", errors)
-    for source_id in require_list(provenance.get("source_ids"), "organization.provenance.source_ids", errors):
+    provenance_source_ids = require_list(
+        provenance.get("source_ids"),
+        "organization.provenance.source_ids",
+        errors,
+    )
+    for source_id in provenance_source_ids:
         if source_id not in source_ids:
             errors.append(f"organization.provenance references unknown source: {source_id}")
     policy = provenance.get("visual_reference_policy")
-    if policy is not None and policy != "source-zero":
-        errors.append("organization.provenance.visual_reference_policy must be source-zero")
+    if policy is not None and policy not in ALLOWED_VISUAL_REFERENCE_POLICIES:
+        errors.append(
+            "organization.provenance.visual_reference_policy must be source-zero "
+            "or explicit-style-grammar"
+        )
     visual_input_source_ids = require_list(
         provenance.get("visual_input_source_ids", []),
         "organization.provenance.visual_input_source_ids",
@@ -510,24 +522,87 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
         "organization.provenance.excluded_visual_reference_kinds",
         errors,
     )
+    if policy == "explicit-style-grammar":
+        style_reference_source_ids = require_list(
+            provenance.get("style_reference_source_ids"),
+            "organization.provenance.style_reference_source_ids",
+            errors,
+        )
+        if not style_reference_source_ids:
+            errors.append("explicit-style-grammar provenance requires style_reference_source_ids")
+        for source_id in style_reference_source_ids:
+            if source_id not in source_ids:
+                errors.append(f"organization style reference uses unknown source: {source_id}")
+            if source_id not in provenance_source_ids:
+                errors.append(
+                    "organization style reference source must also appear in "
+                    f"provenance.source_ids: {source_id}"
+                )
+        if provenance.get("style_reference_scope") != EXPLICIT_STYLE_REFERENCE_SCOPE:
+            errors.append(
+                "explicit-style-grammar provenance requires "
+                f"style_reference_scope={EXPLICIT_STYLE_REFERENCE_SCOPE}"
+            )
+        try:
+            datetime.fromisoformat(
+                str(provenance.get("reference_reviewed_at")).replace("Z", "+00:00")
+            )
+        except ValueError:
+            errors.append("explicit-style-grammar provenance requires ISO reference_reviewed_at")
+        non_copy_constraints = require_list(
+            provenance.get("style_reference_non_copy_constraints"),
+            "organization.provenance.style_reference_non_copy_constraints",
+            errors,
+        )
+        missing_non_copy = sorted(
+            REQUIRED_STYLE_NON_COPY_CONSTRAINTS
+            - {item for item in non_copy_constraints if isinstance(item, str)}
+        )
+        if missing_non_copy:
+            errors.append(
+                "explicit-style-grammar provenance is missing non-copy constraints: "
+                + ", ".join(missing_non_copy)
+            )
+        grammar_count = 0
+        for index, route in enumerate(routes):
+            route_id = route.get("id", str(index)) if isinstance(route, dict) else str(index)
+            grammar = route.get("style_grammar") if isinstance(route, dict) else None
+            if grammar is None:
+                continue
+            grammar_errors = style_grammar_errors(
+                grammar,
+                f"visual route {route_id}.style_grammar",
+            )
+            errors.extend(grammar_errors)
+            if not grammar_errors:
+                grammar_count += 1
+        if grammar_count == 0:
+            errors.append(
+                "explicit-style-grammar requires at least one route.style_grammar selection"
+            )
     if org.get("status") == "confirmed":
-        if policy != "source-zero":
-            errors.append("confirmed organization requires source-zero visual isolation")
+        if policy not in ALLOWED_VISUAL_REFERENCE_POLICIES:
+            errors.append(
+                "confirmed organization requires source-zero or explicit-style-grammar provenance"
+            )
         if not visual_input_source_ids:
             errors.append("confirmed organization requires visual_input_source_ids")
-        missing_exclusions = sorted(SOURCE_ZERO_EXCLUSIONS - set(exclusions))
-        if missing_exclusions:
-            errors.append(
-                "confirmed organization is missing excluded visual reference kinds: "
-                + ", ".join(missing_exclusions)
-            )
-        isolation_reviewed_at = provenance.get("isolation_reviewed_at")
-        try:
-            datetime.fromisoformat(str(isolation_reviewed_at).replace("Z", "+00:00"))
-        except ValueError:
-            errors.append("confirmed organization requires ISO isolation_reviewed_at")
-    elif policy != "source-zero":
-        warnings.append("organization lacks source-zero visual isolation; full article production is blocked")
+        if policy == "source-zero":
+            missing_exclusions = sorted(SOURCE_ZERO_EXCLUSIONS - set(exclusions))
+            if missing_exclusions:
+                errors.append(
+                    "confirmed organization is missing excluded visual reference kinds: "
+                    + ", ".join(missing_exclusions)
+                )
+            isolation_reviewed_at = provenance.get("isolation_reviewed_at")
+            try:
+                datetime.fromisoformat(str(isolation_reviewed_at).replace("Z", "+00:00"))
+            except ValueError:
+                errors.append("confirmed organization requires ISO isolation_reviewed_at")
+    elif policy not in ALLOWED_VISUAL_REFERENCE_POLICIES:
+        warnings.append(
+            "organization lacks a valid visual reference policy; full article production is blocked"
+        )
 
     ardot_status = ardot_doc.get("status")
     if ardot_status not in {"not-linked", "linked"}:
@@ -905,12 +980,33 @@ def prompt_blueprint(
     )
     motifs = "、".join(org["visual"].get("motifs", []))
     avoid = "、".join(org["visual"].get("avoid", []))
+    style_grammar_instruction = style_grammar_prompt(org, route)
     return (
         f"Create a text-free {slot} bitmap for {org['identity']['name']} and its "
         f"{article_type} WeChat article. Use the {route['dominant_style']} route; "
         f"motifs: {motifs}; palette: {palette}; aspect ratio {aspect_ratio}; "
+        f"{style_grammar_instruction}"
         f"keep a deliberate empty overlay zone and make the subject readable on a phone. "
         f"Avoid: {avoid}. No letters, numbers, watermark, logo, or QR code."
+    )
+
+
+def style_grammar_prompt(org: dict[str, Any], route: dict[str, Any]) -> str:
+    if org.get("provenance", {}).get("visual_reference_policy") != "explicit-style-grammar":
+        return ""
+    grammar = route.get("style_grammar")
+    if not isinstance(grammar, dict):
+        return ""
+    tokens = json.dumps(
+        grammar.get("tokens", {}),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return (
+        f"Apply only abstract style grammar {tokens} (SHA-256 {grammar.get('sha256')}); "
+        "never copy reference text, photographs, logos, specific layout, component geometry, "
+        "or artwork. "
     )
 
 
@@ -928,12 +1024,14 @@ def micro_prompt_blueprint(
     )
     motifs = "、".join(org["visual"].get("motifs", []))
     avoid = "、".join(org["visual"].get("avoid", []))
+    style_grammar_instruction = style_grammar_prompt(org, route)
     return (
         f"Create one small, text-free {purpose} for {org['identity']['name']} and a "
         f"{article_type} WeChat article. Derive the subject from the article's concrete "
         f"objects, actions, or process rather than generic decoration. Follow the "
         f"{route['dominant_style']} route; motifs: {motifs}; palette: {palette}; aspect "
-        f"ratio {aspect_ratio}. Use a transparent background or an open, soft-edged "
+        f"ratio {aspect_ratio}. {style_grammar_instruction}"
+        f"Use a transparent background or an open, soft-edged "
         f"composition with no rectangular panel, border, card, poster, UI frame, letters, "
         f"numbers, watermark, logo, or QR code. Avoid: {avoid}."
     )
@@ -949,6 +1047,14 @@ def build_asset_plan(pack_dir: Path, article_type: str) -> dict[str, Any]:
     article_config = article_types[article_type]
     route_map = {route["id"]: route for route in org["visual"]["routes"]}
     route = route_map[article_config["route"]]
+    style_grammar = (
+        route.get("style_grammar")
+        if org.get("provenance", {}).get("visual_reference_policy") == "explicit-style-grammar"
+        else None
+    )
+    route_reference_policy = (
+        "explicit-style-grammar" if isinstance(style_grammar, dict) else "source-zero"
+    )
     blocks = set(article_config.get("recommended_blocks", []))
     slots: list[dict[str, Any]] = []
 
@@ -1076,6 +1182,17 @@ def build_asset_plan(pack_dir: Path, article_type: str) -> dict[str, Any]:
         "organization_name": org["identity"]["name"],
         "article_type": article_type,
         "route": route,
+        "style_reference_policy": route_reference_policy,
+        "style_grammar": style_grammar,
+        "style_grammar_sha256": (
+            style_grammar.get("sha256") if isinstance(style_grammar, dict) else None
+        ),
+        "style_preset_id": (
+            style_grammar.get("preset_id") if isinstance(style_grammar, dict) else None
+        ),
+        "style_preset_label": (
+            style_grammar.get("label") if isinstance(style_grammar, dict) else None
+        ),
         "visual_tokens": org["visual"]["tokens"],
         "motifs": org["visual"].get("motifs", []),
         "avoid": org["visual"].get("avoid", []),

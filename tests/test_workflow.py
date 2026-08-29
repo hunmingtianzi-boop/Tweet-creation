@@ -19,9 +19,17 @@ from build_storyboard import build_storyboard_plan  # noqa: E402
 from build_visual_directions import build_directions  # noqa: E402
 from build_visual_kit import build_visual_kit_plan  # noqa: E402
 from compile_wechat import compile_article  # noqa: E402
-from orgs import command_init, scaffold, validate_pack, write_json  # noqa: E402
+from orgs import (  # noqa: E402
+    build_asset_plan,
+    command_init,
+    scaffold,
+    validate_pack,
+    write_json,
+)
 from workflow_quality import (  # noqa: E402
     interaction_semantic_hash,
+    style_grammar_errors,
+    style_grammar_sha256,
     validate_interaction_plan,
 )
 
@@ -241,6 +249,53 @@ def make_pack(root: Path) -> Path:
     for filename, document in documents.items():
         write_json(pack / filename, document)
     return pack
+
+
+def enable_explicit_style_reference(pack: Path) -> dict[str, object]:
+    sources = json.loads((pack / "sources.json").read_text(encoding="utf-8"))
+    sources["sources"].append(
+        {
+            "id": "source.style-reference",
+            "title": "User-authorized visual style reference",
+            "kind": "visual-style-reference",
+            "locator": "https://example.test/style-reference",
+        }
+    )
+    write_json(pack / "sources.json", sources)
+
+    organization = json.loads((pack / "organization.json").read_text(encoding="utf-8"))
+    organization["provenance"].update(
+        {
+            "source_ids": ["source.current-materials", "source.style-reference"],
+            "visual_reference_policy": "explicit-style-grammar",
+            "style_reference_source_ids": ["source.style-reference"],
+            "style_reference_scope": "abstract-visual-grammar-only",
+            "reference_reviewed_at": "2026-08-29T12:00:00+08:00",
+            "style_reference_non_copy_constraints": [
+                "text",
+                "photographs",
+                "logos",
+                "specific-layout",
+                "component-geometry",
+                "artwork",
+            ],
+        }
+    )
+    selected_grammar: dict[str, object] | None = None
+    for route in organization["visual"]["routes"]:
+        if route["id"] != "field-notes":
+            continue
+        preset = json.loads(
+            (ROOT / "style-presets" / "prismatic-paper-editorial.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        grammar = json.loads(json.dumps(preset["grammar"], ensure_ascii=False))
+        route["style_grammar"] = grammar
+        selected_grammar = grammar
+    write_json(pack / "organization.json", organization)
+    assert selected_grammar is not None
+    return selected_grammar
 
 
 def make_article(root: Path, pack: Path) -> Path:
@@ -534,6 +589,142 @@ class OrganizationPackTests(FreshWorkflowTestCase):
         self.assertEqual(directions["source_isolation"]["policy"], "source-zero")
         self.assertTrue(any("visual_input_source_ids" in item for item in directions["blocking_reasons"]))
 
+    def test_explicit_style_grammar_pack_validates(self) -> None:
+        grammar = enable_explicit_style_reference(self.pack)
+        report = validate_pack(self.pack)
+        self.assertTrue(report["ok"], report["errors"])
+        directions = build_directions(self.pack, "introduction")
+        self.assertTrue(directions["full_article_allowed"], directions["blocking_reasons"])
+        self.assertEqual(
+            directions["source_isolation"]["policy"],
+            "explicit-style-grammar",
+        )
+        selected = next(item for item in directions["directions"] if item["route_id"] == "field-notes")
+        baseline = next(
+            item for item in directions["directions"] if item["route_id"] == "provisional-editorial"
+        )
+        self.assertEqual(selected["style_grammar_sha256"], grammar["sha256"])
+        self.assertEqual(selected["style_preset_id"], "prismatic-paper-editorial")
+        self.assertEqual(selected["style_preset_label"], "绚烂纸本")
+        self.assertEqual(selected["style_reference_policy"], "explicit-style-grammar")
+        self.assertEqual(baseline["style_reference_policy"], "source-zero")
+        self.assertIsNone(baseline["style_grammar"])
+
+    def test_style_preset_metadata_does_not_change_approved_grammar_hash(self) -> None:
+        grammar = enable_explicit_style_reference(self.pack)
+        original_hash = grammar["sha256"]
+        renamed = dict(grammar)
+        renamed["preset_id"] = "another-reviewed-preset-name"
+        renamed["label"] = "另一个展示名"
+        self.assertEqual(style_grammar_sha256(renamed), original_hash)
+
+    def test_prismatic_paper_preset_is_selectable_not_default_and_hash_valid(self) -> None:
+        preset_path = ROOT / "style-presets" / "prismatic-paper-editorial.json"
+        preset = json.loads(preset_path.read_text(encoding="utf-8"))
+        grammar = preset["grammar"]
+        self.assertEqual(preset["preset_id"], "prismatic-paper-editorial")
+        self.assertEqual(preset["label"], "绚烂纸本")
+        self.assertTrue(preset["selectable"])
+        self.assertFalse(preset["default"])
+        self.assertEqual(preset["selection_scope"], "visual-route-only")
+        self.assertEqual(style_grammar_errors(grammar, "preset.grammar"), [])
+        self.assertEqual(grammar["sha256"], style_grammar_sha256(grammar))
+        self.assertFalse(
+            preset["provenance_requirements"][
+                "reopen_original_reference_for_future_organizations"
+            ]
+        )
+
+    def test_explicit_style_grammar_rejects_incomplete_provenance(self) -> None:
+        enable_explicit_style_reference(self.pack)
+        organization = json.loads((self.pack / "organization.json").read_text(encoding="utf-8"))
+        organization["provenance"]["style_reference_source_ids"] = ["source.unknown"]
+        organization["provenance"].pop("style_reference_scope")
+        organization["provenance"]["reference_reviewed_at"] = "not-a-date"
+        organization["provenance"]["style_reference_non_copy_constraints"].remove("artwork")
+        write_json(self.pack / "organization.json", organization)
+        report = validate_pack(self.pack)
+        self.assertFalse(report["ok"])
+        self.assertTrue(any("unknown source" in item for item in report["errors"]))
+        self.assertTrue(any("style_reference_scope" in item for item in report["errors"]))
+        self.assertTrue(any("reference_reviewed_at" in item for item in report["errors"]))
+        self.assertTrue(any("artwork" in item for item in report["errors"]))
+
+    def test_explicit_style_grammar_rejects_tamper_and_reference_fields(self) -> None:
+        enable_explicit_style_reference(self.pack)
+        organization = json.loads((self.pack / "organization.json").read_text(encoding="utf-8"))
+        grammar = next(
+            route["style_grammar"]
+            for route in organization["visual"]["routes"]
+            if "style_grammar" in route
+        )
+        grammar["tokens"]["reference_text"] = "copied headline"
+        grammar["reference_artwork"] = "copied image payload"
+        grammar["sha256"] = "0" * 64
+        write_json(self.pack / "organization.json", organization)
+        report = validate_pack(self.pack)
+        self.assertFalse(report["ok"])
+        self.assertTrue(
+            any("reference-shaped fields" in item for item in report["errors"]),
+            report["errors"],
+        )
+        self.assertTrue(any("reference-content fields" in item for item in report["errors"]))
+        self.assertTrue(any("canonical grammar payload" in item for item in report["errors"]))
+
+    def test_explicit_preset_rejects_self_rehashed_material_change(self) -> None:
+        enable_explicit_style_reference(self.pack)
+        organization = json.loads((self.pack / "organization.json").read_text(encoding="utf-8"))
+        grammar = next(
+            route["style_grammar"]
+            for route in organization["visual"]["routes"]
+            if "style_grammar" in route
+        )
+        grammar["tokens"]["material"] = "polished black glass and chrome"
+        grammar["sha256"] = style_grammar_sha256(grammar)
+        write_json(self.pack / "organization.json", organization)
+        report = validate_pack(self.pack)
+        self.assertFalse(report["ok"])
+        self.assertTrue(
+            any("does not match canonical preset" in item for item in report["errors"]),
+            report["errors"],
+        )
+
+    def test_explicit_preset_rejects_unknown_preset_id(self) -> None:
+        enable_explicit_style_reference(self.pack)
+        organization = json.loads((self.pack / "organization.json").read_text(encoding="utf-8"))
+        grammar = next(
+            route["style_grammar"]
+            for route in organization["visual"]["routes"]
+            if "style_grammar" in route
+        )
+        grammar["preset_id"] = "unknown-reviewed-preset"
+        write_json(self.pack / "organization.json", organization)
+        report = validate_pack(self.pack)
+        self.assertFalse(report["ok"])
+        self.assertTrue(any("unknown style preset" in item for item in report["errors"]))
+
+    def test_explicit_style_grammar_rejects_copy_instruction_and_url(self) -> None:
+        enable_explicit_style_reference(self.pack)
+        organization = json.loads((self.pack / "organization.json").read_text(encoding="utf-8"))
+        grammar = next(
+            route["style_grammar"]
+            for route in organization["visual"]["routes"]
+            if "style_grammar" in route
+        )
+        grammar["tokens"]["material"] = (
+            "Copy exact headline 求是潮 and exact cover geometry"
+        )
+        grammar["tokens"]["lighting"] = "sample https://example.test/reference.png"
+        grammar["sha256"] = style_grammar_sha256(grammar)
+        write_json(self.pack / "organization.json", organization)
+        report = validate_pack(self.pack)
+        self.assertFalse(report["ok"])
+        self.assertTrue(
+            any("explicit reference-copy instruction" in item for item in report["errors"]),
+            report["errors"],
+        )
+        self.assertTrue(any("must not contain a URL" in item for item in report["errors"]))
+
     def test_init_creates_isolated_asset_directories(self) -> None:
         args = type("Args", (), {"organization_id": "new-org", "name": "新组织", "root": self.root})()
         command_init(args)
@@ -633,6 +824,25 @@ class VisualKitTests(FreshWorkflowTestCase):
         self.assertIn("prior article layouts", serialized)
         self.assertIn("background_family_trial", serialized)
         self.assertIn("typography_trial", serialized)
+
+    def test_explicit_style_grammar_hash_propagates_to_all_build_plans(self) -> None:
+        grammar = enable_explicit_style_reference(self.pack)
+        expected_hash = grammar["sha256"]
+        asset_plan = build_asset_plan(self.pack, "introduction")
+        visual_kit = build_visual_kit_plan(self.article, self.pack)
+        manifest = build_manifest(self.article, self.pack)
+        self.assertEqual(asset_plan["style_grammar_sha256"], expected_hash)
+        self.assertEqual(visual_kit["style_grammar_sha256"], expected_hash)
+        self.assertEqual(manifest["route"]["style_grammar_sha256"], expected_hash)
+        self.assertEqual(manifest["style_reference"]["grammar_sha256"], expected_hash)
+        self.assertEqual(asset_plan["style_preset_id"], "prismatic-paper-editorial")
+        self.assertEqual(visual_kit["style_preset_label"], "绚烂纸本")
+        self.assertEqual(manifest["route"]["style_preset_id"], "prismatic-paper-editorial")
+        self.assertEqual(manifest["style_reference"]["preset_label"], "绚烂纸本")
+        self.assertEqual(asset_plan["style_grammar"], visual_kit["style_grammar"])
+        self.assertEqual(visual_kit["style_grammar"], manifest["route"]["style_grammar"])
+        self.assertIn(str(expected_hash), visual_kit["slots"][0]["prompt"])
+        self.assertIn("never copy reference text", visual_kit["slots"][0]["prompt"])
 
     def test_art_type_must_remain_native_editable_text(self) -> None:
         article = json.loads(self.article.read_text(encoding="utf-8"))

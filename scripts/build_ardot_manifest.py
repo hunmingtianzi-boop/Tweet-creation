@@ -146,6 +146,18 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
     if article.get("organization_id") != organization.get("id"):
         raise ValueError("article organization_id does not match the organization pack")
     route = choose_route(article, organization)
+    provenance = organization.get("provenance", {})
+    organization_reference_policy = provenance.get(
+        "visual_reference_policy", "source-zero"
+    )
+    style_grammar = (
+        route.get("style_grammar")
+        if organization_reference_policy == "explicit-style-grammar"
+        else None
+    )
+    reference_policy = (
+        "explicit-style-grammar" if isinstance(style_grammar, dict) else "source-zero"
+    )
     calibration = calibration_state(organization, route["id"], pack["assets"])
     calibration["background_family_quality"] = report.get("visual_calibration", {}).get(
         "background_family_quality"
@@ -260,6 +272,48 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
             "layout": route["layout"],
             "dominant_style": route["dominant_style"],
             "component_variants": route.get("component_variants", {}),
+            "style_grammar": style_grammar,
+            "style_grammar_sha256": (
+                style_grammar.get("sha256") if isinstance(style_grammar, dict) else None
+            ),
+            "style_preset_id": (
+                style_grammar.get("preset_id") if isinstance(style_grammar, dict) else None
+            ),
+            "style_preset_label": (
+                style_grammar.get("label") if isinstance(style_grammar, dict) else None
+            ),
+        },
+        "style_reference": {
+            "policy": reference_policy,
+            "source_ids": (
+                provenance.get("style_reference_source_ids", [])
+                if reference_policy == "explicit-style-grammar"
+                else []
+            ),
+            "scope": (
+                provenance.get("style_reference_scope")
+                if reference_policy == "explicit-style-grammar"
+                else None
+            ),
+            "reference_reviewed_at": (
+                provenance.get("reference_reviewed_at")
+                if reference_policy == "explicit-style-grammar"
+                else None
+            ),
+            "non_copy_constraints": (
+                provenance.get("style_reference_non_copy_constraints", [])
+                if reference_policy == "explicit-style-grammar"
+                else []
+            ),
+            "grammar_sha256": (
+                style_grammar.get("sha256") if isinstance(style_grammar, dict) else None
+            ),
+            "preset_id": (
+                style_grammar.get("preset_id") if isinstance(style_grammar, dict) else None
+            ),
+            "preset_label": (
+                style_grammar.get("label") if isinstance(style_grammar, dict) else None
+            ),
         },
         "calibration": calibration,
         "storyboard": storyboard,
@@ -276,6 +330,7 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
             "STOP if visual_kit.ready_for_layout is false",
             "STOP if typography.ready is false",
             "STOP if interaction_plan.ready is false",
+            "when style_reference.policy is explicit-style-grammar, preserve the canonical grammar SHA-256 and copy no reference text, photographs, logos, specific layout, component geometry, or artwork",
             "generate four distinct micro illustrations, verify real Alpha, register them, and record native Ardot component evidence before article layout",
             "author 2–3 semantic dynamic modules by default; a repeated card group counts as one module, and fewer modules require an explicit user/editor static exception",
             "build every dynamic module as native editable closed, open, and information-equivalent fallback states from the current Ardot revision",

@@ -40,6 +40,8 @@ def build_directions(org_dir: Path, article_type: str) -> dict[str, Any]:
     motifs = "、".join(organization["visual"].get("motifs", []))
     provenance = organization.get("provenance", {})
     visual_input_source_ids = provenance.get("visual_input_source_ids", [])
+    reference_policy = provenance.get("visual_reference_policy", "source-zero")
+    style_reference_source_ids = provenance.get("style_reference_source_ids", [])
     personality = organization.get("personality", {})
     typography_strategy = (
         "expressive-native"
@@ -48,18 +50,52 @@ def build_directions(org_dir: Path, article_type: str) -> dict[str, Any]:
     )
     directions: list[dict[str, Any]] = []
     for route in route_candidates:
+        route_grammar = route.get("style_grammar")
+        if reference_policy == "explicit-style-grammar" and isinstance(route_grammar, dict):
+            grammar = route_grammar
+            direction_reference_policy = "explicit-style-grammar"
+            source_basis = (
+                f"derive organization facts, subjects, and motifs only from source IDs "
+                f"{visual_input_source_ids}; "
+            )
+            grammar_tokens = json.dumps(
+                grammar.get("tokens", {}),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            reference_basis = (
+                f"apply only abstract style grammar {grammar_tokens} reviewed from source IDs "
+                f"{style_reference_source_ids}; never copy reference text, photographs, logos, "
+                "specific layout, component geometry, or artwork; "
+            )
+        else:
+            grammar = None
+            direction_reference_policy = "source-zero"
+            source_basis = (
+                f"derive visual decisions only from source IDs {visual_input_source_ids}; "
+            )
+            reference_basis = (
+                "do not inspect or imitate prior article layouts, Ardot files, screenshots, "
+                "examples, or another organization's pack; "
+            )
         base = (
             f"{organization['identity']['name']} / {article_type} / {route['label']}; "
             f"direction {route['dominant_style']}; palette {palette}; motifs {motifs}; "
-            f"derive visual decisions only from source IDs {visual_input_source_ids}; "
-            "do not inspect or imitate prior article layouts, Ardot files, screenshots, examples, or another organization's pack; "
-            "text remains editable in Ardot; no generated letters, logo, QR, dashboard, or generic AI glow."
+            + source_basis
+            + reference_basis
+            + "text remains editable in Ardot; no generated letters, logo, QR, dashboard, or generic AI glow."
         )
         directions.append(
             {
                 "route_id": route["id"],
                 "label": route["label"],
                 "rationale": route["rationale"],
+                "style_reference_policy": direction_reference_policy,
+                "style_grammar": grammar,
+                "style_grammar_sha256": grammar.get("sha256") if isinstance(grammar, dict) else None,
+                "style_preset_id": grammar.get("preset_id") if isinstance(grammar, dict) else None,
+                "style_preset_label": grammar.get("label") if isinstance(grammar, dict) else None,
                 "calibration_strip": [
                     {"role": "hero", "prompt": base + " Create one mobile hero with a real title-safe zone."},
                     {"role": "chapter", "prompt": base + " Create one open editorial chapter with one concrete subject."},
@@ -109,6 +145,12 @@ def build_directions(org_dir: Path, article_type: str) -> dict[str, Any]:
         "input_basis": {
             "visual_input_source_ids": visual_input_source_ids,
             "forbidden_visual_inputs": provenance.get("excluded_visual_reference_kinds", []),
+            "style_reference_policy": reference_policy,
+            "style_reference_source_ids": style_reference_source_ids,
+            "style_reference_scope": provenance.get("style_reference_scope"),
+            "style_reference_non_copy_constraints": provenance.get(
+                "style_reference_non_copy_constraints", []
+            ),
         },
         "calibration_ready": len(directions) >= 2,
         "full_article_allowed": state["ready"],
@@ -122,6 +164,11 @@ def build_directions(org_dir: Path, article_type: str) -> dict[str, Any]:
             "typography": ["strategy", "at least two approved construction recipes", "at least two non-font techniques", "editable text/accent layers", "body-copy fallback"],
             "approve_one_route_in": "organization.visual.calibration.approved_routes",
             "record_benchmark": ["file_url", "page_name", "article_node_id"],
+            "style_reference": (
+                ["grammar fidelity", "canonical grammar SHA-256", "non-copy boundary"]
+                if reference_policy == "explicit-style-grammar"
+                else ["source-zero isolation"]
+            ),
             "stop_before_full_article": True,
         },
     }

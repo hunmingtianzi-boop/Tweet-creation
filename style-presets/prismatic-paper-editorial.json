@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "preset_id": "prismatic-paper-editorial",
+  "label": "绚烂纸本",
+  "selectable": true,
+  "default": false,
+  "selection_scope": "visual-route-only",
+  "description": "暖纸底上的青蓝与粉色透明洗染、干刷矢量和轻纸纤维；正文落在安静阅读面，照片承担真实证据。",
+  "grammar": {
+    "preset_id": "prismatic-paper-editorial",
+    "label": "绚烂纸本",
+    "tokens": {
+      "color_motion": "cool cyan and warm blush washes drift through one continuous warm-paper field without chapter-by-chapter hue resets",
+      "saturation": "restrained paper and ink with luminous cyan, blush, and one blue accent; no black-white or neon jumps",
+      "material": "warm uncoated paper, translucent watercolor bloom, dry-brush vectors, and subtle editable fiber grain",
+      "lighting": "soft ambient paper light without glow balls, glass reflections, or dark technology panels",
+      "layering": "paper, cool wash, warm wash, brush, grain, editable text, documentary photo, then interaction",
+      "edge_energy": "feathered organic edges and a few asymmetric strokes while calm reading area remains at least 62 percent",
+      "copy_safe_zone": "near-solid warm paper behind body copy; washes fade before text and measured contrast remains at least 4.5 to 1",
+      "photo_responsibility": "only verified real photographs carry people, event, venue, project, or result evidence",
+      "background_responsibility": "generated or vector backgrounds carry atmosphere and continuity only and never factual evidence"
+    },
+    "non_copy_constraints": [
+      "text",
+      "photographs",
+      "logos",
+      "specific-layout",
+      "component-geometry",
+      "artwork"
+    ],
+    "sha256": "7051fb69f79cebf512c22357ea7160fdf27f8aad490b83c6cfebdcef844d4336"
+  },
+  "organization_derivation": {
+    "paper": "derive from the organization's neutral at lightness 94-97",
+    "ink": "derive from a dark step of the organization primary at lightness 28-39",
+    "display": "derive from a middle step of the organization primary at lightness 40-55",
+    "cool_wash": "mix paper with the organization primary at 18-24 percent",
+    "warm_wash": "mix paper with the organization secondary at 14-20 percent",
+    "accent": "use one middle secondary color only for large decorative information"
+  },
+  "ardot": {
+    "surface_mode": "light",
+    "continuous_background_family": true,
+    "layer_order": [
+      "BG/PAPER",
+      "BG/WASH/COOL",
+      "BG/WASH/WARM",
+      "BG/BRUSH",
+      "BG/GRAIN",
+      "CONTENT/TEXT",
+      "CONTENT/PHOTO",
+      "CONTENT/INTERACTION"
+    ],
+    "art_type": "Use 4-8 editable Chinese characters with an independent vector brush/accent layer; keep key information in a standard native text fallback.",
+    "interaction_surface": "Closed, open, and fallback states share the same family seed and background coordinate system."
+  },
+  "acceptance": {
+    "calm_reading_area_min": 0.62,
+    "body_text_contrast_min": 4.5,
+    "surface_mode_count": 1,
+    "generated_background_is_evidence": false,
+    "reference_content_allowed": false
+  },
+  "provenance_requirements": {
+    "policy": "explicit-style-grammar",
+    "scope": "abstract-visual-grammar-only",
+    "future_reuse_source": "this preset file and its canonical grammar SHA-256",
+    "reopen_original_reference_for_future_organizations": false
+  }
+}

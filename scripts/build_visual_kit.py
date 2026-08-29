@@ -94,6 +94,31 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
     if not isinstance(article_id, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", article_id):
         raise ValueError("article.article_id must be a lowercase hyphenated slug")
     route = choose_route(article, organization)
+    organization_reference_policy = organization.get("provenance", {}).get(
+        "visual_reference_policy", "source-zero"
+    )
+    style_grammar = (
+        route.get("style_grammar")
+        if organization_reference_policy == "explicit-style-grammar"
+        else None
+    )
+    reference_policy = (
+        "explicit-style-grammar" if isinstance(style_grammar, dict) else "source-zero"
+    )
+    if isinstance(style_grammar, dict):
+        grammar_tokens = json.dumps(
+            style_grammar.get("tokens", {}),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        grammar_instruction = (
+            f"Apply only abstract style grammar {grammar_tokens} "
+            f"(SHA-256 {style_grammar.get('sha256')}); never copy reference text, "
+            "photographs, logos, specific layout, component geometry, or artwork. "
+        )
+    else:
+        grammar_instruction = ""
     calibration = calibration_state(organization, route["id"], pack["assets"])
     storyboard = build_storyboard_plan(article_path)
     storyboard_by_id = {
@@ -234,7 +259,8 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
             f"Chapter visual intent: {(chapter or {}).get('visual_intent', '[bind to an approved storyboard chapter]')}. "
             f"Its composition job is {composition_role or '[anchor/motion/connector/punctuation]'} at {placement}. "
             f"Follow the calibrated {route['dominant_style']} direction with motifs "
-            f"{motifs} and palette {palette}. Aspect ratio {definition['aspect_ratio']}. Use a "
+            f"{motifs} and palette {palette}. {grammar_instruction}"
+            f"Aspect ratio {definition['aspect_ratio']}. Use a "
             f"real PNG alpha transparency and an irregular/open edge; keep generous negative space. "
             f"Do not create a rectangle, card, UI panel, border, poster, generic blob, letters, "
             f"numbers, watermark, logo, or QR code. Avoid: {avoid}."
@@ -291,6 +317,17 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
         "article_title": article.get("title"),
         "article_type": article.get("article_type"),
         "route_id": route["id"],
+        "style_reference_policy": reference_policy,
+        "style_grammar": style_grammar,
+        "style_grammar_sha256": (
+            style_grammar.get("sha256") if isinstance(style_grammar, dict) else None
+        ),
+        "style_preset_id": (
+            style_grammar.get("preset_id") if isinstance(style_grammar, dict) else None
+        ),
+        "style_preset_label": (
+            style_grammar.get("label") if isinstance(style_grammar, dict) else None
+        ),
         "calibration": calibration,
         "storyboard": storyboard,
         "minimum_micro_component_roles": len(KIT_ROLES),

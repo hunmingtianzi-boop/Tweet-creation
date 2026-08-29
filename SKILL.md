@@ -7,12 +7,12 @@ description: Research an organization, create or update its reusable organizatio
 
 Create organization-specific WeChat articles without reducing the organization to a logo and color swap. Separate stable publishing mechanics from the organization’s identity and the facts of the current article.
 
-For commands and file locations, read [references/使用说明.md](references/使用说明.md). For a new account, also read [references/organization-pack-migration.md](references/organization-pack-migration.md). The current hardening rationale is recorded in [references/source-zero-audit.md](references/source-zero-audit.md).
+For commands and file locations, read [references/使用说明.md](references/使用说明.md). For a new account, also read [references/organization-pack-migration.md](references/organization-pack-migration.md). The current hardening rationale is recorded in [references/source-zero-audit.md](references/source-zero-audit.md). Read [references/style-options.md](references/style-options.md) only when the user explicitly supplies a style reference or selects a reviewed style preset.
 
 ## Route the request
 
 1. Identify the organization and article type.
-2. Use only an organization pack explicitly supplied for this organization or the workspace `organizations/<organization-id>/`. Never inspect bundled examples, another organization pack, prior article layouts, screenshots, PDFs, or Ardot files to infer the new visual direction.
+2. Default to source-zero: use only an organization pack explicitly supplied for this organization or the workspace `organizations/<organization-id>/`. Never inspect bundled examples, another organization pack, prior article layouts, screenshots, PDFs, or Ardot files to infer the new visual direction. The only exception is an explicit user request to learn a named visual reference or select a reviewed repository preset. In that case use `explicit-style-grammar` for one or more chosen routes, copy only the nine abstract grammar tokens plus the fixed non-copy boundary, and preserve its canonical SHA-256. A route with `preset_id` must match the canonical grammar in `style-presets/<preset-id>.json`; recomputing a new SHA after changing its tokens does not authorize the change. A later organization reuses the preset JSON, not the original reference page.
 3. If a pack exists, validate it before authoring:
 
    ```bash
@@ -26,7 +26,7 @@ For commands and file locations, read [references/使用说明.md](references/�
    python3 scripts/orgs.py init ORGANIZATION_ID --name "Organization name" --root organizations
    ```
 
-5. Before the first full article for an organization or route, read [references/visual-calibration.md](references/visual-calibration.md) and create two or three small Ardot calibration strips:
+5. Before the first full article for an organization or route, read [references/visual-calibration.md](references/visual-calibration.md) and create two or three small Ardot calibration strips. A reviewed style preset may be offered as one route-level option only when explicitly selected; it never replaces source-zero as the default or skips current-organization calibration:
 
    ```bash
    python3 scripts/build_visual_directions.py path/to/organization-pack ARTICLE_TYPE \
@@ -71,7 +71,7 @@ For commands and file locations, read [references/使用说明.md](references/�
 
 ## Organization model
 
-- Infer identity from current official/user-provided evidence, not from organization category or logo alone. Past copy may inform voice only when explicitly allowed; its layout and imagery never enter source-zero visual calibration.
+- Infer identity from current official/user-provided evidence, not from organization category or logo alone. Past copy may inform voice only when explicitly allowed; its layout and imagery never enter source-zero visual calibration. An explicitly selected style grammar can influence abstract material, color-motion, layering, and edge behavior only; organization identity, content, photographs, typography, components, and layout are re-derived from current evidence.
 - Model voice and visual character separately. Preserve the organization’s factual and institutional boundaries even when using a more expressive visual route.
 - Use the five profile axes as evidence-backed signals, not labels: authority, technical depth, warmth, experimentation, and action orientation.
 - Offer two or three small visual calibration strips during first-time onboarding. Approve visual evidence, not route names or prompt prose.
@@ -108,7 +108,7 @@ For commands and file locations, read [references/使用说明.md](references/�
 
 ## Composition
 
-- Choose the article route from the organization pack and current article type. Do not reuse a route merely because it worked for another organization.
+- Choose the article route from the organization pack and current article type. Do not reuse a route merely because it worked for another organization. If the chosen route carries `style_grammar`, verify `explicit-style-grammar` provenance and the grammar SHA; routes without it remain source-zero even in the same pack.
 - Build with semantic blocks such as hero, lead, section, text, statement, metrics, timeline, gallery, case, roles, quote, steps, image, CTA, references, and footer.
 - Default a normal article to 2–3 semantic interaction modules. A module is one reader task and one static-equivalent region; its child SVGs or swipe triggers are transport instances, not extra modules. Do not count decorative motion, the four mandatory micro illustrations, or expressive typography toward this budget.
 - Default every block to an open composition with no enclosing background, border, radius, or shadow. Add a container only when the content truly needs comparison, interaction, or a hard boundary.
@@ -145,7 +145,8 @@ For commands and file locations, read [references/使用说明.md](references/�
 Treat any of the following as blocking for final delivery:
 
 - failed organization-pack validation;
-- missing source-zero provenance, allowed visual input source IDs, excluded legacy-visual categories, or isolation review time;
+- missing valid visual-reference provenance: for source-zero, allowed visual input source IDs, all excluded legacy-visual categories, and isolation review time; for `explicit-style-grammar`, registered style source IDs, abstract-only scope, review time, all six non-copy constraints, at least one selected route, or a matching canonical grammar SHA-256;
+- reference text, photographs, logos, specific layout, component geometry, artwork, or unsupported reference-shaped fields entering a route grammar, prompt, visual kit, or Ardot manifest;
 - unresolved placeholders;
 - missing local assets;
 - missing or incomplete `article.visual_kit`, fewer than four distinct generated micro assets, any missing visual role, failed pixel Alpha/aspect check, or missing native Ardot component node evidence;

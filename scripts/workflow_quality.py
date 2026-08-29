@@ -144,6 +144,38 @@ REQUIRED_SOURCE_ZERO_EXCLUSIONS = {
     "other-organization-visual-pack",
 }
 
+ALLOWED_VISUAL_REFERENCE_POLICIES = {"source-zero", "explicit-style-grammar"}
+EXPLICIT_STYLE_REFERENCE_SCOPE = "abstract-visual-grammar-only"
+REQUIRED_STYLE_NON_COPY_CONSTRAINTS = {
+    "text",
+    "photographs",
+    "logos",
+    "specific-layout",
+    "component-geometry",
+    "artwork",
+}
+REQUIRED_STYLE_GRAMMAR_TOKENS = {
+    "color_motion",
+    "saturation",
+    "material",
+    "lighting",
+    "layering",
+    "edge_energy",
+    "copy_safe_zone",
+    "photo_responsibility",
+    "background_responsibility",
+}
+STYLE_PRESET_DIRECTORY = Path(__file__).resolve().parent.parent / "style-presets"
+STYLE_GRAMMAR_URL_PATTERN = re.compile(
+    r"(?:https?://|www\.|data:|mp\.weixin\.qq\.com)",
+    re.I,
+)
+STYLE_GRAMMAR_COPY_INSTRUCTION_PATTERN = re.compile(
+    r"\b(?:copy|replicate|reproduce|verbatim)\b.{0,120}"
+    r"\b(?:exact\s+)?(?:headline|title|layout|cover\s+geometry|photo(?:graph)?|logo|artwork)\b",
+    re.I,
+)
+
 
 def _is_iso_datetime(value: Any) -> bool:
     if not isinstance(value, str) or not value.strip():
@@ -155,34 +187,252 @@ def _is_iso_datetime(value: Any) -> bool:
     return True
 
 
+def _style_grammar_payload(grammar: dict[str, Any]) -> dict[str, Any]:
+    """Return the normalized, order-independent payload covered by the grammar hash."""
+    raw_tokens = grammar.get("tokens")
+    tokens = raw_tokens if isinstance(raw_tokens, dict) else {}
+    normalized_tokens = {
+        str(key): value.strip() if isinstance(value, str) else value
+        for key, value in sorted(tokens.items(), key=lambda item: str(item[0]))
+    }
+    raw_constraints = grammar.get("non_copy_constraints")
+    constraints = (
+        sorted({item.strip() for item in raw_constraints if isinstance(item, str) and item.strip()})
+        if isinstance(raw_constraints, list)
+        else []
+    )
+    return {
+        "tokens": normalized_tokens,
+        "non_copy_constraints": constraints,
+    }
+
+
+def style_grammar_sha256(grammar: dict[str, Any]) -> str:
+    """Hash the complete abstract grammar and its non-copy boundary deterministically."""
+    payload = json.dumps(
+        _style_grammar_payload(grammar),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _style_preset_catalog_entry(preset_id: str) -> tuple[dict[str, Any] | None, str | None]:
+    path = STYLE_PRESET_DIRECTORY / f"{preset_id}.json"
+    if not path.is_file():
+        return None, f"unknown style preset: {preset_id}"
+    try:
+        entry = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return None, f"invalid style preset catalog entry {preset_id}: {exc}"
+    if not isinstance(entry, dict):
+        return None, f"style preset catalog entry must be an object: {preset_id}"
+    return entry, None
+
+
+def style_grammar_errors(
+    grammar: Any,
+    label: str = "style_grammar",
+    *,
+    verify_preset_catalog: bool = True,
+) -> list[str]:
+    """Validate a route grammar without accepting reference-content-shaped fields."""
+    if not isinstance(grammar, dict):
+        return [f"{label} must be an object"]
+    errors: list[str] = []
+    allowed_fields = {
+        "preset_id",
+        "label",
+        "tokens",
+        "non_copy_constraints",
+        "sha256",
+    }
+    unsupported_fields = sorted(set(grammar) - allowed_fields)
+    if unsupported_fields:
+        errors.append(
+            f"{label} contains unsupported or reference-content fields: "
+            + ", ".join(unsupported_fields)
+        )
+    preset_id = grammar.get("preset_id")
+    if preset_id is not None and (
+        not isinstance(preset_id, str) or not SLUG.fullmatch(preset_id)
+    ):
+        errors.append(f"{label}.preset_id must be a lowercase hyphenated slug")
+    preset_label = grammar.get("label")
+    if preset_label is not None and (
+        not isinstance(preset_label, str) or not preset_label.strip()
+    ):
+        errors.append(f"{label}.label must be a non-empty string")
+    tokens = grammar.get("tokens")
+    if not isinstance(tokens, dict):
+        tokens = {}
+        errors.append(f"{label}.tokens must be an object")
+    missing_tokens = sorted(REQUIRED_STYLE_GRAMMAR_TOKENS - set(tokens))
+    if missing_tokens:
+        errors.append(f"{label}.tokens is missing abstract tokens: " + ", ".join(missing_tokens))
+    unsupported_tokens = sorted(set(tokens) - REQUIRED_STYLE_GRAMMAR_TOKENS)
+    if unsupported_tokens:
+        errors.append(
+            f"{label}.tokens contains unsupported or reference-shaped fields: "
+            + ", ".join(unsupported_tokens)
+        )
+    for key, value in tokens.items():
+        if not isinstance(key, str) or not key.strip():
+            errors.append(f"{label}.tokens keys must be non-empty strings")
+        if not isinstance(value, str) or not value.strip():
+            errors.append(f"{label}.tokens.{key} must be a non-empty abstract description")
+            continue
+        if STYLE_GRAMMAR_URL_PATTERN.search(value):
+            errors.append(f"{label}.tokens.{key} must not contain a URL")
+        if STYLE_GRAMMAR_COPY_INSTRUCTION_PATTERN.search(value):
+            errors.append(
+                f"{label}.tokens.{key} contains an explicit reference-copy instruction"
+            )
+    constraints = grammar.get("non_copy_constraints")
+    constraint_set = (
+        {item for item in constraints if isinstance(item, str)}
+        if isinstance(constraints, list)
+        else set()
+    )
+    if not isinstance(constraints, list):
+        errors.append(f"{label}.non_copy_constraints must be an array")
+    missing_constraints = sorted(REQUIRED_STYLE_NON_COPY_CONSTRAINTS - constraint_set)
+    if missing_constraints:
+        errors.append(
+            f"{label} is missing non-copy constraints: " + ", ".join(missing_constraints)
+        )
+    digest = grammar.get("sha256")
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        errors.append(f"{label}.sha256 must be a lowercase SHA-256")
+    elif digest != style_grammar_sha256(grammar):
+        errors.append(f"{label}.sha256 does not match the canonical grammar payload")
+    if (
+        verify_preset_catalog
+        and isinstance(preset_id, str)
+        and SLUG.fullmatch(preset_id)
+    ):
+        preset, preset_error = _style_preset_catalog_entry(preset_id)
+        if preset_error:
+            errors.append(f"{label}.preset_id references {preset_error}")
+        elif isinstance(preset, dict):
+            if preset.get("preset_id") != preset_id:
+                errors.append(
+                    f"style preset catalog ID does not match filename: {preset_id}"
+                )
+            canonical = preset.get("grammar")
+            canonical_errors = style_grammar_errors(
+                canonical,
+                f"style preset {preset_id}.grammar",
+                verify_preset_catalog=False,
+            )
+            if isinstance(canonical, dict) and canonical.get("preset_id") != preset_id:
+                errors.append(
+                    f"style preset canonical grammar ID does not match catalog ID: {preset_id}"
+                )
+            if canonical_errors:
+                errors.extend(canonical_errors)
+            elif isinstance(canonical, dict) and digest != canonical.get("sha256"):
+                errors.append(
+                    f"{label}.sha256 does not match canonical preset {preset_id}"
+                )
+    return errors
+
+
 def source_isolation_state(organization: dict[str, Any]) -> dict[str, Any]:
     provenance = organization.get("provenance")
     if not isinstance(provenance, dict):
         provenance = {}
     reasons: list[str] = []
-    if provenance.get("visual_reference_policy") != "source-zero":
-        reasons.append("organization provenance must use visual_reference_policy=source-zero")
+    policy = provenance.get("visual_reference_policy")
+    if policy not in ALLOWED_VISUAL_REFERENCE_POLICIES:
+        reasons.append(
+            "organization provenance must use visual_reference_policy=source-zero "
+            "or explicit-style-grammar"
+        )
     visual_inputs = provenance.get("visual_input_source_ids")
     if not isinstance(visual_inputs, list) or not visual_inputs or not all(
         isinstance(item, str) and item for item in visual_inputs
     ):
-        reasons.append("source-zero provenance requires visual_input_source_ids")
+        reasons.append(f"{policy or 'visual'} provenance requires visual_input_source_ids")
         visual_inputs = []
     exclusions = provenance.get("excluded_visual_reference_kinds")
     exclusion_set = {item for item in exclusions if isinstance(item, str)} if isinstance(exclusions, list) else set()
-    missing_exclusions = sorted(REQUIRED_SOURCE_ZERO_EXCLUSIONS - exclusion_set)
-    if missing_exclusions:
-        reasons.append(
-            "source-zero provenance is missing excluded visual reference kinds: "
-            + ", ".join(missing_exclusions)
+    style_reference_source_ids: list[str] = []
+    style_reference_scope = provenance.get("style_reference_scope")
+    reference_reviewed_at = provenance.get("reference_reviewed_at")
+    raw_non_copy = provenance.get("style_reference_non_copy_constraints")
+    style_reference_non_copy_constraints = (
+        sorted({item for item in raw_non_copy if isinstance(item, str)})
+        if isinstance(raw_non_copy, list)
+        else []
+    )
+    route_grammar_hashes: dict[str, str] = {}
+    if policy == "source-zero":
+        missing_exclusions = sorted(REQUIRED_SOURCE_ZERO_EXCLUSIONS - exclusion_set)
+        if missing_exclusions:
+            reasons.append(
+                "source-zero provenance is missing excluded visual reference kinds: "
+                + ", ".join(missing_exclusions)
+            )
+        if not _is_iso_datetime(provenance.get("isolation_reviewed_at")):
+            reasons.append("source-zero provenance requires isolation_reviewed_at")
+    elif policy == "explicit-style-grammar":
+        raw_reference_ids = provenance.get("style_reference_source_ids")
+        if not isinstance(raw_reference_ids, list) or not raw_reference_ids or not all(
+            isinstance(item, str) and item for item in raw_reference_ids
+        ):
+            reasons.append("explicit-style-grammar provenance requires style_reference_source_ids")
+        else:
+            style_reference_source_ids = raw_reference_ids
+        if style_reference_scope != EXPLICIT_STYLE_REFERENCE_SCOPE:
+            reasons.append(
+                "explicit-style-grammar provenance requires "
+                f"style_reference_scope={EXPLICIT_STYLE_REFERENCE_SCOPE}"
+            )
+        if not _is_iso_datetime(reference_reviewed_at):
+            reasons.append("explicit-style-grammar provenance requires reference_reviewed_at")
+        missing_non_copy = sorted(
+            REQUIRED_STYLE_NON_COPY_CONSTRAINTS
+            - set(style_reference_non_copy_constraints)
         )
-    if not _is_iso_datetime(provenance.get("isolation_reviewed_at")):
-        reasons.append("source-zero provenance requires isolation_reviewed_at")
+        if missing_non_copy:
+            reasons.append(
+                "explicit-style-grammar provenance is missing non-copy constraints: "
+                + ", ".join(missing_non_copy)
+            )
+        routes = organization.get("visual", {}).get("routes", [])
+        if not isinstance(routes, list) or not routes:
+            reasons.append("explicit-style-grammar requires visual routes")
+        else:
+            grammar_count = 0
+            for index, route in enumerate(routes):
+                route_id = route.get("id", str(index)) if isinstance(route, dict) else str(index)
+                grammar = route.get("style_grammar") if isinstance(route, dict) else None
+                if grammar is None:
+                    continue
+                grammar_reasons = style_grammar_errors(
+                    grammar,
+                    f"visual route {route_id}.style_grammar",
+                )
+                reasons.extend(grammar_reasons)
+                if not grammar_reasons and isinstance(grammar, dict):
+                    grammar_count += 1
+                    route_grammar_hashes[str(route_id)] = grammar["sha256"]
+            if grammar_count == 0:
+                reasons.append(
+                    "explicit-style-grammar requires at least one route.style_grammar selection"
+                )
     return {
         "ready": not reasons,
-        "policy": provenance.get("visual_reference_policy", "missing"),
+        "policy": policy or "missing",
         "visual_input_source_ids": visual_inputs,
         "excluded_visual_reference_kinds": sorted(exclusion_set),
+        "style_reference_source_ids": style_reference_source_ids,
+        "style_reference_scope": style_reference_scope,
+        "reference_reviewed_at": reference_reviewed_at,
+        "style_reference_non_copy_constraints": style_reference_non_copy_constraints,
+        "route_grammar_hashes": route_grammar_hashes,
         "blocking_reasons": reasons,
     }
 

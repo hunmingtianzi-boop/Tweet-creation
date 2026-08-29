@@ -49,7 +49,7 @@ Required visual tokens:
 }
 ```
 
-Routes use a layout family from `editorial`, `poster`, `technical`, `institutional`, or `warm-community`. These are compositional behaviors, not fixed brands.
+Routes use a layout family from `editorial`, `poster`, `technical`, `institutional`, or `warm-community`. These are compositional behaviors, not fixed brands. A route may additionally carry a reviewed `style_grammar` when provenance uses `explicit-style-grammar`; this selection is route-local, so sibling routes without it remain source-zero.
 
 `publishing.interaction_policy` stores only the portable expectation: default static payload, policy version `wechat-svg-smil-self-v1`, candidate modes `svg-smil-self` / `horizontal-swipe`, and the requirement for a static equivalent. It must not contain an account certification. Sanitizer readback, probe draft IDs, iOS/Android versions, screenshots, validity windows, access tokens, and `thumb_media_id` values belong to the target account's delivery environment and must be rebuilt for every公众号.
 
@@ -97,6 +97,18 @@ Do not store account secrets, access tokens, or private credentials in an organi
 
 Generate an article-type asset plan with `scripts/orgs.py asset-plan`, then register approved files with `scripts/orgs.py register-asset`. For a newly generated micro illustration, pass `--role ROLE --generated-for ARTICLE_ID --visual-role article-micro`; registration runs the pixel Alpha/aspect check. Every article gets a fresh visual-kit plan and must produce four different assets for all four roles before layout. Logos and QR codes always remain official or user-supplied assets.
 
-## Source-zero provenance
+## Visual-reference provenance
 
-`organization.provenance` must declare `visual_reference_policy: source-zero`, current `visual_input_source_ids`, `isolation_reviewed_at`, and all four excluded kinds: `prior-article-layout`, `prior-ardot-file`, `prior-article-screenshot`, `other-organization-visual-pack`. These fields make the isolation claim executable instead of leaving it in notes.
+The default mode is source-zero. `organization.provenance` declares `visual_reference_policy: source-zero`, current `visual_input_source_ids`, `isolation_reviewed_at`, and all four excluded kinds: `prior-article-layout`, `prior-ardot-file`, `prior-article-screenshot`, `other-organization-visual-pack`. These fields make the isolation claim executable instead of leaving it in notes.
+
+When the user explicitly selects a reviewed style grammar, provenance may instead use `visual_reference_policy: explicit-style-grammar`. It additionally requires:
+
+- non-empty `style_reference_source_ids` that also appear in `provenance.source_ids` and `sources.json`;
+- `style_reference_scope: abstract-visual-grammar-only`;
+- ISO `reference_reviewed_at`;
+- every `style_reference_non_copy_constraints` value: `text`, `photographs`, `logos`, `specific-layout`, `component-geometry`, `artwork`;
+- at least one route with a valid `style_grammar`.
+
+The route grammar accepts only nine abstract tokens: `color_motion`, `saturation`, `material`, `lighting`, `layering`, `edge_energy`, `copy_safe_zone`, `photo_responsibility`, and `background_responsibility`. It repeats the six non-copy constraints and stores a canonical lowercase SHA-256 over normalized `tokens + non_copy_constraints`. Optional `preset_id` and `label` are discovery metadata and are not hashed. When `preset_id` is present it must resolve to `style-presets/<preset-id>.json`, whose canonical grammar SHA must equal the route SHA; an unknown preset or a modified-and-resigned route fails. Reference content-shaped fields, URLs, and explicit copy/replicate/verbatim instructions are rejected.
+
+For a later organization, register the reviewed preset JSON itself as the style source and do not reopen the original reference. See [style-options.md](style-options.md).
