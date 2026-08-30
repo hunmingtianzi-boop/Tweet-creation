@@ -40,6 +40,18 @@ An individual article block may set `variant` when one deliberate exception is n
 - Use cards only when items are independently comparable. A semantic block does not automatically deserve its own background, border, radius, or shadow. Use rails, bands, whitespace, asymmetric illustration placement, or one continuous path for sequences.
 - Real people, events, facilities, projects, and outcomes use real or officially supplied photography. Generated images are illustrative brand assets only.
 
+## Micro-component geometry
+
+Treat a micro component as an editorial accent that enters the reading flow, not as a self-contained poster:
+
+- no raster/illustration layer may exceed `0.72` of the 390 px row;
+- the complete native group may not exceed `0.82` of the row;
+- the four mandatory roles must appear across at least three reviewed sections, use both left and right offsets, at least three distinct offsets, at least three composition relations, and visibly different scales;
+- use `text-edge-entry`, `between-paragraphs`, `continuous-path`, `chapter-bridge`, and `cta-anchor` as placement relationships rather than centering every item in its own horizontal band;
+- never flatten the illustration and its copy into one image.
+
+If a native micro component carries copy, emphasize the primary phrase with scale and typography—not a container. The primary phrase is at least `22 px` and `1.35×` local body text, remains an editable Ardot text node, and combines `scale-contrast` with at least one of mixed weight, color contrast, intentional line break, baseline offset, or a vector accent. A border, filled rectangle, rounded chip, badge, or closed shape around the words is a blocking defect. Glyph outline/offset treatments are allowed only when they follow letterforms rather than enclosing the text block.
+
 ## Interaction rhythm
 
 - 常规文章默认 2–3 个 semantic interaction modules；2 个分布在 `early` + `middle`，3 个再增加 `late`，每个属于不同 storyboard chapter。
@@ -77,4 +89,4 @@ python3 scripts/build_ardot_manifest.py article.json \
   --output output/ORG_ID/article/ardot-manifest.json
 ```
 
-Inspect high-impact sections with Ardot screenshots at 390 px. Confirm that route families differ in composition, not only color; boxes do not exceed 20%; no two boxes are consecutive; at least three moments visibly break symmetry or the text edge; and expressive type is selective, editable, and legible. Record five distinct Ardot nodes and all required checks in the separate screenshot-backed visual review. Keep the gallery and example article editable as native components and instances.
+Inspect high-impact sections with Ardot screenshots at 390 px. Confirm that route families differ in composition, not only color; boxes do not exceed 20%; no two boxes are consecutive; at least three moments visibly break symmetry or the text edge; micro components remain partial-width and staggered; copy-bearing micro components are unframed with enlarged native type; and expressive type is selective, editable, and legible. Record five distinct Ardot nodes and all required checks plus the measured schema-v3 micro-component placements in the separate screenshot-backed visual review. Keep the gallery and example article editable as native components and instances.

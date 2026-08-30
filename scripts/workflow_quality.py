@@ -32,8 +32,38 @@ REQUIRED_VISUAL_CHECKS = {
     "art_type_construction",
     "background_surface_unity",
     "reading_surface_contrast",
+    "no_framed_micro_copy",
+    "no_full_width_micro_image",
+    "staggered_micro_composition",
+    "micro_copy_hierarchy",
 }
 REQUIRED_SCREENSHOT_ROLES = {"hero", "chapter", "evidence", "complex-section", "cta"}
+REQUIRED_MICRO_COMPONENT_ROLES = {
+    "floating-spot",
+    "section-transition",
+    "inline-explainer",
+    "closing-motif",
+}
+ALLOWED_MICRO_COMPOSITION_RELATIONS = {
+    "text-edge-entry",
+    "between-paragraphs",
+    "continuous-path",
+    "chapter-bridge",
+    "cta-anchor",
+}
+ALLOWED_MICRO_COPY_EMPHASIS_TECHNIQUES = {
+    "scale-contrast",
+    "mixed-weight",
+    "color-contrast",
+    "intentional-line-break",
+    "baseline-offset",
+    "vector-accent",
+}
+MICRO_IMAGE_WIDTH_RATIO = (0.12, 0.72)
+MICRO_COMPONENT_WIDTH_RATIO = (0.18, 0.82)
+MICRO_HORIZONTAL_OFFSET_RATIO = (-0.36, 0.36)
+MICRO_COPY_MIN_FONT_PX = 22.0
+MICRO_COPY_MIN_SCALE_RATIO = 1.35
 ALLOWED_DENSITY_MODES = {"compact-editorial", "standard", "spacious-feature"}
 DENSITY_BANDS = {
     "compact-editorial": {
@@ -1206,14 +1236,414 @@ def validate_typography_plan(
     }
 
 
+def validate_micro_component_layout(
+    review: dict[str, Any],
+    article: dict[str, Any],
+    article_path: Path,
+    screenshot_hashes: dict[str, str],
+    density_body_fonts: dict[str, float],
+    article_root_node_id: str | None,
+) -> dict[str, Any]:
+    """Derive micro-component geometry and typography from hashed Ardot node exports."""
+    errors: list[str] = []
+    error_codes: set[str] = set()
+    layout = review.get("micro_component_layout")
+    if not isinstance(layout, dict):
+        layout = {}
+        errors.append("visual review requires micro_component_layout evidence")
+    if layout.get("measured_from") != "ardot-node-properties-and-screenshot":
+        errors.append(
+            "micro_component_layout.measured_from must bind Ardot node properties to screenshots"
+        )
+    if not _is_iso_datetime(layout.get("measured_at")):
+        errors.append("micro_component_layout.measured_at must be an ISO timestamp")
+
+    def load_evidence(location: Any, declared_hash: Any, label: str) -> dict[str, Any]:
+        if not isinstance(location, str) or not location:
+            errors.append(f"{label} requires a local JSON location")
+            return {}
+        if re.match(r"^https?://", location):
+            errors.append(f"{label} must be a local immutable Ardot node export")
+            return {}
+        candidate = (article_path.parent / location).resolve()
+        if not candidate.exists() or not candidate.is_file():
+            errors.append(f"{label} is missing: {location}")
+            return {}
+        actual_hash = file_sha256(candidate)
+        if declared_hash != actual_hash:
+            errors.append(f"{label} sha256 does not match the file")
+        try:
+            return read_json(candidate)
+        except ValueError as exc:
+            errors.append(f"{label} is not valid JSON: {exc}")
+            return {}
+
+    def node_bounds(node: dict[str, Any], label: str) -> tuple[float, float, float, float] | None:
+        bounds = node.get("bounds")
+        if not isinstance(bounds, dict):
+            errors.append(f"{label} requires bounds")
+            return None
+        values = [bounds.get(key) for key in ("x", "y", "width", "height")]
+        if any(not isinstance(value, (int, float)) or isinstance(value, bool) for value in values):
+            errors.append(f"{label} bounds must contain numeric x, y, width, and height")
+            return None
+        x, y, width, height = (float(value) for value in values)
+        if width <= 0 or height <= 0:
+            errors.append(f"{label} bounds width and height must be positive")
+            return None
+        return x, y, width, height
+
+    def encloses(
+        outer: tuple[float, float, float, float],
+        inner: tuple[float, float, float, float],
+    ) -> bool:
+        ox, oy, ow, oh = outer
+        ix, iy, iw, ih = inner
+        tolerance = 1.0
+        return (
+            ox <= ix + tolerance
+            and oy <= iy + tolerance
+            and ox + ow >= ix + iw - tolerance
+            and oy + oh >= iy + ih - tolerance
+        )
+
+    expected_components: dict[str, str] = {}
+    visual_kit = article.get("visual_kit")
+    visual_assets = visual_kit.get("assets") if isinstance(visual_kit, dict) else []
+    if isinstance(visual_assets, list):
+        for item in visual_assets:
+            if not isinstance(item, dict):
+                continue
+            role = item.get("role")
+            component = item.get("ardot_component")
+            if (
+                role in REQUIRED_MICRO_COMPONENT_ROLES
+                and isinstance(component, dict)
+                and isinstance(component.get("node_id"), str)
+                and component.get("node_id")
+            ):
+                expected_components[role] = component["node_id"]
+    for role in sorted(REQUIRED_MICRO_COMPONENT_ROLES - set(expected_components)):
+        errors.append(
+            f"article.visual_kit is missing native component evidence for micro role: {role}"
+        )
+
+    inventory = load_evidence(
+        layout.get("inventory_file"),
+        layout.get("inventory_sha256"),
+        "micro component instance inventory",
+    )
+    if inventory.get("schema_version") != 1:
+        errors.append("micro component instance inventory schema_version must be 1")
+    if inventory.get("source") != "ardot-article-instance-inventory":
+        errors.append(
+            "micro component instance inventory source must be ardot-article-instance-inventory"
+        )
+    if inventory.get("article_root_node_id") != article_root_node_id:
+        errors.append("micro component instance inventory must match the visual review article root")
+    if inventory.get("article_width_px") != 390:
+        errors.append("micro component instance inventory article_width_px must be 390")
+    inventory_items_raw = inventory.get("instances")
+    inventory_items = (
+        [item for item in inventory_items_raw if isinstance(item, dict)]
+        if isinstance(inventory_items_raw, list)
+        else []
+    )
+    if not isinstance(inventory_items_raw, list) or len(inventory_items) != len(inventory_items_raw):
+        errors.append("micro component instance inventory instances must be an array of objects")
+    inventory_by_instance: dict[str, str] = {}
+    component_to_role = {node_id: role for role, node_id in expected_components.items()}
+    for index, item in enumerate(inventory_items):
+        instance_node_id = item.get("instance_node_id")
+        source_component_node_id = item.get("source_component_node_id")
+        if not isinstance(instance_node_id, str) or not instance_node_id:
+            errors.append(f"micro component inventory item {index} requires instance_node_id")
+            continue
+        if instance_node_id in inventory_by_instance:
+            errors.append(f"micro component inventory duplicates instance: {instance_node_id}")
+            continue
+        if source_component_node_id not in component_to_role:
+            errors.append(
+                f"micro component inventory item {index} references an unknown source component"
+            )
+            continue
+        inventory_by_instance[instance_node_id] = source_component_node_id
+
+    placements_raw = layout.get("placements")
+    placements = (
+        [item for item in placements_raw if isinstance(item, dict)]
+        if isinstance(placements_raw, list)
+        else []
+    )
+    if not isinstance(placements_raw, list) or len(placements) != len(placements_raw):
+        errors.append("micro_component_layout.placements must be an array of objects")
+
+    seen_ids: set[str] = set()
+    seen_roles: set[str] = set()
+    seen_instances: set[str] = set()
+    screenshot_nodes: set[str] = set()
+    composition_relations: set[str] = set()
+    horizontal_offsets: list[float] = []
+    component_widths: list[float] = []
+    copy_bearing_count = 0
+    native_text_nodes: set[str] = set()
+
+    for index, placement in enumerate(placements):
+        prefix = f"micro component placement {index}"
+        placement_id = placement.get("id")
+        if not isinstance(placement_id, str) or not SLUG.fullmatch(placement_id):
+            errors.append(f"{prefix} requires a lowercase hyphenated id")
+        elif placement_id in seen_ids:
+            errors.append(f"micro component placement id is duplicated: {placement_id}")
+        else:
+            seen_ids.add(placement_id)
+
+        role = placement.get("role")
+        if role not in REQUIRED_MICRO_COMPONENT_ROLES:
+            errors.append(f"{prefix} has unsupported role: {role}")
+        else:
+            seen_roles.add(role)
+        source_component_node_id = placement.get("source_component_node_id")
+        if role in expected_components and source_component_node_id != expected_components[role]:
+            errors.append(
+                f"{prefix} source_component_node_id must match article.visual_kit role {role}"
+            )
+        instance_node_id = placement.get("instance_node_id")
+        if not isinstance(instance_node_id, str) or not instance_node_id:
+            errors.append(f"{prefix} requires instance_node_id")
+        elif instance_node_id in seen_instances:
+            errors.append(f"micro component placement duplicates instance: {instance_node_id}")
+        else:
+            seen_instances.add(instance_node_id)
+            if instance_node_id not in inventory_by_instance:
+                errors.append(f"{prefix} instance_node_id is absent from the Ardot inventory")
+            elif inventory_by_instance[instance_node_id] != source_component_node_id:
+                errors.append(f"{prefix} source component does not match the Ardot inventory")
+
+        screenshot_node_id = placement.get("screenshot_node_id")
+        if not isinstance(screenshot_node_id, str) or screenshot_node_id not in screenshot_hashes:
+            errors.append(f"{prefix} must reference a visual review screenshot_node_id")
+        else:
+            screenshot_nodes.add(screenshot_node_id)
+            if placement.get("screenshot_sha256") != screenshot_hashes[screenshot_node_id]:
+                errors.append(f"{prefix} screenshot_sha256 does not match its screenshot")
+
+        relation = placement.get("composition_relation")
+        if relation not in ALLOWED_MICRO_COMPOSITION_RELATIONS:
+            errors.append(f"{prefix} has unsupported composition_relation: {relation}")
+        else:
+            composition_relations.add(relation)
+
+        properties = load_evidence(
+            placement.get("node_properties_file"),
+            placement.get("node_properties_sha256"),
+            f"{prefix} node properties",
+        )
+        if properties.get("schema_version") != 1:
+            errors.append(f"{prefix} node properties schema_version must be 1")
+        if properties.get("source") != "ardot-node-properties":
+            errors.append(f"{prefix} node properties source must be ardot-node-properties")
+        if properties.get("article_root_node_id") != article_root_node_id:
+            errors.append(f"{prefix} node properties must match the visual review article root")
+        if properties.get("article_width_px") != 390:
+            errors.append(f"{prefix} node properties article_width_px must be 390")
+        instance = properties.get("instance")
+        if not isinstance(instance, dict):
+            instance = {}
+            errors.append(f"{prefix} node properties require an instance object")
+        if instance.get("node_id") != instance_node_id:
+            errors.append(f"{prefix} node properties instance.node_id does not match")
+        if instance.get("source_component_node_id") != source_component_node_id:
+            errors.append(f"{prefix} node properties source component does not match")
+        instance_bounds = node_bounds(instance, f"{prefix} instance")
+        if instance_bounds:
+            x, _, width, _ = instance_bounds
+            component_width = width / 390.0
+            component_widths.append(component_width)
+            if not MICRO_COMPONENT_WIDTH_RATIO[0] <= component_width <= MICRO_COMPONENT_WIDTH_RATIO[1]:
+                error_codes.add("micro.component.full_width")
+                errors.append(
+                    f"{prefix} derived component width ratio must be between "
+                    f"{MICRO_COMPONENT_WIDTH_RATIO[0]} and {MICRO_COMPONENT_WIDTH_RATIO[1]}"
+                )
+            offset = (x + width / 2.0) / 390.0 - 0.5
+            horizontal_offsets.append(offset)
+            if not MICRO_HORIZONTAL_OFFSET_RATIO[0] <= offset <= MICRO_HORIZONTAL_OFFSET_RATIO[1]:
+                error_codes.add("micro.layout.offset_out_of_bounds")
+                errors.append(
+                    f"{prefix} derived horizontal offset ratio must be between "
+                    f"{MICRO_HORIZONTAL_OFFSET_RATIO[0]} and {MICRO_HORIZONTAL_OFFSET_RATIO[1]}"
+                )
+
+        nodes_raw = properties.get("nodes")
+        nodes = (
+            [item for item in nodes_raw if isinstance(item, dict)]
+            if isinstance(nodes_raw, list)
+            else []
+        )
+        if not isinstance(nodes_raw, list) or len(nodes) != len(nodes_raw):
+            errors.append(f"{prefix} node properties nodes must be an array of objects")
+        image_widths: list[float] = []
+        text_entries: list[tuple[dict[str, Any], tuple[float, float, float, float]]] = []
+        closed_shapes: list[tuple[dict[str, Any], tuple[float, float, float, float]]] = []
+        node_ids: set[str] = set()
+        for node_index, node in enumerate(nodes):
+            node_label = f"{prefix} node {node_index}"
+            node_id = node.get("node_id")
+            if not isinstance(node_id, str) or not node_id:
+                errors.append(f"{node_label} requires node_id")
+            elif node_id in node_ids:
+                errors.append(f"{prefix} node properties duplicate node_id: {node_id}")
+            else:
+                node_ids.add(node_id)
+            bounds = node_bounds(node, node_label)
+            if not bounds:
+                continue
+            kind = node.get("kind")
+            if kind in {"image", "illustration"}:
+                image_widths.append(bounds[2] / 390.0)
+            elif kind == "text":
+                text_entries.append((node, bounds))
+            elif kind == "closed-shape":
+                fill_alpha = node.get("fill_alpha", 0)
+                stroke_width = node.get("stroke_width_px", 0)
+                if (
+                    isinstance(fill_alpha, (int, float))
+                    and not isinstance(fill_alpha, bool)
+                    and isinstance(stroke_width, (int, float))
+                    and not isinstance(stroke_width, bool)
+                    and (float(fill_alpha) > 0 or float(stroke_width) > 0)
+                ):
+                    closed_shapes.append((node, bounds))
+        if not image_widths:
+            errors.append(f"{prefix} node properties require an image or illustration layer")
+        else:
+            image_width = max(image_widths)
+            if not MICRO_IMAGE_WIDTH_RATIO[0] <= image_width <= MICRO_IMAGE_WIDTH_RATIO[1]:
+                error_codes.add("micro.image.full_width")
+                errors.append(
+                    f"{prefix} derived image width ratio must be between {MICRO_IMAGE_WIDTH_RATIO[0]} "
+                    f"and {MICRO_IMAGE_WIDTH_RATIO[1]}; a micro image cannot occupy the full row"
+                )
+
+        if text_entries:
+            copy_bearing_count += 1
+            primary_entries = [entry for entry in text_entries if entry[0].get("role") == "primary-copy"]
+            if not primary_entries:
+                errors.append(f"{prefix} copy-bearing component requires a primary-copy text node")
+            body_font = density_body_fonts.get(screenshot_node_id)
+            if not isinstance(body_font, (int, float)) or body_font < 15:
+                errors.append(
+                    f"{prefix} copy hierarchy requires a valid body font from its density sample"
+                )
+            for text_node, text_bounds in text_entries:
+                text_node_id = text_node.get("node_id")
+                if isinstance(text_node_id, str):
+                    if text_node_id in native_text_nodes:
+                        errors.append(f"micro component copy reuses a native text node: {text_node_id}")
+                    native_text_nodes.add(text_node_id)
+                for shape_node, shape_bounds in closed_shapes:
+                    if encloses(shape_bounds, text_bounds):
+                        error_codes.add("micro.copy.framed")
+                        errors.append(
+                            f"{prefix} text node {text_node_id} is enclosed by closed shape "
+                            f"{shape_node.get('node_id')}; frames, chips, badges, and filled boxes are forbidden"
+                        )
+            for primary_node, _ in primary_entries:
+                primary_font = primary_node.get("font_size_px")
+                if not isinstance(primary_font, (int, float)) or isinstance(primary_font, bool):
+                    errors.append(f"{prefix} primary-copy node requires numeric font_size_px")
+                elif float(primary_font) < MICRO_COPY_MIN_FONT_PX:
+                    error_codes.add("micro.copy.scale_insufficient")
+                    errors.append(
+                        f"{prefix} primary-copy font_size_px must be at least {MICRO_COPY_MIN_FONT_PX:g}"
+                    )
+                elif isinstance(body_font, (int, float)) and float(primary_font) / float(body_font) < MICRO_COPY_MIN_SCALE_RATIO:
+                    error_codes.add("micro.copy.scale_insufficient")
+                    errors.append(
+                        f"{prefix} primary-copy must be at least {MICRO_COPY_MIN_SCALE_RATIO:g}x body text"
+                    )
+                techniques_raw = primary_node.get("emphasis_techniques")
+                techniques = (
+                    [item for item in techniques_raw if isinstance(item, str)]
+                    if isinstance(techniques_raw, list)
+                    else []
+                )
+                if (
+                    not isinstance(techniques_raw, list)
+                    or len(techniques) != len(techniques_raw)
+                    or len(techniques) != len(set(techniques))
+                ):
+                    errors.append(
+                        f"{prefix} primary-copy emphasis_techniques must be a distinct string array"
+                    )
+                unsupported = sorted(
+                    set(techniques) - ALLOWED_MICRO_COPY_EMPHASIS_TECHNIQUES
+                )
+                if unsupported:
+                    errors.append(
+                        f"{prefix} primary-copy has unsupported emphasis techniques: "
+                        + ", ".join(unsupported)
+                    )
+                if "scale-contrast" not in techniques or len(techniques) < 2:
+                    error_codes.add("micro.copy.scale_technique_missing")
+                    errors.append(
+                        f"{prefix} primary-copy must use scale-contrast plus at least one non-frame emphasis technique"
+                    )
+
+    missing_roles = REQUIRED_MICRO_COMPONENT_ROLES - seen_roles
+    for role in sorted(missing_roles):
+        errors.append(f"micro component layout is missing role: {role}")
+    missing_instances = set(inventory_by_instance) - seen_instances
+    extra_instances = seen_instances - set(inventory_by_instance)
+    if missing_instances or extra_instances:
+        error_codes.add("micro.inventory.coverage_mismatch")
+    for instance_node_id in sorted(missing_instances):
+        errors.append(f"micro component layout omits Ardot instance: {instance_node_id}")
+    for instance_node_id in sorted(extra_instances):
+        errors.append(f"micro component layout includes unregistered Ardot instance: {instance_node_id}")
+    if len(screenshot_nodes) < 3:
+        errors.append(
+            "micro components must be distributed across at least 3 screenshot sections, not one horizontal component wall"
+        )
+    if not any(value <= -0.08 for value in horizontal_offsets) or not any(
+        value >= 0.08 for value in horizontal_offsets
+    ):
+        error_codes.add("micro.layout.not_staggered")
+        errors.append(
+            "micro component placements must be staggered with both left and right offsets"
+        )
+    if len({round(value, 2) for value in horizontal_offsets}) < 3:
+        error_codes.add("micro.layout.not_staggered")
+        errors.append("micro component placements require at least 3 distinct horizontal offsets")
+    if len(composition_relations) < 3:
+        errors.append("micro component placements require at least 3 composition relations")
+    if component_widths and max(component_widths) - min(component_widths) < 0.08:
+        error_codes.add("micro.layout.scale_variation_missing")
+        errors.append("micro component placements require visible scale variation")
+
+    return {
+        "ready": not errors,
+        "errors": errors,
+        "error_codes": sorted(error_codes),
+        "placement_count": len(placements),
+        "roles": sorted(seen_roles),
+        "screenshot_section_count": len(screenshot_nodes),
+        "composition_relation_count": len(composition_relations),
+        "copy_bearing_count": copy_bearing_count,
+        "inventory_instance_count": len(inventory_by_instance),
+        "covered_instance_count": len(seen_instances & set(inventory_by_instance)),
+    }
+
+
 def validate_visual_review(
     review: dict[str, Any],
     article: dict[str, Any],
     article_path: Path,
 ) -> dict[str, Any]:
     errors: list[str] = []
-    if review.get("schema_version") != 2:
-        errors.append("visual review schema_version must be 2")
+    if review.get("schema_version") != 3:
+        errors.append("visual review schema_version must be 3")
     if review.get("article_id") != article.get("article_id"):
         errors.append("visual review article_id must match the article")
     if review.get("organization_id") != article.get("organization_id"):
@@ -1316,6 +1746,7 @@ def validate_visual_review(
     samples = density.get("samples")
     sample_items = [item for item in samples if isinstance(item, dict)] if isinstance(samples, list) else []
     density_node_ids: set[str] = set()
+    density_body_fonts: dict[str, float] = {}
     band = DENSITY_BANDS[density_mode]
     for index, sample in enumerate(sample_items):
         node_id = sample.get("node_id")
@@ -1337,6 +1768,13 @@ def validate_visual_review(
                 errors.append(
                     f"density sample {index} {metric} must be between {minimum} and {maximum} for {density_mode}"
                 )
+        body_font_value = sample.get("body_font_px")
+        if (
+            isinstance(node_id, str)
+            and isinstance(body_font_value, (int, float))
+            and not isinstance(body_font_value, bool)
+        ):
+            density_body_fonts[node_id] = float(body_font_value)
         intentional = sample.get("intentional_whitespace") is True
         occupancy = sample.get("content_occupancy_ratio")
         occupancy_minimum = 0.45 if intentional else 0.68
@@ -1363,6 +1801,15 @@ def validate_visual_review(
             errors.append(f"density sample {index} body_text_contrast_ratio must be at least 4.5")
     if len(density_node_ids) < 5:
         errors.append("visual review requires density samples for at least 5 distinct screenshot nodes")
+    micro_component_layout = validate_micro_component_layout(
+        review,
+        article,
+        article_path,
+        screenshot_hashes,
+        density_body_fonts,
+        ardot.get("article_node_id") if isinstance(ardot.get("article_node_id"), str) else None,
+    )
+    errors.extend(micro_component_layout["errors"])
     checks = review.get("checks")
     if not isinstance(checks, dict):
         checks = {}
@@ -1382,6 +1829,7 @@ def validate_visual_review(
         "node_count": len(node_ids),
         "density_mode": density_mode,
         "density_sample_count": len(sample_items),
+        "micro_component_layout": micro_component_layout,
         "passed_checks": sorted(
             check for check in REQUIRED_VISUAL_CHECKS if checks.get(check) == "pass"
         ),

@@ -49,6 +49,16 @@ OPEN_COMPOSITIONS = {
     "footer": ("quiet-open-ending", ["closing-motif"]),
 }
 
+MICRO_COMPONENT_POLICY = {
+    "copy_enclosure": "none",
+    "copy_emphasis": "native editable scale contrast plus one non-frame technique",
+    "minimum_primary_copy_px": 22,
+    "minimum_primary_copy_scale_ratio": 1.35,
+    "maximum_image_width_ratio": 0.72,
+    "maximum_component_width_ratio": 0.82,
+    "staggering": "use both left and right offsets, at least 3 distinct offsets, and at least 3 composition relations across the four roles",
+}
+
 
 def read_json(path: Path) -> dict[str, Any]:
     try:
@@ -213,6 +223,7 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
                 "ardot_component": component_name,
                 "composition_mode": composition_mode,
                 "container_policy": "open-by-default",
+                "micro_component_policy": MICRO_COMPONENT_POLICY,
                 "micro_visual_roles": kit_roles,
                 "micro_visual_assets": kit_assets,
                 "content": content,
@@ -342,6 +353,9 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
             "create one 390px article root and assemble approved storyboard chapters in narrative order",
             "give each chapter a bespoke composition; reuse primitives selectively instead of instantiating one box per block",
             "place micro illustrations between and beside open text flows; never use them as card backgrounds",
+            "never draw a closed frame, badge, chip, or filled rectangle around micro-component copy; emphasize primary copy with native scale contrast and one additional non-frame technique",
+            "keep every micro image at or below 72 percent of the 390 px row and every micro component at or below 82 percent; distribute the four roles across both text edges with varied scale and at least three composition relations",
+            "export every actual visual-kit instance from the article root into the hashed inventory and node-property evidence; repeated roles are allowed but no instance may be omitted",
             "upload registered image assets to their named image slots",
             "capture section screenshots and iterate before any WeChat handoff",
         ],
@@ -368,6 +382,9 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
                 "two boxed sections appear consecutively",
                 "every semantic block has its own background, border, or rounded container",
                 "micro illustration is rectangular, framed, generic, or used as a panel background",
+                "micro-component copy is enclosed by a frame, chip, badge, filled rectangle, or enclosing shape node",
+                "a micro image exceeds 72 percent of the row, a micro component exceeds 82 percent, or the four roles lack measurable left/right stagger and scale variation",
+                "copy-bearing micro components lack native text nodes, at least 22 px primary type, 1.35x body scale contrast, or a second non-frame emphasis technique",
                 "organization mode or organization_id mismatch",
             ],
             "layout_policy": {
@@ -376,6 +393,13 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
                 "minimum_micro_illustration_roles": 4,
                 "minimum_unique_generated_micro_assets": 4,
                 "minimum_asymmetric_or_edge_breaking_moments": 3,
+                "maximum_micro_image_width_ratio": 0.72,
+                "maximum_micro_component_width_ratio": 0.82,
+                "minimum_micro_copy_font_px": 22,
+                "minimum_micro_copy_scale_ratio": 1.35,
+                "micro_copy_enclosure": "none",
+                "minimum_micro_component_screenshot_sections": 3,
+                "minimum_micro_composition_relations": 3,
                 "default_container": "none",
                 "expressive_typography_moments": "2-4 when strategy is expressive-native",
                 "expressive_typography_recipe": "at least 2 non-font techniques and 2 editable construction layers",

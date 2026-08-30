@@ -56,12 +56,12 @@ WeChat adapter     → 图片上传、内联样式、草稿创建
 8. 读取清单中的设计文件、变量模式、组件名称、资产路径、表现型字体计划、交互计划、开放式构图模式和区块顺序。
 9. 在 Ardot 中更新该组织的变量模式；不要复制另一组织的硬编码色值。
 10. 创建 390 px 文章根 Frame。所有内容默认无外框；插图从文字边缘切入、穿过转场或陪伴连续路径。
-11. 真实照片、官方 Logo 和二维码使用登记资产；微型插画使用组件实例，不作为矩形卡片背景。表现型标题字只使用清单中已批准的原生文本节点/样式，正文保持标准字体。
+11. 真实照片、官方 Logo 和二维码使用登记资产；微型插画使用组件实例，不作为矩形卡片背景。每个微图片层最多占行宽 72%，整体实例最多 82%；含字组件禁止文字框/底板，主短句至少 22 px、1.35× 正文，并保留原生文本。表现型标题字只使用清单中已批准的原生文本节点/样式，正文保持标准字体。
 12. 把每个 interaction module 建成一个原生 group component，保存 `closed`、`open`、`fallback` 三态；组内可以有多个 transport instances。
 13. 每次创建顶层 Frame 前定位空白区域；每批编辑不超过 25 个操作。
 14. 分段截图检查 Hero、章节、观点、步骤、案例和 CTA；超过 2000 px 的长文不要一次截图。
 15. 修正溢出、断行、空洞、方框化和组织气质偏差。
-16. 为 Hero、章节、证据、复杂区块和 CTA 建立 v2 截图验收 JSON，绑定同一 article root、本地 390 px PNG、SHA-256、像素尺寸、章节、导出时间与密度样本，运行 `build_visual_review.py`。五类节点、密度样本与十四项检查（包括表现型字体与无烘焙字图）全部通过才投递。
+16. 为 Hero、章节、证据、复杂区块和 CTA 建立 v3 截图验收 JSON，绑定同一 article root、本地 390 px PNG、SHA-256、像素尺寸、章节、导出时间与密度样本。再导出当前根中全部 visual-kit instance inventory 与逐实例 node properties（bounds、image/text/closed-shape、font size、fill/stroke），逐文件记录 SHA-256；相同 role 的所有实例都要覆盖。运行 `build_visual_review.py`，五类节点、密度样本、微组件派生门禁与全部检查通过后才投递。
 
 Ardot 仍是交互设计的唯一源。每个 module 必须额外保存三个原生可编辑状态：`closed`、`open`、信息等价 `fallback`。三者分别记录不同 node ID、本地 390 px 截图和真实文件 SHA-256；组件 `revision_hash` 必须等于当前文章 revision，`covered_instance_ids` / `covered_semantic_hashes` 必须按顺序完整覆盖组内 transport instances。HTML 运行时不能反过来成为设计源。适配器只允许把这些状态编译为 `wechat-svg-smil-self-v1` 的无 ID 自触发 SVG/SMIL 或 CSS 横滑候选，并为每个动态/静态 instance 写入相同 fallback key 与正文语义哈希。详见 [interaction-composition.md](interaction-composition.md)。
 

@@ -8,7 +8,7 @@
 
 新公众号只从本轮明确允许的组织资料、原始文案、品牌文件和真实照片开始视觉校准。工作流不会打开 `examples/`、另一组织的 pack、旧推文截图/PDF 或旧 Ardot 文件来“找风格”。仓库中的历史目录仅用于迁移兼容审计，不是视觉基准，也不参与测试。
 
-机器门槛会检查 source-zero 输入清单、四类旧视觉排除项、同家族底图、四枚文章专属微组件、常规文章 2–3 个 semantic interaction modules 与逐实例 fallback hash、真实 Alpha、Ardot 原生组件 node 证据、表现型字体的原生文本 node/style 证据，以及带哈希的 390 px Ardot 截图。
+机器门槛会检查 source-zero 输入清单、四类旧视觉排除项、同家族底图、四枚文章专属微组件、常规文章 2–3 个 semantic interaction modules 与逐实例 fallback hash、真实且非矩形卡片式 Alpha、Ardot 原生组件 node 证据、表现型字体的原生文本 node/style 证据，以及 schema-v3 的 390 px 截图、完整微组件实例清单与哈希节点属性证据。
 
 ## 能力
 
@@ -24,6 +24,7 @@
 - Ardot 语义变量模式、原生组件、390 px 长文画板和分段视觉 QA。
 - 由文章 JSON 生成可执行的 Ardot 装配清单。
 - 默认开放式构图；闭合方框不超过正文区块的 20%、不连续，并至少保留三处不对称或越界视觉。
+- 微组件图片不超过 72% 行宽、整体不超过 82%，四类角色左右错落并跨至少三个截图区段；含字组件禁止文字框/底板，主短句至少 22 px、1.35× 正文。静态微信适配也保留所有实际实例，不转成通栏卡片。
 - 默认 `compact-editorial` 信息密度：15–17 px 正文、1.45–1.62 行高、轻微负字距、8–14 px 段距、24–40 px 章内主间隔，并校验内容占用率与最大无意空洞。
 - 每个组织先校准表现型字体策略；单篇只在 2–4 个高影响位置使用可编辑 Ardot 标题字，正文保持紧凑可读，禁止 AI 字图。
 - 16 类语义区块与隐藏的微信内联 HTML 投递适配。
@@ -93,7 +94,7 @@ python3 scripts/build_ardot_manifest.py article.json \
   --output output/new-account-id/article-slug/ardot-manifest.json
 ```
 
-按分镜章节完成 Ardot 长文装配后，截取 Hero、章节、证据、复杂区块和 CTA 五类实际节点，建立独立验收文件：
+按分镜章节完成 Ardot 长文装配后，截取 Hero、章节、证据、复杂区块和 CTA 五类实际节点，并导出全部 visual-kit instance inventory 与逐实例 node properties，建立独立 schema-v3 验收文件：
 
 ```bash
 python3 scripts/build_visual_review.py visual-review.json --article article.json

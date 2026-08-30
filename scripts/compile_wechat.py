@@ -54,6 +54,18 @@ REQUIRED_VISUAL_KIT_ROLES = {
     "inline-explainer",
     "closing-motif",
 }
+MICRO_TRANSPORT_WIDTHS = {
+    "floating-spot": 0.34,
+    "section-transition": 0.68,
+    "inline-explainer": 0.46,
+    "closing-motif": 0.38,
+}
+MICRO_TRANSPORT_ALIGNMENTS = {
+    "floating-spot": "right",
+    "section-transition": "left",
+    "inline-explainer": "right",
+    "closing-motif": "left",
+}
 
 
 def esc(value: Any) -> str:
@@ -233,6 +245,34 @@ def route_shape(ctx: CompileContext) -> dict[str, str]:
     if layout == "editorial":
         return {"radius": "8px", "border_width": "1px", "shadow": "0 8px 24px rgba(0,0,0,.05)"}
     return {"radius": "0", "border_width": "2px", "shadow": "none"}
+
+
+def render_micro_component(
+    ctx: CompileContext,
+    item: dict[str, Any],
+    instance_index: int,
+) -> str:
+    """Render a text-free, partial-width static equivalent of one Ardot ornament."""
+    role = str(item.get("role", ""))
+    asset_id = item.get("id")
+    width_ratio = MICRO_TRANSPORT_WIDTHS.get(role, 0.42)
+    alignment = MICRO_TRANSPORT_ALIGNMENTS.get(role, "left")
+    src = ctx.asset_src(asset_id, f"visual kit transport role {role}")
+    concrete_subject = str(item.get("concrete_subject") or role)
+    action = str(item.get("action") or "")
+    alt = f"{concrete_subject}，{action}".strip("，")
+    width_percent = round(width_ratio * 100)
+    margin = "0 0 0 auto" if alignment == "right" else "0 auto 0 0"
+    instance_id = item.get("_transport_instance_id") or f"transport-{instance_index}"
+    return (
+        f'<section data-visual-role="article-micro" data-micro-role="{esc(role)}" '
+        f'data-micro-instance="{esc(instance_id)}" data-micro-copy="none" '
+        f'style="padding:8px 24px 14px;background:transparent;">'
+        f'<div data-micro-asset="{esc(asset_id)}" data-micro-width-ratio="{width_ratio:.2f}" '
+        f'style="width:{width_percent}%;margin:{margin};">'
+        f'<img src="{esc(src)}" alt="{esc(alt)}" '
+        f'style="display:block;width:100%;height:auto;object-fit:contain;"></div></section>'
+    )
 
 
 def hero(ctx: CompileContext, block: dict[str, Any], component: str) -> str:
@@ -584,6 +624,7 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
         )
     visual_review: dict[str, Any] = {}
     visual_review_report = {"ready": False, "errors": ["visual review was not loaded"]}
+    micro_transport_items: list[dict[str, Any]] = []
     visual_review_file = spec.get("visual_review_file")
     if not isinstance(visual_review_file, str) or not visual_review_file.strip():
         ctx.errors.append("article requires visual_review_file with real Ardot node screenshots")
@@ -614,8 +655,37 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
                 ctx.errors.append(
                     f"visual review density mode must match organization calibration: {expected_density}"
                 )
+            kit_item_by_role = {
+                item.get("role"): item
+                for item in kit_assets
+                if isinstance(item.get("role"), str)
+            }
+            screenshot_chapter_by_node = {
+                item.get("node_id"): item.get("chapter_id")
+                for item in visual_review.get("screenshots", [])
+                if isinstance(item, dict)
+            }
+            layout = visual_review.get("micro_component_layout")
+            placements = layout.get("placements") if isinstance(layout, dict) else []
+            if isinstance(placements, list):
+                for placement in placements:
+                    if not isinstance(placement, dict):
+                        continue
+                    source_item = kit_item_by_role.get(placement.get("role"))
+                    if not isinstance(source_item, dict):
+                        continue
+                    transport_item = dict(source_item)
+                    transport_item["_transport_instance_id"] = placement.get("instance_node_id")
+                    screenshot_chapter = screenshot_chapter_by_node.get(
+                        placement.get("screenshot_node_id")
+                    )
+                    if isinstance(screenshot_chapter, str) and screenshot_chapter:
+                        transport_item["storyboard_chapter"] = screenshot_chapter
+                    micro_transport_items.append(transport_item)
         except ValueError as exc:
             ctx.errors.append(str(exc))
+    if not micro_transport_items:
+        micro_transport_items = kit_assets
     blocks = spec.get("blocks")
     if not isinstance(blocks, list) or not blocks:
         ctx.errors.append("article.blocks must be a non-empty array")
@@ -655,11 +725,41 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
                     ctx.errors.append(
                         f"generated background is outside the calibrated family {family_id}: {background_ref}"
                     )
-    rendered = "".join(
-        render_block(ctx, block, index)
-        for index, block in enumerate(blocks)
-        if isinstance(block, dict)
-    )
+    micro_after_block: dict[int, list[dict[str, Any]]] = {}
+    chapter_by_id = {
+        chapter.get("id"): chapter
+        for chapter in storyboard.get("chapters", [])
+        if isinstance(chapter, dict) and isinstance(chapter.get("id"), str)
+    }
+    for item in micro_transport_items:
+        chapter = chapter_by_id.get(item.get("storyboard_chapter"))
+        block_indices = chapter.get("block_indices", []) if isinstance(chapter, dict) else []
+        valid_indices = [
+            index
+            for index in block_indices
+            if isinstance(index, int) and not isinstance(index, bool) and 0 <= index < len(blocks)
+        ]
+        if not valid_indices:
+            ctx.errors.append(
+                f"visual kit role {item.get('role')} has no valid storyboard block for transport"
+            )
+            continue
+        target_index = (
+            valid_indices[-1]
+            if item.get("role") in {"section-transition", "closing-motif"}
+            else valid_indices[0]
+        )
+        micro_after_block.setdefault(target_index, []).append(item)
+    rendered_parts: list[str] = []
+    micro_transport_count = 0
+    for index, block in enumerate(blocks):
+        if not isinstance(block, dict):
+            continue
+        rendered_parts.append(render_block(ctx, block, index))
+        for item in micro_after_block.get(index, []):
+            micro_transport_count += 1
+            rendered_parts.append(render_micro_component(ctx, item, micro_transport_count))
+    rendered = "".join(rendered_parts)
     if len(rendered_blocks := [block for block in blocks if isinstance(block, dict)]) != len(blocks):
         ctx.errors.append("every article block must be an object")
 
@@ -718,6 +818,12 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
             "fresh_asset_count": len(fresh_kit_asset_ids),
             "semantic_errors": visual_kit_plan["semantic_errors"],
             "ready": visual_kit_plan["ready_for_layout"],
+            "transport_instance_count": micro_transport_count,
+            "transport_policy": {
+                "maximum_image_width_ratio": 0.72,
+                "copy_mode": "text-free-static-equivalent",
+                "frame": "none",
+            },
         },
         "typography": typography,
         "interaction_authoring": interaction_plan,

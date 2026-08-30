@@ -339,6 +339,8 @@ def inspect_png(path: Path) -> dict[str, Any]:
         "opaque_pixel_ratio": None,
         "has_transparent_pixels": False,
         "has_visible_pixels": True,
+        "alpha_visible_bbox": None,
+        "alpha_bbox_fill_ratio": None,
     }
     if not has_alpha_channel:
         return result
@@ -358,9 +360,13 @@ def inspect_png(path: Path) -> dict[str, Any]:
     prior = bytearray(stride)
     transparent = 0
     visible = 0
+    visible_left = width
+    visible_top = height
+    visible_right = -1
+    visible_bottom = -1
     cursor = 0
     alpha_offset = channels - 1
-    for _ in range(height):
+    for y in range(height):
         filter_type = raw[cursor]
         cursor += 1
         encoded = raw[cursor : cursor + stride]
@@ -385,12 +391,30 @@ def inspect_png(path: Path) -> dict[str, Any]:
             decoded[index] = (value + predictor) & 0xFF
         for index in range(alpha_offset, stride, channels):
             alpha = decoded[index]
+            x = (index - alpha_offset) // channels
             if alpha < 255:
                 transparent += 1
             if alpha > 0:
                 visible += 1
+                visible_left = min(visible_left, x)
+                visible_top = min(visible_top, y)
+                visible_right = max(visible_right, x)
+                visible_bottom = max(visible_bottom, y)
         prior = decoded
     pixels = width * height
+    visible_bbox = None
+    bbox_fill_ratio = None
+    if visible:
+        bbox_width = visible_right - visible_left + 1
+        bbox_height = visible_bottom - visible_top + 1
+        bbox_area = bbox_width * bbox_height
+        visible_bbox = {
+            "x": visible_left,
+            "y": visible_top,
+            "width": bbox_width,
+            "height": bbox_height,
+        }
+        bbox_fill_ratio = round(visible / bbox_area, 6)
     result.update(
         {
             "alpha_analysis": "decoded",
@@ -398,6 +422,8 @@ def inspect_png(path: Path) -> dict[str, Any]:
             "opaque_pixel_ratio": round((pixels - transparent) / pixels, 6),
             "has_transparent_pixels": transparent > 0,
             "has_visible_pixels": visible > 0,
+            "alpha_visible_bbox": visible_bbox,
+            "alpha_bbox_fill_ratio": bbox_fill_ratio,
         }
     )
     return result
@@ -405,10 +431,17 @@ def inspect_png(path: Path) -> dict[str, Any]:
 
 def validate_micro_asset(path: Path, role: str) -> dict[str, Any]:
     errors: list[str] = []
+    error_codes: set[str] = set()
     try:
         inspection = inspect_png(path)
     except (OSError, ValueError) as exc:
-        return {"ok": False, "path": str(path), "role": role, "errors": [str(exc)]}
+        return {
+            "ok": False,
+            "path": str(path),
+            "role": role,
+            "errors": [str(exc)],
+            "error_codes": ["micro.asset.unreadable"],
+        }
     if role not in ROLE_ASPECT_RATIOS:
         errors.append(f"unknown micro-visual role: {role}")
     else:
@@ -431,10 +464,18 @@ def validate_micro_asset(path: Path, role: str) -> dict[str, Any]:
     transparent_ratio = inspection.get("transparent_pixel_ratio")
     if isinstance(transparent_ratio, float) and transparent_ratio < 0.01:
         errors.append("micro asset has less than 1% transparent pixels; open edges are not credible")
+    bbox_fill_ratio = inspection.get("alpha_bbox_fill_ratio")
+    if isinstance(bbox_fill_ratio, float) and bbox_fill_ratio > 0.94:
+        error_codes.add("micro.asset.rectangular_alpha_tile")
+        errors.append(
+            "micro asset alpha silhouette fills more than 94% of its visible bounding box; "
+            "rectangular tiles and transparent-border cards are forbidden"
+        )
     return {
         "ok": not errors,
         "path": str(path),
         "role": role,
         "inspection": inspection,
         "errors": errors,
+        "error_codes": sorted(error_codes),
     }

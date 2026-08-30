@@ -61,7 +61,7 @@ For commands and file locations, read [references/使用说明.md](references/�
    ```
 
 10. Assemble the article chapter by chapter in Ardot. A chapter may reuse primitives, but must not become a mechanical stack of block components. Build every planned interaction module as one native group component with editable `closed`, `open`, and information-equivalent `fallback` states.
-11. Read [references/visual-review.md](references/visual-review.md). Export five distinct 390 px Ardot nodes (`hero`, `chapter`, `evidence`, `complex-section`, `cta`) from the same article root. Use visual review schema v2 with local PNG paths, SHA-256, pixel dimensions, capture timestamps, chapter IDs, and density-to-screenshot hash binding, then validate it:
+11. Read [references/visual-review.md](references/visual-review.md). Export five distinct 390 px Ardot nodes (`hero`, `chapter`, `evidence`, `complex-section`, `cta`) from the same article root. Use visual review schema v3 with local PNG paths, SHA-256, pixel dimensions, capture timestamps, chapter IDs, density-to-screenshot hash binding, and measured micro-component placement evidence, then validate it:
 
    ```bash
    python3 scripts/build_visual_review.py visual-review.json --article article.json
@@ -113,6 +113,8 @@ For commands and file locations, read [references/使用说明.md](references/�
 - Default a normal article to 2–3 semantic interaction modules. A module is one reader task and one static-equivalent region; its child SVGs or swipe triggers are transport instances, not extra modules. Do not count decorative motion, the four mandatory micro illustrations, or expressive typography toward this budget.
 - Default every block to an open composition with no enclosing background, border, radius, or shadow. Add a container only when the content truly needs comparison, interaction, or a hard boundary.
 - Do not begin the article root until the four micro-visual roles exist as native Ardot components. Use them beside text, across transitions, along a continuous path, and near the ending—not as rectangular panel backgrounds.
+- A micro component is a partial-width editorial accent, not a miniature poster or a full-row raster panel. Keep each raster/illustration layer at or below 72% of the 390 px row and the whole component at or below 82%. Across the four mandatory roles, use both left and right offsets, at least three distinct offsets, at least three composition relations, visible scale variation, and placements in at least three screenshot sections.
+- When a micro component includes copy, leave the copy open: no enclosing border, filled rectangle, chip, badge, rounded label, or closed shape node. Keep the text native and editable. Its primary phrase must be at least 22 px and 1.35× the local body size, using `scale-contrast` plus at least one non-frame technique such as mixed weight, color contrast, deliberate line break, baseline offset, or a vector accent. Outline/offset layers may shape glyphs; they must never become a box around the words.
 - Keep body copy readable on a solid or near-solid surface. Use strong backgrounds for covers, transitions, evidence summaries, calls to action, and endings.
 - Use 2–4 approved expressive typography moments for hero, chapter, statement, key phrase, or CTA roles when the organization chooses `expressive-native`. Each moment must reference an approved recipe and implement at least two of its non-font construction techniques—such as deliberate line breaks, scale contrast, baseline offset, native outline/offset layers, color contrast, or vector accents—with unique native text/accent node evidence. Keep every moment licensed, editable, and supplied with a standard fallback. Never count a font swap as art type or bake Chinese display copy into generated images.
 - Keep closed boxes at or below 20% of content sections, never place two boxed sections consecutively, and include at least three asymmetric or edge-breaking visual moments.
@@ -135,6 +137,7 @@ For commands and file locations, read [references/使用说明.md](references/�
   ```
 
 - `index.html` and `wechat.html` are transport/debug artifacts, not the design source.
+- The static adapter must carry all four article-micro roles as text-free, unframed, partial-width instances (`<= 72%` image width) in their storyboard chapters. It must not silently drop the visual kit or send it through a generic full-width image/card renderer.
 - The authoring layer normally hands 2–3 approved interaction modules to the last-mile publisher under policy `wechat-svg-smil-self-v1`. The only dynamic candidates are no-ID self-trigger `<set>` / `<animateTransform begin="click">` SVG and inline CSS horizontal swipe. JavaScript, `<details>`, transport IDs, cross-ID timing, fragment references, and unprobed SMIL are forbidden. Every transport instance requires a unique semantic-hash-matched static fallback.
 - Before creating a WeChat draft, upload body images to the organization’s connected account and replace local paths with returned WeChat URLs. Upload the cover through the account’s supported cover-material flow.
 - A dynamic candidate remains disabled until saved-draft structure readback and an unexpired target-account iOS/Android capability profile both pass. Structure preservation alone is not runtime proof; otherwise update the same draft with the static fallback.
@@ -158,7 +161,8 @@ Treat any of the following as blocking for final delivery:
 - missing or incomplete narrative storyboard;
 - missing `interaction_plan`; a normal article outside the 2–3 semantic-module budget; child instances, decoration, micro illustrations, or display type used to pad the count; repeated chapter/placement bands; ungrounded instance copy; duplicate fallback keys or semantic hashes; or a static exception without a specific user/editor-confirmed reason;
 - a visual-kit item without grounded source copy, a specific subject/action, or a chapter/composition role;
-- missing or failing screenshot-backed `visual_review_file` before final transport;
+- missing or failing screenshot-backed schema-v3 `visual_review_file` before final transport;
+- missing measured evidence for all four micro-component roles; an image wider than 72% of the row; a component wider than 82%; fewer than three screenshot sections, three distinct offsets, three composition relations, both left/right offsets, or visible scale variation; framed copy; or copy-bearing micro components without native text nodes, 22 px / 1.35× primary scale contrast, and a second non-frame emphasis technique;
 - missing `information_density` / `background_family_coherence` / `background_surface_unity` / `reading_surface_contrast` / `expressive_typography` / `art_type_construction` / `no_baked_art_text` screenshot checks, unhashed/non-390 px Ardot exports, fewer than five density samples, measured body-text contrast below 4.5, `compact-editorial` major gaps outside 24–40 px, body line-height outside the selected mode, or an accidental empty region larger than 20% of a sampled section;
 - a metric without a source ID;
 - a quote without attribution or source ID;

@@ -22,7 +22,7 @@
 - generated background family 的 master/companions、唯一 surface mode、复制安全区和像素验收；
 - 从当前组织材料校准的表现型字体策略、至少两个 construction recipes 和 Ardot 文本/矢量样式；
 - 每篇文章四枚专属微组件及其 Ardot component nodes；
-- 每篇文章 visual review v2。
+- 每篇文章 visual review v3（五类 390 px 截图、密度样本、完整微组件 instance inventory 与哈希 node-property exports）。
 - 当前文章实际的 2–3 个读者任务、source blocks、instance copy/key/hash，以及该组织外观下的 `closed/open/fallback` Ardot group components。
 - 目标公众号的 sanitizer 回读与 iOS/Android 客户端能力档案；它属于投递环境，不属于 organization pack。
 - 即使选择同一个 style preset，也要从当前组织重新派生 paper/ink/display/wash tokens、真实照片职责、字体 recipes、背景 family 和 Ardot 原生组件。
@@ -48,7 +48,7 @@
 8. 为当前文章生成四枚不同微组件，逐张运行 Alpha 检查，注册为 `article-micro`，再在 Ardot 建原生组件并回写 node 证据。
 9. 为当前文章写 2–4 个有语义的表现型文字时刻，引用批准 recipe，回写唯一 Ardot 文本/点缀 node 与 style 证据。
 10. 在当前文章 revision 中为每个 interaction module 建 `closed/open/fallback` 原生 group states，覆盖全部 instance IDs/hashes，并保存三态 390 px 截图与文件哈希。
-11. 完成文章后从同一 article root 导出五类 390 px 截图，记录每个样本的正文对比度，并通过 `background_surface_unity`、`reading_surface_contrast` 与 `art_type_construction` 等 visual review v2 检查，最后运行 `compile_wechat.py --check`。
+11. 完成文章后从同一 article root 导出五类 390 px 截图，记录每个样本的正文对比度；导出所有 visual-kit instances 与逐实例 node properties，证明微图非全宽、排布左右错落、文字无框且字号有层级。通过 `background_surface_unity`、`reading_surface_contrast`、`art_type_construction` 与四项 micro checks 等 visual review v3 门禁后，最后运行 `compile_wechat.py --check`。
 12. 为目标公众号单独运行 `wechat-svg-smil-self-v1` 探针：禁止 JavaScript、`details`、任何 transport `id` 与跨 ID timing；先验证保存回读，再登记带有效期的 iOS/Android 真机证据。只有该账号 profile 为 current/passed 才可保留动态候选，否则同一草稿使用静态回退。缺失 profile 不取消创作层 module，只改变投递 payload。
 
 任何一步若需要查看旧视觉来“找感觉”，应停止并回到本轮原始材料、组织物件、真实照片和校准条，而不是把旧风格解释为品牌事实。已经沉淀为 preset 的风格只读取仓库中的抽象 grammar 与 SHA，不回看原稿。

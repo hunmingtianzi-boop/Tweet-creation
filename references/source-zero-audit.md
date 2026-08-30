@@ -27,12 +27,13 @@
 - [x] 四类微组件：四个角色必须由四枚当前文章专属资产分别承担，并绑定正文原句、章节、主体、动作、构图职责和 Ardot 原生组件。
 - [x] Alpha 验收：`inspect_asset.py` 解码 PNG Alpha，检查真实透明像素、可见像素、尺寸、角色宽高比与 SHA-256。
 - [x] compact-editorial：除字号、行高、字距、段距外，新增 24–40 px `major_gap_px` 门槛，并继续约束内容占用率和最大无意空洞。
-- [x] Ardot 证据：visual review v2 要求本地 390 px node export、文件哈希、真实像素尺寸、导出时间、article root 绑定和 density-to-screenshot 哈希绑定。
+- [x] Ardot 证据：visual review v3 要求本地 390 px node export、文件哈希、真实像素尺寸、导出时间、article root 绑定和 density-to-screenshot 哈希绑定；并用完整 instance inventory 与哈希化 node-property exports 计算微组件宽度、错落、文字包框和字号层级。
 - [x] 测试隔离：测试完全使用运行时生成的组织包、文章、RGBA 微组件和 390 px 截图，不读取任何历史推文设计。
 - [x] 跨公众号迁移：新增独立迁移说明，明确哪些语义可以迁移、哪些视觉必须重建以及组织包通过门槛。
 - [x] 表现型字体：组织校准先批准策略与原生处理；单篇限定 2–4 个语义时刻，必须绑定正文、授权/系统字体、标准回退与唯一 Ardot 文本 node/style；禁止 AI 字图和扁平标题。
 - [x] 底图像素门禁：family 统一声明 light/dark surface mode、结构化复制区、正文颜色、最低 4.5 对比度与复制区方差；`orgs.py validate` 解码最终 PNG，检查明暗面、大块相反色、复制区均匀度、对比度与 family 色差。
 - [x] 艺术字构造门禁：`expressive-native` 至少批准两个 recipe；每个 recipe/文章时刻至少两种非字体技术和两个可编辑文字/点缀层，拒绝 font-swap-only，并在 Ardot 截图复核 `art_type_construction`。
+- [x] 微组件构图门禁：拒绝只留透明边的矩形 alpha tile；所有实际实例逐一进入 inventory，图片/组件宽度分别不超过 72%/82%，四类角色跨至少三个截图区段并左右错落；含字实例禁止闭合文字框，主短句至少 22 px、1.35× 正文。
 - [x] 截图可读性：五个密度样本都记录实测 `body_text_contrast_ratio >= 4.5`，同时新增 `background_surface_unity` 与 `reading_surface_contrast` 检查。
 
 ## 仍需人工判断的部分

@@ -26,6 +26,12 @@
 
 不得使用未授权字体；不得将关键文字只保留为轮廓、位图或图像切片；不得用 AI 生成中文书法、标题字或含字底图。
 
+## 微组件短句不是标签框
+
+微组件中的一行短句可以使用字号层级，但不因此自动计入每篇 2–4 个艺术字时刻。它仍必须是 Ardot 原生文本：主短句至少 22 px、至少为所在截图正文的 1.35 倍，并使用 `scale-contrast` 加另一种非框体手法。禁止为了“突出”给文字增加描边矩形、填充底板、圆角 chip、badge 或包围文字的闭合 shape。
+
+`outline-layer`、`offset-layer` 与 `stroke-offset` 只描述沿字形轮廓构造的可编辑层，不允许解释成文字外面的矩形边框。最终验收从 schema-v3 Ardot node-property export 中读取 `font_size_px`、text bounds 与闭合 shape bounds，而不是相信手填的“已放大/无框”。
+
 ## 组织校准
 
 在 `organization.visual.calibration.typography` 中记录：

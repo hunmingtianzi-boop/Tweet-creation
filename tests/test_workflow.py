@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import binascii
 import json
+import re
 import struct
 import sys
 import tempfile
 import unittest
 import zlib
 from pathlib import Path
+from typing import Any
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -49,6 +51,7 @@ def write_png(
     *,
     alpha: bool = True,
     color: tuple[int, int, int] = (30, 100, 180),
+    alpha_shape: str = "organic",
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     color_type = 6 if alpha else 2
@@ -58,8 +61,13 @@ def write_png(
         for x in range(width):
             row.extend(color)
             if alpha:
-                border = min(x, y, width - 1 - x, height - 1 - y)
-                row.append(0 if border < 8 else 255)
+                if alpha_shape == "rectangular":
+                    border = min(x, y, width - 1 - x, height - 1 - y)
+                    row.append(0 if border < 8 else 255)
+                else:
+                    horizontal = (x - (width - 1) / 2) / max(1, width * 0.46)
+                    vertical = (y - (height - 1) / 2) / max(1, height * 0.46)
+                    row.append(255 if horizontal * horizontal + vertical * vertical <= 1 else 0)
         rows.append(b"\x00" + bytes(row))
 
     def chunk(kind: bytes, payload: bytes) -> bytes:
@@ -524,8 +532,106 @@ def add_visual_review(article_path: Path) -> Path:
                 "body_text_contrast_ratio": 7.0,
             }
         )
+    visual_component_by_role = {
+        item["role"]: item["ardot_component"]["node_id"]
+        for item in article["visual_kit"]["assets"]
+    }
+    placement_specs = [
+        ("opening-floating-spot", "floating-spot", 0, 0.36, -0.22, 0.28, "text-edge-entry", 24, "mixed-weight"),
+        ("identity-section-transition", "section-transition", 1, 0.68, 0.16, 0.60, "chapter-bridge", None, None),
+        ("evidence-inline-explainer", "inline-explainer", 2, 0.48, -0.11, 0.38, "between-paragraphs", 23, "color-contrast"),
+        ("join-closing-motif", "closing-motif", 4, 0.42, 0.24, 0.32, "cta-anchor", None, None),
+    ]
+    micro_placements = []
+    inventory_instances = []
+    for placement_index, (
+        placement_id,
+        role,
+        screenshot_index,
+        component_width_ratio,
+        horizontal_offset_ratio,
+        image_width_ratio,
+        relation,
+        primary_font_px,
+        secondary_technique,
+    ) in enumerate(placement_specs, 1):
+        source_component_node_id = visual_component_by_role[role]
+        instance_node_id = f"80:{placement_index}"
+        component_width = component_width_ratio * 390
+        component_center_x = (0.5 + horizontal_offset_ratio) * 390
+        component_x = component_center_x - component_width / 2
+        image_width = image_width_ratio * 390
+        nodes = [
+            {
+                "node_id": f"{instance_node_id}:image",
+                "kind": "illustration",
+                "bounds": {"x": component_x, "y": 80, "width": image_width, "height": 96},
+            }
+        ]
+        if primary_font_px is not None:
+            nodes.extend(
+                [
+                    {
+                        "node_id": f"70:{placement_index}",
+                        "kind": "text",
+                        "role": "primary-copy",
+                        "font_size_px": primary_font_px,
+                        "emphasis_techniques": ["scale-contrast", secondary_technique],
+                        "bounds": {"x": component_x + 18, "y": 188, "width": 112, "height": 34},
+                    },
+                    {
+                        "node_id": f"72:{placement_index}",
+                        "kind": "vector-accent",
+                        "bounds": {"x": component_x + 4, "y": 182, "width": 8, "height": 44},
+                    },
+                ]
+            )
+        properties = {
+            "schema_version": 1,
+            "source": "ardot-node-properties",
+            "article_root_node_id": "30:0",
+            "article_width_px": 390,
+            "instance": {
+                "node_id": instance_node_id,
+                "source_component_node_id": source_component_node_id,
+                "bounds": {"x": component_x, "y": 72, "width": component_width, "height": 168},
+            },
+            "nodes": nodes,
+        }
+        properties_path = qa / f"micro-{placement_index}-nodes.json"
+        write_json(properties_path, properties)
+        micro_placements.append(
+            {
+                "id": placement_id,
+                "role": role,
+                "source_component_node_id": source_component_node_id,
+                "instance_node_id": instance_node_id,
+                "screenshot_node_id": screenshots[screenshot_index]["node_id"],
+                "screenshot_sha256": screenshots[screenshot_index]["sha256"],
+                "node_properties_file": f"qa/{properties_path.name}",
+                "node_properties_sha256": file_sha256(properties_path),
+                "composition_relation": relation,
+            }
+        )
+        inventory_instances.append(
+            {
+                "instance_node_id": instance_node_id,
+                "source_component_node_id": source_component_node_id,
+            }
+        )
+    inventory_path = qa / "micro-component-inventory.json"
+    write_json(
+        inventory_path,
+        {
+            "schema_version": 1,
+            "source": "ardot-article-instance-inventory",
+            "article_root_node_id": "30:0",
+            "article_width_px": 390,
+            "instances": inventory_instances,
+        },
+    )
     review = {
-        "schema_version": 2,
+        "schema_version": 3,
         "article_id": article["article_id"],
         "organization_id": article["organization_id"],
         "ardot": {"file_url": "https://ardot.example/fresh", "page_id": "0:1", "article_node_id": "30:0"},
@@ -536,6 +642,13 @@ def add_visual_review(article_path: Path) -> Path:
             "revision_hash": article["interaction_plan"].get("ardot_revision_hash", "0" * 64),
         },
         "screenshots": screenshots,
+        "micro_component_layout": {
+            "measured_from": "ardot-node-properties-and-screenshot",
+            "measured_at": "2026-08-27T10:04:00+08:00",
+            "inventory_file": "qa/micro-component-inventory.json",
+            "inventory_sha256": file_sha256(inventory_path),
+            "placements": micro_placements,
+        },
         "density": {
             "mode": "compact-editorial",
             "measured_from": "ardot-node-properties-and-screenshot",
@@ -551,6 +664,8 @@ def add_visual_review(article_path: Path) -> Path:
                 "background_family_coherence",
                 "expressive_typography", "no_baked_art_text",
                 "art_type_construction", "background_surface_unity", "reading_surface_contrast",
+                "no_framed_micro_copy", "no_full_width_micro_image",
+                "staggered_micro_composition", "micro_copy_hierarchy",
             )
         },
         "status": "approved",
@@ -778,6 +893,13 @@ class OrganizationPackTests(FreshWorkflowTestCase):
         report = validate_micro_asset(opaque, "floating-spot")
         self.assertFalse(report["ok"])
         self.assertTrue(any("alpha" in item.lower() for item in report["errors"]))
+
+    def test_rectangular_alpha_tile_is_rejected_as_a_micro_asset(self) -> None:
+        tiled = self.pack / "assets" / "generated" / "rectangular-tile.png"
+        write_png(tiled, 256, 256, alpha=True, alpha_shape="rectangular")
+        report = validate_micro_asset(tiled, "floating-spot")
+        self.assertFalse(report["ok"])
+        self.assertIn("micro.asset.rectangular_alpha_tile", report["error_codes"])
 
 
 class VisualKitTests(FreshWorkflowTestCase):
@@ -1062,6 +1184,16 @@ class InteractionPlanTests(FreshWorkflowTestCase):
 
 
 class ArdotAndCompilerTests(FreshWorkflowTestCase):
+    def _mutate_micro_node_evidence(self, review_path: Path, index: int, mutate: Any) -> None:
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        placement = review["micro_component_layout"]["placements"][index]
+        properties_path = review_path.parent / placement["node_properties_file"]
+        properties = json.loads(properties_path.read_text(encoding="utf-8"))
+        mutate(properties)
+        write_json(properties_path, properties)
+        placement["node_properties_sha256"] = file_sha256(properties_path)
+        write_json(review_path, review)
+
     def test_manifest_is_native_dense_and_open(self) -> None:
         manifest = build_manifest(self.article, self.pack)
         self.assertTrue(manifest["qa"]["ready_for_layout"])
@@ -1071,6 +1203,18 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
         self.assertEqual(
             manifest["qa"]["layout_policy"]["background_family_surface"],
             "one light/dark mode with pixel-checked copy safety and contrast >= 4.5",
+        )
+        self.assertEqual(
+            manifest["qa"]["layout_policy"]["maximum_micro_image_width_ratio"],
+            0.72,
+        )
+        self.assertEqual(
+            manifest["qa"]["layout_policy"]["minimum_micro_copy_scale_ratio"],
+            1.35,
+        )
+        self.assertEqual(
+            manifest["qa"]["layout_policy"]["micro_copy_enclosure"],
+            "none",
         )
         self.assertTrue(manifest["typography"]["ready"])
         self.assertEqual(manifest["typography"]["moment_count"], 2)
@@ -1094,6 +1238,92 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
             report["interaction_authoring"]["production_default"],
             "static-fallback-until-account-runtime-certification",
         )
+
+    def test_static_transport_keeps_micro_components_partial_width_and_unframed(self) -> None:
+        add_visual_review(self.article)
+        output = self.root / "output"
+        report = compile_article(self.article, self.pack, output, check=True)
+        self.assertTrue(report["ok"], report["errors"])
+        self.assertEqual(report["visual_kit"]["transport_instance_count"], 4)
+        body = (output / "wechat.html").read_text(encoding="utf-8")
+        self.assertEqual(body.count('data-visual-role="article-micro"'), 4)
+        for role, *_ in ROLES:
+            self.assertIn(f'data-micro-role="{role}"', body)
+        ratios = [float(value) for value in re.findall(r'data-micro-width-ratio="([0-9.]+)"', body)]
+        self.assertEqual(len(ratios), 4)
+        self.assertTrue(all(value <= 0.72 for value in ratios))
+        for section in re.findall(
+            r'<section data-visual-role="article-micro".*?</section>',
+            body,
+            flags=re.S,
+        ):
+            self.assertNotIn("border:", section)
+            self.assertNotIn("border-radius:", section)
+            self.assertIn('data-micro-copy="none"', section)
+
+    def test_repeated_micro_role_instances_are_all_reviewed_and_transported(self) -> None:
+        review_path = add_visual_review(self.article)
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        layout = review["micro_component_layout"]
+        source_component_node_id = layout["placements"][0]["source_component_node_id"]
+        properties_path = review_path.parent / "qa/micro-5-nodes.json"
+        write_json(
+            properties_path,
+            {
+                "schema_version": 1,
+                "source": "ardot-node-properties",
+                "article_root_node_id": "30:0",
+                "article_width_px": 390,
+                "instance": {
+                    "node_id": "80:5",
+                    "source_component_node_id": source_component_node_id,
+                    "bounds": {"x": 151.5, "y": 260, "width": 117, "height": 130},
+                },
+                "nodes": [
+                    {
+                        "node_id": "80:5:image",
+                        "kind": "illustration",
+                        "bounds": {"x": 151.5, "y": 270, "width": 101.4, "height": 90},
+                    }
+                ],
+            },
+        )
+        layout["placements"].append(
+            {
+                "id": "identity-floating-spot-2",
+                "role": "floating-spot",
+                "source_component_node_id": source_component_node_id,
+                "instance_node_id": "80:5",
+                "screenshot_node_id": review["screenshots"][1]["node_id"],
+                "screenshot_sha256": review["screenshots"][1]["sha256"],
+                "node_properties_file": "qa/micro-5-nodes.json",
+                "node_properties_sha256": file_sha256(properties_path),
+                "composition_relation": "continuous-path",
+            }
+        )
+        inventory_path = review_path.parent / layout["inventory_file"]
+        inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
+        inventory["instances"].append(
+            {
+                "instance_node_id": "80:5",
+                "source_component_node_id": source_component_node_id,
+            }
+        )
+        write_json(inventory_path, inventory)
+        layout["inventory_sha256"] = file_sha256(inventory_path)
+        write_json(review_path, review)
+
+        output = self.root / "output"
+        report = compile_article(self.article, self.pack, output, check=True)
+        self.assertTrue(report["ok"], report["errors"])
+        self.assertEqual(
+            report["visual_review"]["micro_component_layout"]["inventory_instance_count"],
+            5,
+        )
+        self.assertEqual(report["visual_kit"]["transport_instance_count"], 5)
+        body = (output / "wechat.html").read_text(encoding="utf-8")
+        self.assertEqual(body.count('data-visual-role="article-micro"'), 5)
+        self.assertIn('data-micro-instance="80:5"', body)
 
     def test_tampered_screenshot_hash_blocks_transport(self) -> None:
         review_path = add_visual_review(self.article)
@@ -1121,6 +1351,84 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
         report = compile_article(self.article, self.pack, self.root / "output", check=True)
         self.assertFalse(report["ok"])
         self.assertTrue(any("contrast" in item for item in report["errors"]))
+
+    def test_framed_micro_component_copy_is_blocked(self) -> None:
+        review_path = add_visual_review(self.article)
+        def add_frame(properties: dict[str, Any]) -> None:
+            properties["nodes"].append(
+                {
+                    "node_id": "71:1",
+                    "kind": "closed-shape",
+                    "fill_alpha": 1,
+                    "stroke_width_px": 1,
+                    "bounds": {"x": 50, "y": 176, "width": 160, "height": 58},
+                }
+            )
+
+        self._mutate_micro_node_evidence(review_path, 0, add_frame)
+        report = compile_article(self.article, self.pack, self.root / "output", check=True)
+        self.assertFalse(report["ok"])
+        self.assertIn(
+            "micro.copy.framed",
+            report["visual_review"]["micro_component_layout"]["error_codes"],
+        )
+
+    def test_full_width_micro_image_is_blocked(self) -> None:
+        review_path = add_visual_review(self.article)
+        def widen(properties: dict[str, Any]) -> None:
+            properties["instance"]["bounds"]["x"] = 8
+            properties["instance"]["bounds"]["width"] = 374
+            properties["nodes"][0]["bounds"]["x"] = 8
+            properties["nodes"][0]["bounds"]["width"] = 366
+
+        self._mutate_micro_node_evidence(review_path, 1, widen)
+        report = compile_article(self.article, self.pack, self.root / "output", check=True)
+        self.assertFalse(report["ok"])
+        self.assertIn(
+            "micro.image.full_width",
+            report["visual_review"]["micro_component_layout"]["error_codes"],
+        )
+
+    def test_micro_component_placements_must_be_staggered(self) -> None:
+        review_path = add_visual_review(self.article)
+        for index in range(4):
+            def center(properties: dict[str, Any]) -> None:
+                width = properties["instance"]["bounds"]["width"]
+                properties["instance"]["bounds"]["x"] = (390 - width) / 2
+
+            self._mutate_micro_node_evidence(review_path, index, center)
+        report = compile_article(self.article, self.pack, self.root / "output", check=True)
+        self.assertFalse(report["ok"])
+        self.assertIn(
+            "micro.layout.not_staggered",
+            report["visual_review"]["micro_component_layout"]["error_codes"],
+        )
+
+    def test_micro_component_copy_requires_large_scale_contrast(self) -> None:
+        review_path = add_visual_review(self.article)
+        def flatten_copy(properties: dict[str, Any]) -> None:
+            primary = next(node for node in properties["nodes"] if node.get("role") == "primary-copy")
+            primary["font_size_px"] = 18
+            primary["emphasis_techniques"] = ["mixed-weight"]
+
+        self._mutate_micro_node_evidence(review_path, 0, flatten_copy)
+        report = compile_article(self.article, self.pack, self.root / "output", check=True)
+        self.assertFalse(report["ok"])
+        codes = report["visual_review"]["micro_component_layout"]["error_codes"]
+        self.assertIn("micro.copy.scale_insufficient", codes)
+        self.assertIn("micro.copy.scale_technique_missing", codes)
+
+    def test_micro_component_review_must_cover_every_ardot_instance(self) -> None:
+        review_path = add_visual_review(self.article)
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        review["micro_component_layout"]["placements"].pop()
+        write_json(review_path, review)
+        report = compile_article(self.article, self.pack, self.root / "output", check=True)
+        self.assertFalse(report["ok"])
+        self.assertIn(
+            "micro.inventory.coverage_mismatch",
+            report["visual_review"]["micro_component_layout"]["error_codes"],
+        )
 
     def test_source_zero_declaration_is_a_compile_gate(self) -> None:
         add_visual_review(self.article)
