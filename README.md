@@ -35,6 +35,12 @@
 
 ## 快速开始
 
+安装确定性图片处理依赖：
+
+```bash
+python3 -m pip install -r requirements.txt
+```
+
 列出已有组织包：
 
 ```bash
@@ -69,6 +75,34 @@ python3 scripts/orgs.py asset-plan \
 python3 scripts/build_storyboard.py article.json \
   --output output/new-account-id/article-slug/storyboard-plan.json
 ```
+
+AI 生成的不透明底图或纯生成 raster 封面，在登记资产前先保留无水印母版并生成带来源水印的派生图。`PROVENANCE_WATERMARK_KEY` 必须来自仓库外的 secret store，以 `hex:` 或 `base64:` 表示至少 32 个随机字节；裸口令会被拒绝。如需 raw-ID 记录，先将 `PROVENANCE_WATERMARK_PRIVATE_ROOT` 设为一个已存在且位于所有 Git 仓库外的私密目录：
+
+```bash
+python3 scripts/provenance_watermark.py embed \
+  organizations/new-account-id/assets/generated/background-master-raw.png \
+  organizations/new-account-id/assets/derived/background-master-final.png \
+  --key-epoch 1 \
+  --report organizations/new-account-id/assets/derived/background-master-watermark.json \
+  --private-record /secure/private-registry/background-master.json
+```
+
+上述成品、公开报告与私密记录都是 create-once：路径已存在时不会覆盖。嵌入时会强制重跑完整画面的 `390px-if-larger → JPEG Q75` 模拟；不承诺裁切、加边、旋转或透视变换后的截图检出。
+
+只有公开报告为 `local_verified` 后才注册 final 文件，并同时绑定 pack 内的无水印母版与公开报告。登记、`orgs.py validate`、Ardot manifest 和微信编译都会用外部密钥重新鉴权，不信任 JSON 中自报的 `authenticated`：
+
+```bash
+python3 scripts/orgs.py register-asset organizations/new-account-id \
+  --id visual.background-master --kind background --title "Background master" \
+  --location assets/derived/background-master-final.png \
+  --watermark-source assets/generated/background-master-raw.png \
+  --watermark-report assets/derived/background-master-watermark.json \
+  --origin generated-illustrative --style current-route --use recruitment \
+  --visual-role illustrative-atmosphere \
+  --background-family-id current-family --background-variant master
+```
+
+真实照片、Logo、二维码、透明小组件、SVG 和 QA 截图不进入 V1 水印链路。无水印母版的标准 `unwatermarked-masters/` 目录已被 Git 忽略，迁移时需从组织的私有资产库单独恢复。完整边界见[隐藏来源水印](references/provenance-watermark.md)。
 
 在 `article.json` 写入 `interaction_plan`：常规文章使用 `dynamic-default`，2 个模块分布在 `early` + `middle`，3 个再增加 `late`。先绑定 chapter、source blocks 和逐实例语义哈希；当前 Ardot revision 的三态截图在全文装配后补齐。详见 [动态组件构图与计数](references/interaction-composition.md)。
 
@@ -109,7 +143,7 @@ python3 scripts/compile_wechat.py article.json \
   --check
 ```
 
-详细流程见[使用说明](references/%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E.md)，跨公众号边界见[organization pack 迁移](references/organization-pack-migration.md)，改进依据见[source-zero 审计](references/source-zero-audit.md)。
+详细流程见[使用说明](references/%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E.md)，跨公众号边界见[organization pack 迁移](references/organization-pack-migration.md)，水印合同见[隐藏来源水印](references/provenance-watermark.md)，改进依据见[source-zero 审计](references/source-zero-audit.md)。
 
 ## 目录
 

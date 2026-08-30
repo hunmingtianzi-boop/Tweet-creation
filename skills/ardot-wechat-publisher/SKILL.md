@@ -22,6 +22,7 @@ Obtain or resolve these values before transmitting content:
 - current Ardot file or design identifier;
 - exact final article root node or frame;
 - title, digest, body text, body images, and cover from that current root;
+- public watermark evidence for every eligible generated raster carrier, including final pixel SHA, report hash, key identifier, and `local_verified` status; never request or copy the private watermark-ID registry into the handoff;
 - closed/open/static-fallback Ardot nodes for every requested non-static component;
 - target WeChat Official Account identity;
 - desired terminal state: verified draft by default, publication only when explicitly requested.
@@ -48,12 +49,14 @@ Prefer the official WeChat server API. Use browser editing only as a declared fa
 - For any interaction, read [references/wechat-interaction-capability.md](references/wechat-interaction-capability.md). Enforce policy `wechat-svg-smil-self-v1` with the repository validator. Only no-ID self-trigger `<set>` / `<animateTransform begin="click">` and inline CSS horizontal swipe may enter a candidate; JavaScript, `<details>`, every transport `id`, cross-ID timing, fragment references, and unprobed SMIL are blocking.
 - Bind each dynamic/static pair with the same `data-fallback-key` and normalized `data-fallback-hash`. A candidate without a complete static fallback is invalid.
 - Generate a delivery manifest that binds the HTML and every exported asset to the same Ardot revision hash.
+- Preserve eligible marked image bytes and their public evidence. Do not add the first watermark, re-embed, or overwrite an unmarked/marked asset in the publisher.
 
 ### 3. Preflight the target account
 
 - Show the resolved target account name before any write.
 - Confirm that the account has the required draft, material, and publishing permissions.
 - Retrieve secrets from the configured secret store or authorization provider. Never place AppSecret, access tokens, or authorization tokens in the organization pack, article directory, logs, or Git.
+- Retrieve the watermark detector key from the same external secret boundary when the handoff contains locally verified carriers. It is at least 32 random bytes and enters the local detector only as `hex:` or `base64:` material. Never expose the key or raw watermark ID in the delivery manifest or logs.
 - For API details and permission sets, read [references/wechat-api-delivery.md](references/wechat-api-delivery.md).
 
 ### 4. Create or update a draft
@@ -69,6 +72,8 @@ Prefer the official WeChat server API. Use browser editing only as a declared fa
 - Immediately retrieve the saved draft from WeChat.
 - Compare title, digest, text order, image count and URLs, cover, and expected component markers with the delivery manifest.
 - Verify the actual saved cover as well as `thumb_media_id`; missing cover evidence is a failed draft verification.
+- Download each locally verified carrier from the actual returned `mmbiz.qpic.cn` body URL or saved cover derivative and run authenticated pixel detection. Bind the detector result to the downloaded byte SHA-256, byte length, format, dimensions, expected payload fingerprint, and asset ID; record no raw watermark ID. `payload_authenticated` means only that the HMAC payload survived—it is not a copyright/authorship verdict. HTML/image-count readback is not watermark evidence; required-mode delivery cannot advance to publication until every required carrier is `transport_verified`.
+- Detect the complete hosted body/cover object. V1 does not promise recovery from a cropped screenshot, added borders, rotation, perspective, or a partial phone capture. If WeChat creates a geometrically cropped cover derivative, test that actual derivative and block required-mode publication when it fails.
 - For policy-compliant SVG/SMIL or CSS swipe, run structure-signature readback and require an unexpired capability profile matching this target account, policy version, and both iOS and Android preview evidence. Readback alone is never mobile runtime proof.
 - If the sanitizer changes a marker, fallback hash, SMIL signature, image URL, or content order—or the mobile profile is absent, pending, failed, expired, or mismatched—update the same draft with its information-equivalent static fallback and read it back again.
 - Do not call the handoff complete until the returned draft is coherent and all required content is present.
@@ -101,5 +106,6 @@ Return only the last-mile facts that help the user verify delivery:
 - whether official API or browser fallback was used;
 - readback/preview result;
 - cover verification and interaction policy/profile status;
+- watermark transport status for each eligible generated carrier, distinguishing `local_verified`, `transport_verified`, and `transport_lost`;
 - any transport changes or static fallbacks;
 - any unresolved blocker.

@@ -43,7 +43,7 @@ WeChat adapter     → 图片上传、内联样式、草稿创建
      --output output/<organization-id>/<slug>/visual-kit-plan.json
    ```
 
-5. 逐张生成、检查并注册四类视觉。四个角色必须使用四枚不同生成图；每张绑定正文原句、具体主体/动作、分镜章节与构图职责，并通过 `inspect_asset.py` 的 Alpha/尺寸/宽高比检查。
+5. 逐张生成、检查并注册四类视觉。四个透明微组件在 V1 中明确为 `not_eligible`，不得为了水印修改 Alpha。四个角色必须使用四枚不同生成图；每张绑定正文原句、具体主体/动作、分镜章节与构图职责，并通过 `inspect_asset.py` 的 Alpha/尺寸/宽高比检查。对于不透明 AI 底图或纯生成 raster 封面，保留无水印母版，先用 `provenance_watermark.py embed` 生成并验证 final derivative，再登记资产；详细合同见 [provenance-watermark.md](provenance-watermark.md)。
 6. 先在 Ardot 中创建四个原生 Ornament 组件，把 file URL、component node ID 和 exact name 写回 `article.visual_kit.assets`。
 7. 确认 `ready_for_layout: true` 后，生成装配清单：
 
@@ -98,7 +98,7 @@ Ardot 仍是交互设计的唯一源。每个 module 必须额外保存三个原
 
 ## 微信投递
 
-视觉定稿且 `article.visual_review_file` 通过后，才运行 `compile_wechat.py` 生成内部投递文件。适配层需要把 Ardot 审核后的组件语义映射为微信允许的内联样式，并将正文图片上传到目标公众号。默认只创建草稿；正式发布仍需单独确认。
+视觉定稿且 `article.visual_review_file` 通过后，才运行 `compile_wechat.py` 生成内部投递文件。适配层需要把 Ardot 审核后的组件语义映射为微信允许的内联样式，并将正文图片上传到目标公众号；它只能复制已经 registered/local_verified 的 marked derivative，不能首次嵌入或修改水印。保存草稿后下载真实微信 CDN/封面派生图重新检测。默认只创建草稿；正式发布仍需单独确认。
 
 动态能力不是 organization pack 的视觉变量。工作流固定支持无 JavaScript、无 ID、元素自身 `begin="click"` 的 `<set>` / `<animateTransform>` 与 CSS 横滑生成，但能否在生产正文启用，由目标公众号的投递层能力档案决定：先保存候选并回读结构签名，再用已登记的 iOS/Android 微信版本做真机预览。回读只证明结构未被清洗；能力档案缺失、过期、账号不匹配或任一客户端失败时，必须更新同一草稿为信息等价静态版。
 

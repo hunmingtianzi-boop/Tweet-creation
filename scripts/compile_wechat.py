@@ -15,12 +15,18 @@ from typing import Any
 
 from build_storyboard import build_storyboard_plan
 from build_visual_kit import build_visual_kit_plan
+from asset_quality import file_sha256
 from wechat_interaction_policy import audit_transport
 from workflow_quality import (
+    WATERMARK_SCHEME,
+    asset_watermark_requirement,
     calibration_state,
+    validate_asset_watermark,
     validate_interaction_plan,
     validate_typography_plan,
     validate_visual_review,
+    watermark_inventory,
+    watermark_policy,
 )
 
 
@@ -114,7 +120,9 @@ class CompileContext:
     check: bool
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
-    copied_assets: list[dict[str, str]] = field(default_factory=list)
+    copied_assets: list[dict[str, Any]] = field(default_factory=list)
+    watermark_checks: list[dict[str, Any]] = field(default_factory=list)
+    watermark_checked_outputs: set[str] = field(default_factory=set)
     component_ids: list[str] = field(default_factory=list)
     used_source_ids: set[str] = field(default_factory=set)
 
@@ -195,15 +203,16 @@ class CompileContext:
             return ""
         if REMOTE_SRC.match(source):
             return source
+        registered = {
+            item.get("id"): item
+            for item in self.assets_doc.get("assets", [])
+            if isinstance(item, dict) and item.get("id")
+        }
+        registered_asset = registered.get(source)
         candidate = (self.spec_path.parent / source).resolve()
         if not candidate.exists():
-            registered = {
-                item.get("id"): item
-                for item in self.assets_doc.get("assets", [])
-                if isinstance(item, dict)
-            }
-            if source in registered:
-                location = registered[source].get("location")
+            if registered_asset is not None:
+                location = registered_asset.get("location")
                 if isinstance(location, str) and REMOTE_SRC.match(location):
                     return location
                 if isinstance(location, str):
@@ -219,9 +228,78 @@ class CompileContext:
         if not target.exists() or candidate.stat().st_mtime_ns > target.stat().st_mtime_ns:
             shutil.copy2(candidate, target)
         relative = f"assets/{target_name}"
-        record = {"source": str(candidate), "output": relative}
+        source_sha256 = file_sha256(candidate)
+        output_sha256 = file_sha256(target)
+        registered_location = (
+            registered_asset.get("location")
+            if isinstance(registered_asset, dict)
+            else None
+        )
+        if (
+            isinstance(registered_location, str)
+            and registered_location
+            and not Path(registered_location).is_absolute()
+            and ".." not in Path(registered_location).parts
+        ):
+            public_source = Path(registered_location).as_posix()
+        else:
+            try:
+                public_source = candidate.relative_to(
+                    self.spec_path.parent.resolve()
+                ).as_posix()
+            except ValueError:
+                public_source = candidate.name
+        record = {
+            "source": public_source,
+            "output": relative,
+            "source_sha256": source_sha256,
+            "output_sha256": output_sha256,
+        }
         if record not in self.copied_assets:
             self.copied_assets.append(record)
+        if source_sha256 != output_sha256:
+            self.errors.append(
+                f"watermark.copy_hash_mismatch: copied asset bytes differ for {label}"
+            )
+        output_key = str(target.resolve())
+        evidence = (
+            registered_asset.get("watermark")
+            if isinstance(registered_asset, dict)
+            else None
+        )
+        policy = watermark_policy(self.organization)
+        requirement = (
+            asset_watermark_requirement(registered_asset, target)
+            if isinstance(registered_asset, dict)
+            else {"in_scope": False}
+        )
+        if (
+            isinstance(registered_asset, dict)
+            and output_key not in self.watermark_checked_outputs
+            and (
+                isinstance(evidence, dict)
+                or (policy.get("mode") == "required" and requirement.get("in_scope"))
+            )
+        ):
+            watermark_check = validate_asset_watermark(
+                registered_asset,
+                target,
+                expected_scheme=str(policy.get("scheme") or WATERMARK_SCHEME),
+                expected_key_id=(
+                    str(policy.get("key_id"))
+                    if isinstance(policy.get("key_id"), str)
+                    else None
+                ),
+                pack_dir=self.org_dir,
+                require_evidence=policy.get("mode") == "required",
+            )
+            watermark_check["asset_location"] = registered_asset.get("location")
+            watermark_check["output"] = relative
+            watermark_check["source_sha256"] = source_sha256
+            watermark_check["output_sha256"] = output_sha256
+            self.watermark_checks.append(watermark_check)
+            self.watermark_checked_outputs.add(output_key)
+            self.errors.extend(watermark_check["errors"])
         return relative
 
     def image_html(self, item: dict[str, Any], label: str, extra_style: str = "") -> str:
@@ -595,6 +673,13 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
         for item in ctx.assets_doc.get("assets", [])
         if isinstance(item, dict) and item.get("id")
     }
+    provenance_watermark = watermark_inventory(
+        ctx.organization,
+        ctx.assets_doc,
+        ctx.org_dir,
+    )
+    ctx.errors.extend(provenance_watermark["errors"])
+    ctx.warnings.extend(provenance_watermark["warnings"])
     kit_roles = {item.get("role") for item in kit_assets if isinstance(item.get("role"), str)}
     unique_kit_asset_ids = {
         item.get("id") for item in kit_assets if isinstance(item.get("id"), str)
@@ -805,6 +890,25 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
             "route_layout": ctx.route.get("layout"),
         },
         "calibration": calibration,
+        "provenance_watermark": {
+            **provenance_watermark,
+            "copy_checks": ctx.watermark_checks,
+            "used_verified_asset_ids": sorted(
+                {
+                    item.get("asset_id")
+                    for item in ctx.watermark_checks
+                    if item.get("ready")
+                    and isinstance(item.get("evidence"), dict)
+                    and isinstance(item.get("detection"), dict)
+                    and item["detection"].get("authenticated") is True
+                    and isinstance(item.get("transport_simulation"), dict)
+                    and item["transport_simulation"].get("payload_authenticated") is True
+                    and isinstance(item.get("asset_id"), str)
+                }
+            ),
+            "ready": provenance_watermark["ready"]
+            and all(item.get("ready") for item in ctx.watermark_checks),
+        },
         "storyboard": storyboard,
         "counts": {
             "blocks": len(rendered_blocks),
@@ -835,9 +939,9 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
         "warnings": list(dict.fromkeys(ctx.warnings)),
         "errors": list(dict.fromkeys(ctx.errors)),
         "outputs": {
-            "preview": str(preview_path.resolve()) if not ctx.errors else None,
-            "wechat": str(wechat_path.resolve()) if not ctx.errors else None,
-            "report": str((ctx.output_dir / "compile-report.json").resolve()),
+            "preview": preview_path.name if not ctx.errors else None,
+            "wechat": wechat_path.name if not ctx.errors else None,
+            "report": "compile-report.json",
         },
     }
     (ctx.output_dir / "compile-report.json").write_text(

@@ -263,7 +263,8 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
             f"Aspect ratio {definition['aspect_ratio']}. Use a "
             f"real PNG alpha transparency and an irregular/open edge; keep generous negative space. "
             f"Do not create a rectangle, card, UI panel, border, poster, generic blob, letters, "
-            f"numbers, watermark, logo, or QR code. Avoid: {avoid}."
+            f"numbers, visible watermark or signature, logo, or QR code. The workflow may apply "
+            f"a hidden provenance watermark after generation; do not imitate it in the artwork. Avoid: {avoid}."
         )
         slots.append(
             {

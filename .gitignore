@@ -4,3 +4,7 @@ __pycache__/
 .pytest_cache/
 output/
 organizations/*/assets/derived/
+# Preserved unmarked masters and raw watermark-ID records are private inputs.
+# Public reports may stay in the pack; these files must not enter Git.
+organizations/*/assets/generated/unwatermarked-masters/
+organizations/*/assets/**/watermark-private/

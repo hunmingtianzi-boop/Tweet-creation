@@ -26,6 +26,8 @@
 - Default body typography is checked against the selected density mode; `compact-editorial` uses 15–17 px type, 1.45–1.62 line-height, -0.2–0 px Chinese tracking, 8–14 px paragraph spacing, and 24–40 px major intra-section gaps.
 - Five screenshot-backed density samples record content occupancy and largest empty region; ordinary sections target 68%–90% occupancy and at most 20% accidental empty space.
 - AI backgrounds, when used, belong to one recorded family with a master and companion variants; copy remains on near-solid safe zones and chapters do not switch to unrelated generated styles.
+- Every eligible opaque generated background/cover is a distinct marked derivative with authenticated `local_verified` evidence, matching source/final SHA-256 values and public report hash. Registration and every ready-producing validation rerun external-key pixel authentication plus the complete-frame 390px/JPEG-Q75 simulation; self-reported JSON cannot pass. The unmarked master is preserved in a Git-ignored private-input directory; public evidence contains no raw watermark ID or personal/account identity.
+- Photographs, `documentary-evidence`, official/user-supplied images, logos, QR codes, transparent micro assets, SVG/SMIL, and QA screenshots remain byte-unaltered by the V1 watermark stage.
 - Covers and transitions have intentional overlay space.
 - Galleries show a visible next-card edge and a swipe cue.
 - Closed boxes are at most 20% of content sections and never occur consecutively.
@@ -53,6 +55,7 @@
 - Saved-draft readback matches per-component fallback hashes and SMIL signatures. Readback proves sanitizer survival only; it does not certify runtime behavior.
 - Dynamic delivery requires an unexpired profile for the exact target account and policy version, with recorded iOS and Android WeChat versions and preview evidence. Missing, pending, failed, expired, or mismatched profiles force the static fallback in the same draft.
 - All local body images are ready to upload and replace with WeChat-hosted URLs.
+- Every locally verified carrier is downloaded from the saved draft's actual WeChat CDN/cover URL and detected again. Required-mode delivery remains blocked until it is `transport_verified`; HTML readback alone does not satisfy this check.
 - SVG `<image>` references use only target-account WeChat `mmbiz.qpic.cn` URLs after upload.
 - Cover material is handled separately from body images. The current target account's permanent-material `media_id` is used as `thumb_media_id`, and the saved draft visibly contains the expected cover.
 - `compile-report.json` records organization, route, components, copied assets, warnings, and errors.

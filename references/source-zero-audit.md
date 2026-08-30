@@ -17,6 +17,7 @@
 - README、校准说明和测试仍把历史文章/组织包当作效果基准或绿色夹具，会让下一次迁移在开始前就接触旧视觉。
 - 标题字只有字号/字重的泛化建议，没有表现型字体的语义配额、授权边界、Ardot 可编辑 node/style 证据和禁止烘焙字图门槛。
 - 最新正向测试进一步暴露：仅校验 family ID 会让黑/白大色块、明暗跳变与正文吞字通过；仅校验 treatment/font/node 则会让“只换字体”的死板标题冒充艺术字。两者都会把本应在校准阶段解决的问题拖到全文后的人工微调。
+- 生成底图只有普通 SHA 时，能证明仓库内文件未变，但不能在微信转码后提供来源线索；若临近编译或发布才加水印，又会破坏 Ardot revision 与资产哈希的同一性。
 
 ## 已实现的改进
 
@@ -35,6 +36,8 @@
 - [x] 艺术字构造门禁：`expressive-native` 至少批准两个 recipe；每个 recipe/文章时刻至少两种非字体技术和两个可编辑文字/点缀层，拒绝 font-swap-only，并在 Ardot 截图复核 `art_type_construction`。
 - [x] 微组件构图门禁：拒绝只留透明边的矩形 alpha tile；所有实际实例逐一进入 inventory，图片/组件宽度分别不超过 72%/82%，四类角色跨至少三个截图区段并左右错落；含字实例禁止闭合文字框，主短句至少 22 px、1.35× 正文。
 - [x] 截图可读性：五个密度样本都记录实测 `body_text_contrast_ratio >= 4.5`，同时新增 `background_surface_unity` 与 `reading_surface_contrast` 检查。
+- [x] 隐藏来源水印：只对不透明的工作流生成底图/纯生成 raster 封面生成新 derivative；保留无水印母版，在登记及后续每个 ready 门禁中重新验证 HMAC、母版/成品/报告 SHA、独立 `PSNR >= 42 dB` 和完整画面 390px/JPEG-Q75 模拟，不信任报告自报字段，并将严格公开证据透传到 Ardot/compile/publisher。
+- [x] 水印隐私与载体边界：密钥和 raw ID 映射始终在仓库外；真实照片、Logo、二维码、透明小组件、SVG 与 QA 证据不修改；发布前只有从实际微信 CDN/封面派生图回读检出才能标记 `transport_verified`。
 
 ## 仍需人工判断的部分
 

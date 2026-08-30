@@ -237,6 +237,16 @@ Relative image paths resolve from the article JSON. The compiler copies local im
 
 Asset registry IDs such as `visual.hero-example` resolve from the organization pack for both Ardot upload and final transport. Keep generated visuals text-free; copy remains editable in Ardot text nodes.
 
+When a resolved asset is an eligible generated opaque background or raster
+cover, Ardot and the compiler consume the already marked registered derivative;
+they never embed the first mark. The Ardot manifest and compile report carry its
+public `local_verified` evidence, authenticate the current pixels with the
+external key, independently rerun the fixed full-frame transport simulation,
+and verify that copied bytes still match `marked_sha256`. Missing key material
+is a blocking error, even if a JSON report claims success. The WeChat publisher must then detect the actual hosted body or
+cover derivative before changing that asset to `transport_verified`. No raw
+watermark ID or secret is permitted in an article, manifest, HTML, or report.
+
 ## Evidence checks
 
 - Every `source_id` must exist in the organization pack’s `sources.json`.
@@ -244,6 +254,10 @@ Asset registry IDs such as `visual.hero-example` resolve from the organization p
 - A quote without attribution or `source_id` blocks `--check`.
 - Placeholders such as `待补充`, `待确认`, `TBD`, and `PLACEHOLDER` block `--check`.
 - Missing local images block `--check`.
+- An eligible generated background/cover without bound public watermark evidence,
+  a preserved source, independently verified PSNR, matching final/report hashes,
+  or authenticated detection blocks `--check` when the organization policy is
+  `required`.
 - Missing visual-kit roles, fewer than four distinct current-article generated micro assets, failed Alpha/aspect validation, missing native Ardot component evidence, or non-generated assets in the kit block `--check`.
 - A missing organization/route calibration, incomplete storyboard, ungrounded visual subject, or failed `visual_review_file` blocks `--check`.
 - Missing expressive typography recipe/construction evidence, fewer than two non-font techniques or editable layers, a font-swap-only moment, a baked title image, an unlicensed font, or an ungrounded display phrase blocks `--check` when the organization uses `expressive-native`.

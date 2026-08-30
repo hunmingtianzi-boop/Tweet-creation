@@ -34,6 +34,24 @@ Required top-level fields:
 - `publishing`: authoring and draft/publication policy.
 - `provenance`: source IDs and review metadata.
 
+New packs also declare the public generated-image watermark policy under
+`provenance`. `key_id` names an external key without containing it:
+
+```json
+{
+  "generated_image_watermark": {
+    "mode": "required",
+    "scheme": "org-wechat-dct-v1",
+    "key_id": "external"
+  }
+}
+```
+
+`mode` is `required` or `optional`. `key_id` is a lowercase hyphenated public
+lookup slug of at most 64 characters; it must not resemble key material. The
+embed/detect secret and raw watermark-ID
+registry never belong in this file or anywhere else in the organization pack.
+
 Required visual tokens:
 
 ```json
@@ -91,9 +109,46 @@ New packs start as `not-linked`. Set `linked` only after a real Ardot file, vari
 
 Each asset has an ID, kind, title, path or URL, style, uses, origin, and optional source ID. Local paths resolve relative to the organization pack. Real evidence photos declare `visual_role: documentary-evidence` and a `source_id`. Generated backgrounds declare `visual_role: illustrative-atmosphere`, `background_family_id`, and `background_variant` (`master` or `companion`). Generated micro illustrations declare `visual_role: article-micro`, exactly one of the four `roles`, the current slug in `generated_for_articles`, and stored Alpha quality metadata.
 
+An eligible opaque `generated-illustrative` background or fully generated
+raster cover is registered from its marked final derivative and carries only
+public evidence:
+
+```json
+{
+  "watermark": {
+    "scheme": "org-wechat-dct-v1",
+    "payload_fingerprint": "<64 lowercase hex characters>",
+    "key_id": "external",
+    "key_epoch": 1,
+    "source_location": "assets/generated/background-raw.png",
+    "source_sha256": "<sha256>",
+    "marked_sha256": "<sha256>",
+    "local_verified": true,
+    "report_location": "assets/derived/background-watermark.json",
+    "report_sha256": "<sha256>",
+    "psnr_db": 44.37,
+    "psnr_threshold_db": 42.0
+  }
+}
+```
+
+Both paths remain inside the pack; the source and final files are distinct.
+The source normally lives under the Git-ignored
+`assets/generated/unwatermarked-masters/` directory and must be restored from
+the organization's private asset store on a new machine. Validation rehashes
+both images and the report, independently recalculates PSNR, authenticates the
+current final pixels with the external key, and independently reruns the
+complete-frame 390px/JPEG-Q75 simulation. It does not trust copied report
+numbers or an `authenticated: true` field. Photographs, official/user images, logos, QR
+codes, transparent `article-micro` files, SVG/SMIL, remote images, and QA
+evidence are outside V1 and stay byte-identical. See
+[provenance-watermark.md](provenance-watermark.md).
+
 Allowed origins include `user-supplied`, `official`, `photographed`, `generated-illustrative`, and `derived`. A `logo` or `qr` asset must be `user-supplied` or `official`; otherwise validation fails.
 
-Do not store account secrets, access tokens, or private credentials in an organization pack.
+Do not store account secrets, access tokens, watermark keys, raw watermark IDs,
+private watermark registries, or other private credentials in an organization
+pack.
 
 Generate an article-type asset plan with `scripts/orgs.py asset-plan`, then register approved files with `scripts/orgs.py register-asset`. For a newly generated micro illustration, pass `--role ROLE --generated-for ARTICLE_ID --visual-role article-micro`; registration runs the pixel Alpha/aspect check. Every article gets a fresh visual-kit plan and must produce four different assets for all four roles before layout. Logos and QR codes always remain official or user-supplied assets.
 

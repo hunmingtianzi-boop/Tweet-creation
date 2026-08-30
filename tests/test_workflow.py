@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import binascii
+import base64
 import json
+import os
 import re
 import struct
 import sys
@@ -10,6 +12,7 @@ import unittest
 import zlib
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -24,15 +27,21 @@ from compile_wechat import compile_article  # noqa: E402
 from orgs import (  # noqa: E402
     build_asset_plan,
     command_init,
+    command_register_asset,
     scaffold,
     validate_pack,
     write_json,
 )
+from provenance_watermark import embed_watermark, measure_psnr  # noqa: E402
 from workflow_quality import (  # noqa: E402
+    WATERMARK_SCHEME,
+    asset_watermark_requirement,
     interaction_semantic_hash,
     style_grammar_errors,
     style_grammar_sha256,
     validate_interaction_plan,
+    watermark_evidence_from_report,
+    watermark_inventory,
 )
 
 
@@ -43,6 +52,9 @@ ROLES = (
     ("closing-motif", "spot.closing", 256, 256, "punctuation", "join", "把已经完成的原型交给下一位伙伴。"),
 )
 
+TEST_WATERMARK_KEY = b"workflow-test-watermark-key-material-v1"
+TEST_WATERMARK_ENV = "base64:" + base64.b64encode(TEST_WATERMARK_KEY).decode("ascii")
+
 
 def write_png(
     path: Path,
@@ -52,6 +64,7 @@ def write_png(
     alpha: bool = True,
     color: tuple[int, int, int] = (30, 100, 180),
     alpha_shape: str = "organic",
+    pattern_strength: int = 0,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     color_type = 6 if alpha else 2
@@ -59,7 +72,14 @@ def write_png(
     for y in range(height):
         row = bytearray()
         for x in range(width):
-            row.extend(color)
+            delta = 0
+            if pattern_strength:
+                span = pattern_strength * 2 + 1
+                delta = (
+                    ((x // 4) * 17 + (y // 4) * 31 + (x // 13) * 11 + (y // 17) * 7)
+                    % span
+                ) - pattern_strength
+            row.extend(max(0, min(255, channel + delta)) for channel in color)
             if alpha:
                 if alpha_shape == "rectangular":
                     border = min(x, y, width - 1 - x, height - 1 - y)
@@ -257,6 +277,67 @@ def make_pack(root: Path) -> Path:
     for filename, document in documents.items():
         write_json(pack / filename, document)
     return pack
+
+
+def enable_required_watermark(pack: Path) -> dict[str, dict[str, Any]]:
+    """Replace fixture backgrounds with marked derivatives and public evidence."""
+    organization = json.loads((pack / "organization.json").read_text(encoding="utf-8"))
+    organization["provenance"]["generated_image_watermark"] = {
+        "mode": "required",
+        "scheme": WATERMARK_SCHEME,
+        "key_id": "test-external-key",
+    }
+    write_json(pack / "organization.json", organization)
+
+    assets_doc = json.loads((pack / "assets.json").read_text(encoding="utf-8"))
+    reports: dict[str, dict[str, Any]] = {}
+    report_dir = pack / "assets" / "generated" / "watermark-reports"
+    source_dir = pack / "assets" / "generated" / "unwatermarked-masters"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    source_dir.mkdir(parents=True, exist_ok=True)
+    background_index = 0
+    for asset in assets_doc["assets"]:
+        if asset.get("id") not in {"background.master", "background.companion"}:
+            continue
+        background_index += 1
+        stem = str(asset["id"]).replace(".", "-")
+        source_path = source_dir / f"{stem}.png"
+        marked_path = pack / asset["location"]
+        base_color = (32 + background_index * 2, 94, 158 + background_index * 2)
+        write_png(
+            source_path,
+            390,
+            780,
+            alpha=False,
+            color=base_color,
+            pattern_strength=22,
+        )
+        if marked_path.is_file():
+            marked_path.unlink()
+        report = embed_watermark(
+            source_path,
+            marked_path,
+            key=TEST_WATERMARK_KEY,
+            key_epoch=7,
+            wm_id=f"{background_index:016x}",
+        )
+        report_path = report_dir / f"{stem}.json"
+        write_json(report_path, report)
+        with mock.patch.dict(
+            os.environ,
+            {"PROVENANCE_WATERMARK_KEY": TEST_WATERMARK_ENV},
+        ):
+            asset["watermark"] = watermark_evidence_from_report(
+                report,
+                report_path,
+                marked_path,
+                pack_dir=pack,
+                source_path=source_path,
+                key_id="test-external-key",
+            )
+        reports[str(asset["id"])] = report
+    write_json(pack / "assets.json", assets_doc)
+    return reports
 
 
 def enable_explicit_style_reference(pack: Path) -> dict[str, object]:
@@ -697,8 +778,17 @@ class OrganizationPackTests(FreshWorkflowTestCase):
     def test_scaffold_starts_source_zero_but_remains_blocked(self) -> None:
         pack = self.root / "new-org"
         pack.mkdir()
-        for filename, value in scaffold("new-org", "新组织").items():
+        documents = scaffold("new-org", "新组织")
+        for filename, value in documents.items():
             write_json(pack / filename, value)
+        self.assertEqual(
+            documents["organization.json"]["provenance"]["generated_image_watermark"],
+            {
+                "mode": "required",
+                "scheme": WATERMARK_SCHEME,
+                "key_id": "external",
+            },
+        )
         directions = build_directions(pack, "introduction")
         self.assertFalse(directions["full_article_allowed"])
         self.assertEqual(directions["source_isolation"]["policy"], "source-zero")
@@ -900,6 +990,618 @@ class OrganizationPackTests(FreshWorkflowTestCase):
         report = validate_micro_asset(tiled, "floating-spot")
         self.assertFalse(report["ok"])
         self.assertIn("micro.asset.rectangular_alpha_tile", report["error_codes"])
+
+
+class WatermarkWorkflowTests(FreshWorkflowTestCase):
+    def _declare_optional_policy(self) -> None:
+        organization = json.loads(
+            (self.pack / "organization.json").read_text(encoding="utf-8")
+        )
+        organization["provenance"]["generated_image_watermark"] = {
+            "mode": "optional",
+            "scheme": WATERMARK_SCHEME,
+            "key_id": "test-external-key",
+        }
+        write_json(self.pack / "organization.json", organization)
+
+    def test_eligible_registration_requires_source_and_public_report(self) -> None:
+        self._declare_optional_policy()
+        source = self.pack / "assets/generated/unwatermarked-masters/cover.png"
+        marked = self.pack / "assets/generated/cover-marked.png"
+        report_path = self.pack / "assets/generated/watermark-reports/cover.json"
+        write_png(source, 512, 512, alpha=False, pattern_strength=22)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report = embed_watermark(
+            source,
+            marked,
+            key=TEST_WATERMARK_KEY,
+            key_epoch=7,
+            wm_id="11" * 8,
+        )
+        write_json(report_path, report)
+
+        tampered_psnr = json.loads(json.dumps(report))
+        tampered_psnr["psnr_db"] = float(report["psnr_db"]) + 1.0
+        tampered_psnr_path = report_path.with_name("cover-tampered-psnr.json")
+        write_json(tampered_psnr_path, tampered_psnr)
+        with mock.patch.dict(
+            os.environ, {"PROVENANCE_WATERMARK_KEY": TEST_WATERMARK_ENV}
+        ):
+            with self.assertRaisesRegex(ValueError, "psnr_db does not match"):
+                watermark_evidence_from_report(
+                    tampered_psnr,
+                    tampered_psnr_path,
+                    marked,
+                    pack_dir=self.pack,
+                    source_path=source,
+                    key_id="test-external-key",
+                )
+
+        low_quality = marked.with_name("cover-low-quality.png")
+        write_png(low_quality, 512, 512, alpha=False, color=(30, 100, 180))
+        low_quality_report = json.loads(json.dumps(report))
+        low_quality_report["post_sha256"] = file_sha256(low_quality)
+        low_quality_report_path = report_path.with_name("cover-low-quality.json")
+        write_json(low_quality_report_path, low_quality_report)
+        with mock.patch.dict(
+            os.environ, {"PROVENANCE_WATERMARK_KEY": TEST_WATERMARK_ENV}
+        ):
+            with self.assertRaisesRegex(ValueError, "below 42.0"):
+                watermark_evidence_from_report(
+                    low_quality_report,
+                    low_quality_report_path,
+                    low_quality,
+                    pack_dir=self.pack,
+                    source_path=source,
+                    key_id="test-external-key",
+                )
+
+        base = {
+            "pack": self.pack,
+            "asset_id": "cover.generated",
+            "kind": "illustration",
+            "title": "Generated cover",
+            "location": "assets/generated/cover-marked.png",
+            "origin": "generated-illustrative",
+            "style": "article-cover",
+            "use": ["cover"],
+            "role": None,
+            "generated_for": None,
+            "source_id": None,
+            "visual_role": "illustrative-atmosphere",
+            "background_family_id": None,
+            "background_variant": None,
+        }
+        missing_both = type(
+            "Args", (), {**base, "watermark_source": None, "watermark_report": None}
+        )()
+        with self.assertRaisesRegex(SystemExit, "--watermark-source"):
+            command_register_asset(missing_both)
+        missing_source = type(
+            "Args",
+            (),
+            {
+                **base,
+                "watermark_source": None,
+                "watermark_report": Path("assets/generated/watermark-reports/cover.json"),
+            },
+        )()
+        with self.assertRaisesRegex(SystemExit, "--watermark-source"):
+            command_register_asset(missing_source)
+
+        complete = type(
+            "Args",
+            (),
+            {
+                **base,
+                "watermark_source": Path(
+                    "assets/generated/unwatermarked-masters/cover.png"
+                ),
+                "watermark_report": Path(
+                    "assets/generated/watermark-reports/cover.json"
+                ),
+            },
+        )()
+        with mock.patch.dict(os.environ, {"PROVENANCE_WATERMARK_KEY": TEST_WATERMARK_ENV}):
+            command_register_asset(complete)
+        assets_doc = json.loads((self.pack / "assets.json").read_text(encoding="utf-8"))
+        registered = next(
+            item for item in assets_doc["assets"] if item.get("id") == "cover.generated"
+        )
+        evidence = registered["watermark"]
+        self.assertEqual(evidence["scheme"], WATERMARK_SCHEME)
+        self.assertEqual(evidence["key_id"], "test-external-key")
+        self.assertEqual(evidence["key_epoch"], 7)
+        self.assertEqual(
+            evidence["source_location"],
+            "assets/generated/unwatermarked-masters/cover.png",
+        )
+        self.assertEqual(
+            evidence["report_location"],
+            "assets/generated/watermark-reports/cover.json",
+        )
+        self.assertNotIn("wm_id", json.dumps(evidence, ensure_ascii=False))
+
+    def test_v1_excludes_real_identity_micro_svg_remote_and_derived_assets(self) -> None:
+        opaque = self.pack / "assets/generated/background-master.png"
+        transparent = self.pack / "assets/generated/spot-opening.png"
+        fixtures = [
+            ({"location": "photo.png", "kind": "photo", "origin": "photographed"}, opaque, False),
+            ({"location": "logo.png", "kind": "logo", "origin": "official"}, opaque, False),
+            ({"location": "qr.png", "kind": "qr", "origin": "user-supplied"}, opaque, False),
+            (
+                {
+                    "location": "evidence.png",
+                    "kind": "illustration",
+                    "origin": "generated-illustrative",
+                    "visual_role": "documentary-evidence",
+                },
+                opaque,
+                False,
+            ),
+            (
+                {
+                    "location": "micro.png",
+                    "kind": "illustration",
+                    "origin": "generated-illustrative",
+                    "visual_role": "article-micro",
+                    "uses": ["cover"],
+                },
+                transparent,
+                False,
+            ),
+            (
+                {
+                    "location": "motion.svg",
+                    "kind": "background",
+                    "origin": "generated-illustrative",
+                },
+                self.pack / "motion.svg",
+                True,
+            ),
+            (
+                {
+                    "location": "https://example.test/background.png",
+                    "kind": "background",
+                    "origin": "generated-illustrative",
+                },
+                None,
+                True,
+            ),
+            (
+                {
+                    "location": "derived-cover.png",
+                    "kind": "illustration",
+                    "origin": "derived",
+                    "uses": ["cover"],
+                },
+                opaque,
+                False,
+            ),
+        ]
+        for asset, path, expected_in_scope in fixtures:
+            with self.subTest(asset=asset):
+                requirement = asset_watermark_requirement(asset, path)
+                self.assertEqual(requirement["in_scope"], expected_in_scope)
+                self.assertFalse(requirement["eligible"])
+
+    def test_malformed_cover_uses_and_outside_pack_paths_cannot_bypass_policy(self) -> None:
+        outside = self.root / "outside-cover.png"
+        write_png(outside, 512, 512, alpha=False, pattern_strength=22)
+        scalar_cover = {
+            "id": "cover.outside",
+            "kind": "illustration",
+            "origin": "generated-illustrative",
+            "location": "../outside-cover.png",
+            "uses": "cover",
+        }
+        requirement = asset_watermark_requirement(scalar_cover, outside)
+        self.assertTrue(requirement["in_scope"])
+
+        organization = {
+            "provenance": {
+                "generated_image_watermark": {
+                    "mode": "required",
+                    "scheme": WATERMARK_SCHEME,
+                    "key_id": "test-external-key",
+                }
+            }
+        }
+        inventory = watermark_inventory(
+            organization,
+            {"assets": [scalar_cover]},
+            self.pack,
+        )
+        self.assertFalse(inventory["ready"])
+        self.assertTrue(
+            any("watermark.path.outside_pack" in item for item in inventory["errors"]),
+            inventory["errors"],
+        )
+
+    def test_forged_authenticated_report_cannot_substitute_unmarked_pixels(self) -> None:
+        source = self.pack / "assets/generated/unwatermarked-masters/forged-source.png"
+        genuine = self.pack / "assets/generated/forged-genuine.png"
+        unmarked = self.pack / "assets/generated/forged-unmarked.png"
+        report_path = self.pack / "assets/generated/watermark-reports/forged.json"
+        write_png(
+            source,
+            512,
+            512,
+            alpha=False,
+            color=(30, 100, 180),
+            pattern_strength=22,
+        )
+        genuine_report = embed_watermark(
+            source,
+            genuine,
+            key=TEST_WATERMARK_KEY,
+            key_epoch=7,
+            wm_id="22" * 8,
+        )
+        write_png(
+            unmarked,
+            512,
+            512,
+            alpha=False,
+            color=(31, 101, 181),
+            pattern_strength=22,
+        )
+        forged = json.loads(json.dumps(genuine_report))
+        forged["post_sha256"] = file_sha256(unmarked)
+        forged["psnr_db"] = round(measure_psnr(source, unmarked), 4)
+        forged["detection"]["status"] = "payload_authenticated"
+        forged["detection"]["authenticated"] = True
+        forged["detection"]["detected"] = True
+        forged["detection"]["input_sha256"] = file_sha256(unmarked)
+        forged["detection"]["input_bytes"] = unmarked.stat().st_size
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        write_json(report_path, forged)
+
+        with mock.patch.dict(os.environ, {"PROVENANCE_WATERMARK_KEY": TEST_WATERMARK_ENV}):
+            with self.assertRaisesRegex(
+                ValueError,
+                r"watermark\.detect\.unauthenticated|watermark\.transport\.failed",
+            ):
+                watermark_evidence_from_report(
+                    forged,
+                    report_path,
+                    unmarked,
+                    pack_dir=self.pack,
+                    source_path=source,
+                    key_id="test-external-key",
+                )
+
+    def test_public_report_schema_rejects_unknown_private_nan_and_unbound_input(self) -> None:
+        source = self.pack / "assets/generated/unwatermarked-masters/schema-source.png"
+        marked = self.pack / "assets/generated/schema-marked.png"
+        report_dir = self.pack / "assets/generated/watermark-reports"
+        write_png(source, 512, 512, alpha=False, pattern_strength=22)
+        report = embed_watermark(
+            source,
+            marked,
+            key=TEST_WATERMARK_KEY,
+            key_epoch=7,
+            wm_id="33" * 8,
+        )
+        cases: list[tuple[str, dict[str, Any], str]] = []
+
+        unknown_top = json.loads(json.dumps(report))
+        unknown_top["reader_id"] = "must-not-be-public"
+        cases.append(("reader-id", unknown_top, "private identifiers|unknown fields"))
+
+        unknown_nested = json.loads(json.dumps(report))
+        unknown_nested["detection"]["secret"] = "must-not-be-public"
+        cases.append(("nested-secret", unknown_nested, "private identifiers|unknown fields"))
+
+        raw_identifier = json.loads(json.dumps(report))
+        raw_identifier["carrier"]["raw_identifier"] = "opaque-looking-but-private"
+        cases.append(("raw-identifier", raw_identifier, "private identifiers|unknown fields"))
+
+        nan_psnr = json.loads(json.dumps(report))
+        nan_psnr["psnr_db"] = float("nan")
+        cases.append(("nan-psnr", nan_psnr, "psnr_db must be a finite number"))
+
+        wrong_input = json.loads(json.dumps(report))
+        wrong_input["carrier"]["input_sha256"] = "0" * 64
+        cases.append(("wrong-input", wrong_input, "carrier.input_sha256"))
+
+        forged_reason = json.loads(json.dumps(report))
+        forged_reason["carrier"]["reason"] = "secret-material-in-allowed-field"
+        cases.append(("forged-reason", forged_reason, "carrier differs"))
+
+        forged_mode = json.loads(json.dumps(report))
+        forged_mode["detection"]["image"]["mode"] = "secret-material-in-allowed-field"
+        cases.append(("forged-mode", forged_mode, "detection differs"))
+
+        report_dir.mkdir(parents=True, exist_ok=True)
+        for name, candidate, message in cases:
+            with self.subTest(name=name):
+                candidate_path = report_dir / f"schema-{name}.json"
+                write_json(candidate_path, candidate)
+                with mock.patch.dict(
+                    os.environ,
+                    {"PROVENANCE_WATERMARK_KEY": TEST_WATERMARK_ENV},
+                ):
+                    with self.assertRaisesRegex(ValueError, message):
+                        watermark_evidence_from_report(
+                            candidate,
+                            candidate_path,
+                            marked,
+                            pack_dir=self.pack,
+                            source_path=source,
+                            key_id="test-external-key",
+                        )
+
+    def test_transport_claim_is_rejected_when_independent_simulation_fails(self) -> None:
+        source = self.pack / "assets/generated/unwatermarked-masters/transport-source.png"
+        marked = self.pack / "assets/generated/transport-marked.png"
+        report_path = self.pack / "assets/generated/watermark-reports/transport.json"
+        write_png(source, 512, 512, alpha=False, pattern_strength=22)
+        report = embed_watermark(
+            source,
+            marked,
+            key=TEST_WATERMARK_KEY,
+            key_epoch=7,
+            wm_id="44" * 8,
+        )
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        write_json(report_path, report)
+        failed_transport = dict(report["transport_simulation"])
+        failed_transport.update(
+            {
+                "status": "not_detected",
+                "payload_authenticated": False,
+                "payload_fingerprint": None,
+            }
+        )
+        with mock.patch.dict(os.environ, {"PROVENANCE_WATERMARK_KEY": TEST_WATERMARK_ENV}):
+            with mock.patch(
+                "provenance_watermark.verify_transport_simulation",
+                return_value=failed_transport,
+            ):
+                with self.assertRaisesRegex(ValueError, r"watermark\.transport"):
+                    watermark_evidence_from_report(
+                        report,
+                        report_path,
+                        marked,
+                        pack_dir=self.pack,
+                        source_path=source,
+                        key_id="test-external-key",
+                    )
+
+    def test_policy_rejects_invalid_or_secret_like_key_ids(self) -> None:
+        original = json.loads(
+            (self.pack / "organization.json").read_text(encoding="utf-8")
+        )
+        for key_id in ("Uppercase-Key", "a" * 65, "0123456789abcdef" * 4):
+            with self.subTest(key_id=key_id):
+                organization = json.loads(json.dumps(original))
+                organization["provenance"]["generated_image_watermark"] = {
+                    "mode": "optional",
+                    "scheme": WATERMARK_SCHEME,
+                    "key_id": key_id,
+                }
+                write_json(self.pack / "organization.json", organization)
+                report = validate_pack(self.pack)
+                self.assertFalse(report["ok"])
+                self.assertTrue(
+                    any(
+                        "generated_image_watermark.key_id" in item
+                        for item in report["errors"]
+                    ),
+                    report["errors"],
+                )
+                inventory = watermark_inventory(
+                    organization,
+                    json.loads((self.pack / "assets.json").read_text(encoding="utf-8")),
+                    self.pack,
+                )
+                self.assertFalse(inventory["ready"])
+                self.assertTrue(
+                    any("watermark.policy.invalid" in item for item in inventory["errors"]),
+                    inventory["errors"],
+                )
+
+    def test_inventory_itself_rejects_invalid_policy_mode_and_scheme(self) -> None:
+        assets_doc = json.loads((self.pack / "assets.json").read_text(encoding="utf-8"))
+        for policy in (
+            {"mode": "disabled", "scheme": WATERMARK_SCHEME, "key_id": "external"},
+            {"mode": "optional", "scheme": "unknown-scheme", "key_id": "external"},
+        ):
+            with self.subTest(policy=policy):
+                inventory = watermark_inventory(
+                    {"provenance": {"generated_image_watermark": policy}},
+                    assets_doc,
+                    self.pack,
+                )
+                self.assertFalse(inventory["ready"])
+                self.assertTrue(
+                    any("watermark.policy.invalid" in item for item in inventory["errors"]),
+                    inventory["errors"],
+                )
+
+    def test_required_policy_blocks_ineligible_and_unmarked_in_scope_carriers(self) -> None:
+        organization = json.loads(
+            (self.pack / "organization.json").read_text(encoding="utf-8")
+        )
+        organization["provenance"]["generated_image_watermark"] = {
+            "mode": "required",
+            "scheme": WATERMARK_SCHEME,
+            "key_id": "test-external-key",
+        }
+        write_json(self.pack / "organization.json", organization)
+        report = validate_pack(self.pack)
+        self.assertFalse(report["ok"])
+        self.assertTrue(
+            any("watermark.carrier.ineligible" in item for item in report["errors"]),
+            report["errors"],
+        )
+
+        for filename, color in (
+            ("background-master.png", (32, 94, 160)),
+            ("background-companion.png", (35, 96, 162)),
+        ):
+            write_png(
+                self.pack / "assets/generated" / filename,
+                390,
+                780,
+                alpha=False,
+                color=color,
+                pattern_strength=22,
+            )
+        report = validate_pack(self.pack)
+        self.assertFalse(report["ok"])
+        self.assertTrue(
+            any("watermark.required" in item for item in report["errors"]),
+            report["errors"],
+        )
+
+    def test_required_policy_blocks_remote_and_svg_generated_backgrounds(self) -> None:
+        organization = {
+            "provenance": {
+                "generated_image_watermark": {
+                    "mode": "required",
+                    "scheme": WATERMARK_SCHEME,
+                    "key_id": "test-external-key",
+                }
+            }
+        }
+        assets_doc = {
+            "assets": [
+                {
+                    "id": "background.remote",
+                    "kind": "background",
+                    "origin": "generated-illustrative",
+                    "location": "https://example.test/generated.png",
+                },
+                {
+                    "id": "background.svg",
+                    "kind": "background",
+                    "origin": "generated-illustrative",
+                    "location": "assets/generated/background.svg",
+                },
+            ]
+        }
+        inventory = watermark_inventory(organization, assets_doc, self.pack)
+        self.assertFalse(inventory["ready"])
+        carrier_errors = [
+            item for item in inventory["errors"] if "watermark.carrier.ineligible" in item
+        ]
+        self.assertEqual(len(carrier_errors), 2, inventory["errors"])
+
+    def test_public_evidence_report_hash_and_pack_paths_are_immutable(self) -> None:
+        reports = enable_required_watermark(self.pack)
+        with mock.patch.dict(os.environ, {"PROVENANCE_WATERMARK_KEY": TEST_WATERMARK_ENV}):
+            report = validate_pack(self.pack)
+        self.assertTrue(report["ok"], report["errors"])
+        assets_doc = json.loads((self.pack / "assets.json").read_text(encoding="utf-8"))
+        serialized = json.dumps(assets_doc, ensure_ascii=False)
+        self.assertNotIn("wm_id", serialized)
+        self.assertNotIn("private_record", serialized)
+
+        report_path = self.pack / "assets/generated/watermark-reports/background-master.json"
+        tampered = dict(reports["background.master"])
+        tampered["untrusted_note"] = "changed after registration"
+        write_json(report_path, tampered)
+        with mock.patch.dict(os.environ, {"PROVENANCE_WATERMARK_KEY": TEST_WATERMARK_ENV}):
+            invalid = validate_pack(self.pack)
+        self.assertFalse(invalid["ok"])
+        self.assertTrue(
+            any("watermark.report_hash.mismatch" in item for item in invalid["errors"]),
+            invalid["errors"],
+        )
+
+        write_json(report_path, reports["background.master"])
+        assets_doc["assets"][0]["watermark"]["report_location"] = "../../outside.json"
+        write_json(self.pack / "assets.json", assets_doc)
+        with mock.patch.dict(os.environ, {"PROVENANCE_WATERMARK_KEY": TEST_WATERMARK_ENV}):
+            invalid = validate_pack(self.pack)
+        self.assertFalse(invalid["ok"])
+        self.assertTrue(
+            any("watermark.path.outside_pack" in item for item in invalid["errors"]),
+            invalid["errors"],
+        )
+
+    def test_validate_pack_and_manifest_block_when_external_key_is_missing(self) -> None:
+        enable_required_watermark(self.pack)
+        with mock.patch.dict(os.environ, {}, clear=True):
+            report = validate_pack(self.pack)
+            self.assertFalse(report["ok"])
+            self.assertTrue(
+                any("watermark.detect.failed" in item for item in report["errors"]),
+                report["errors"],
+            )
+            self.assertFalse(report["provenance_watermark"]["ready"])
+            with self.assertRaisesRegex(ValueError, "watermark.detect.failed"):
+                build_manifest(self.article, self.pack)
+
+    def test_manifest_and_compile_preserve_and_reverify_marked_derivative(self) -> None:
+        enable_required_watermark(self.pack)
+        with mock.patch.dict(os.environ, {"PROVENANCE_WATERMARK_KEY": TEST_WATERMARK_ENV}):
+            manifest = build_manifest(self.article, self.pack)
+        self.assertTrue(manifest["provenance_watermark"]["ready"])
+        master = next(item for item in manifest["assets"] if item["ref"] == "background.master")
+        self.assertEqual(master["watermark"]["scheme"], WATERMARK_SCHEME)
+        self.assertIn("payload_fingerprint", master["watermark"])
+
+        def absolute_strings(value: Any) -> list[str]:
+            if isinstance(value, dict):
+                return [
+                    item
+                    for child in value.values()
+                    for item in absolute_strings(child)
+                ]
+            if isinstance(value, list):
+                return [item for child in value for item in absolute_strings(child)]
+            if isinstance(value, str) and Path(value).is_absolute():
+                return [value]
+            return []
+
+        self.assertEqual(absolute_strings(manifest["provenance_watermark"]), [])
+
+        add_visual_review(self.article)
+        output = self.root / "watermarked-output"
+        with mock.patch.dict(os.environ, {"PROVENANCE_WATERMARK_KEY": TEST_WATERMARK_ENV}):
+            report = compile_article(self.article, self.pack, output, check=True)
+        self.assertTrue(report["ok"], report["errors"])
+        watermark = report["provenance_watermark"]
+        self.assertTrue(watermark["ready"])
+        self.assertEqual(watermark["used_verified_asset_ids"], ["background.master"])
+        self.assertEqual(len(watermark["copy_checks"]), 1)
+        copy_check = watermark["copy_checks"][0]
+        self.assertEqual(copy_check["source_sha256"], copy_check["output_sha256"])
+        self.assertEqual(copy_check["detection"]["status"], "payload_authenticated")
+        self.assertTrue(copy_check["detection"]["authenticated"])
+        self.assertEqual(
+            copy_check["transport_simulation"]["status"],
+            "payload_authenticated",
+        )
+        self.assertTrue(copy_check["transport_simulation"]["payload_authenticated"])
+        self.assertNotIn("source", copy_check)
+        self.assertNotIn("local_path", copy_check)
+        self.assertEqual(absolute_strings(watermark), [])
+        serialized_report = json.dumps(report, ensure_ascii=False)
+        self.assertNotIn("wm_id", serialized_report)
+        self.assertNotIn(str(self.root.resolve()), serialized_report)
+        self.assertTrue(
+            all(
+                not Path(item["source"]).is_absolute()
+                for item in report["copied_assets"]
+            )
+        )
+
+        with mock.patch.dict(os.environ, {}, clear=True):
+            missing_key = compile_article(
+                self.article,
+                self.pack,
+                self.root / "watermarked-output-no-key",
+                check=True,
+            )
+        self.assertFalse(missing_key["ok"])
+        self.assertTrue(
+            any("watermark.detect.failed" in item for item in missing_key["errors"]),
+            missing_key["errors"],
+        )
 
 
 class VisualKitTests(FreshWorkflowTestCase):

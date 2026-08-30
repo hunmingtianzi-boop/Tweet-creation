@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from datetime import datetime
 from pathlib import Path
@@ -205,6 +206,979 @@ STYLE_GRAMMAR_COPY_INSTRUCTION_PATTERN = re.compile(
     r"\b(?:exact\s+)?(?:headline|title|layout|cover\s+geometry|photo(?:graph)?|logo|artwork)\b",
     re.I,
 )
+
+WATERMARK_SCHEME = "org-wechat-dct-v1"
+WATERMARK_POLICY_MODES = {"optional", "required"}
+WATERMARK_EVIDENCE_FIELD = "watermark"
+WATERMARK_HASH_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+WATERMARK_FINGERPRINT_PATTERN = re.compile(r"^(?:sha256:)?[0-9a-f]{64}$")
+WATERMARK_MIN_PSNR_DB = 42.0
+WATERMARK_PSNR_TOLERANCE_DB = 0.001
+WATERMARK_KEY_ID_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+WATERMARK_REPORT_FIELDS = {
+    "schema_version",
+    "status",
+    "algorithm",
+    "local_verified",
+    "pre_sha256",
+    "post_sha256",
+    "psnr_db",
+    "psnr_threshold_db",
+    "payload_fingerprint",
+    "version",
+    "purpose",
+    "key_epoch",
+    "carrier",
+    "detection",
+    "transport_simulation",
+}
+WATERMARK_REPORT_REQUIRED_FIELDS = WATERMARK_REPORT_FIELDS
+WATERMARK_CARRIER_FIELDS = {
+    "eligible",
+    "reason_codes",
+    "width",
+    "height",
+    "mode",
+    "format",
+    "opaque",
+    "texture_stddev",
+    "detail_rms",
+    "input_sha256",
+    "input_bytes",
+    "reason",
+}
+WATERMARK_DETECTION_FIELDS = {
+    "schema_version",
+    "status",
+    "algorithm",
+    "detected",
+    "authenticated",
+    "payload_fingerprint",
+    "version",
+    "purpose",
+    "key_epoch",
+    "repeat_vote_agreement",
+    "mean_abs_margin",
+    "input_sha256",
+    "input_bytes",
+    "image",
+}
+WATERMARK_DETECTION_IMAGE_FIELDS = {"width", "height", "mode", "format"}
+WATERMARK_TRANSPORT_FIELDS = {
+    "profile",
+    "status",
+    "payload_authenticated",
+    "payload_fingerprint",
+    "width",
+    "height",
+    "jpeg_quality",
+    "simulated_sha256",
+    "simulated_bytes",
+    "repeat_vote_agreement",
+}
+WATERMARK_EVIDENCE_FIELDS = {
+    "scheme",
+    "payload_fingerprint",
+    "key_id",
+    "key_epoch",
+    "psnr_db",
+    "psnr_threshold_db",
+    "source_location",
+    "source_sha256",
+    "marked_sha256",
+    "local_verified",
+    "report_location",
+    "report_sha256",
+}
+
+
+def valid_watermark_key_id(value: Any) -> bool:
+    """Accept a public identifier, never material that resembles a secret key."""
+    return bool(
+        isinstance(value, str)
+        and 1 <= len(value) <= 64
+        and WATERMARK_KEY_ID_PATTERN.fullmatch(value)
+        and not re.fullmatch(r"[0-9a-f]{32,64}", value)
+    )
+
+
+def _strict_object_fields(
+    value: Any,
+    *,
+    label: str,
+    allowed: set[str],
+    required: set[str] | None,
+    errors: list[str],
+) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        errors.append(f"{label} must be an object")
+        return {}
+    unknown = sorted(set(value) - allowed)
+    if unknown:
+        errors.append(f"{label} contains forbidden or unknown fields: {', '.join(unknown)}")
+    if required is not None:
+        missing = sorted(required - set(value))
+        if missing:
+            errors.append(f"{label} is missing required fields: {', '.join(missing)}")
+    return value
+
+
+def _finite_number(value: Any) -> bool:
+    return bool(
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+    )
+
+
+def _public_embed_report_schema_errors(
+    report: Any,
+    source_path: Path,
+    marked_path: Path,
+) -> list[str]:
+    """Validate the exact public engine schema and bind all input metadata."""
+    errors: list[str] = []
+    report = _strict_object_fields(
+        report,
+        label="watermark report",
+        allowed=WATERMARK_REPORT_FIELDS,
+        required=WATERMARK_REPORT_REQUIRED_FIELDS,
+        errors=errors,
+    )
+    carrier = _strict_object_fields(
+        report.get("carrier"),
+        label="watermark report carrier",
+        allowed=WATERMARK_CARRIER_FIELDS,
+        required=WATERMARK_CARRIER_FIELDS,
+        errors=errors,
+    )
+    detection = _strict_object_fields(
+        report.get("detection"),
+        label="watermark report detection",
+        allowed=WATERMARK_DETECTION_FIELDS,
+        required=WATERMARK_DETECTION_FIELDS,
+        errors=errors,
+    )
+    _strict_object_fields(
+        detection.get("image"),
+        label="watermark report detection.image",
+        allowed=WATERMARK_DETECTION_IMAGE_FIELDS,
+        required=WATERMARK_DETECTION_IMAGE_FIELDS,
+        errors=errors,
+    )
+    transport = _strict_object_fields(
+        report.get("transport_simulation"),
+        label="watermark report transport_simulation",
+        allowed=WATERMARK_TRANSPORT_FIELDS,
+        required=WATERMARK_TRANSPORT_FIELDS,
+        errors=errors,
+    )
+
+    source_hash = file_sha256(source_path) if source_path.is_file() else None
+    marked_hash = file_sha256(marked_path) if marked_path.is_file() else None
+    source_bytes = source_path.stat().st_size if source_path.is_file() else None
+    marked_bytes = marked_path.stat().st_size if marked_path.is_file() else None
+    if carrier.get("input_sha256") != source_hash:
+        errors.append("watermark report carrier.input_sha256 does not match source pixels")
+    if carrier.get("input_bytes") != source_bytes:
+        errors.append("watermark report carrier.input_bytes does not match source file")
+    if detection.get("input_sha256") != marked_hash:
+        errors.append("watermark report detection.input_sha256 does not match marked pixels")
+    if detection.get("input_bytes") != marked_bytes:
+        errors.append("watermark report detection.input_bytes does not match marked file")
+    for label, value in (
+        ("detection.repeat_vote_agreement", detection.get("repeat_vote_agreement")),
+        ("transport_simulation.repeat_vote_agreement", transport.get("repeat_vote_agreement")),
+    ):
+        if not _finite_number(value) or not 0 <= float(value) <= 1:
+            errors.append(f"watermark report {label} must be finite from 0 through 1")
+    if not _finite_number(detection.get("mean_abs_margin")) or float(
+        detection.get("mean_abs_margin") or 0
+    ) < 0:
+        errors.append("watermark report detection.mean_abs_margin must be finite and non-negative")
+    if transport.get("status") != "payload_authenticated" or transport.get(
+        "payload_authenticated"
+    ) is not True:
+        errors.append("watermark report transport_simulation must authenticate the payload")
+    if transport.get("payload_fingerprint") != report.get("payload_fingerprint"):
+        errors.append("watermark report transport payload fingerprint does not match")
+    if transport.get("profile") != "final-frame-width-390-if-larger-jpeg-q75":
+        errors.append("watermark report transport_simulation profile is invalid")
+    if transport.get("jpeg_quality") != 75:
+        errors.append("watermark report transport_simulation jpeg_quality must be 75")
+    if not isinstance(transport.get("simulated_sha256"), str) or not WATERMARK_HASH_PATTERN.fullmatch(
+        transport.get("simulated_sha256", "")
+    ):
+        errors.append("watermark report transport simulated_sha256 is invalid")
+    if not isinstance(transport.get("simulated_bytes"), int) or isinstance(
+        transport.get("simulated_bytes"), bool
+    ) or transport.get("simulated_bytes", 0) <= 0:
+        errors.append("watermark report transport simulated_bytes must be positive")
+    return errors
+
+
+def _watermark_functions() -> tuple[Any, Any]:
+    """Load the optional engine only when a raster asset actually needs it."""
+    try:
+        from provenance_watermark import assess_carrier, detect_watermark
+    except (ImportError, AttributeError) as exc:
+        raise ValueError(f"provenance watermark engine is unavailable: {exc}") from exc
+    return assess_carrier, detect_watermark
+
+
+def _authenticate_marked_pixels(
+    marked_path: Path,
+    *,
+    scheme: Any,
+    payload_fingerprint: Any,
+    key_epoch: Any,
+    version: Any = None,
+    purpose: Any = None,
+) -> tuple[dict[str, Any] | None, list[str]]:
+    """Authenticate current marked pixels with the external key, never report claims."""
+    errors: list[str] = []
+    try:
+        _, detect_watermark = _watermark_functions()
+        detection = detect_watermark(marked_path)
+    except (OSError, ValueError) as exc:
+        return None, [f"watermark.detect.failed: external-key authentication failed: {exc}"]
+    if not isinstance(detection, dict):
+        return None, ["watermark.detect.failed: engine returned no detection object"]
+    _strict_object_fields(
+        detection,
+        label="watermark detector response",
+        allowed=WATERMARK_DETECTION_FIELDS,
+        required=WATERMARK_DETECTION_FIELDS,
+        errors=errors,
+    )
+    image = _strict_object_fields(
+        detection.get("image"),
+        label="watermark detector response image",
+        allowed=WATERMARK_DETECTION_IMAGE_FIELDS,
+        required=WATERMARK_DETECTION_IMAGE_FIELDS,
+        errors=errors,
+    )
+    if detection.get("status") != "payload_authenticated":
+        errors.append("watermark.detect.unauthenticated: marked pixels did not authenticate")
+    if detection.get("authenticated") is not True or detection.get("detected") is not True:
+        errors.append("watermark.detect.unauthenticated: marked pixels have no authenticated payload")
+    if detection.get("algorithm") != scheme:
+        errors.append("watermark.detect.scheme_mismatch: marked-pixel scheme differs")
+    if detection.get("payload_fingerprint") != payload_fingerprint:
+        errors.append("watermark.detect.payload_mismatch: marked-pixel payload differs")
+    if detection.get("key_epoch") != key_epoch:
+        errors.append("watermark.detect.key_mismatch: marked-pixel key epoch differs")
+    if version is not None and detection.get("version") != version:
+        errors.append("watermark.detect.version_mismatch: marked-pixel payload version differs")
+    if purpose is not None and detection.get("purpose") != purpose:
+        errors.append("watermark.detect.purpose_mismatch: marked-pixel purpose differs")
+    if detection.get("input_sha256") != file_sha256(marked_path):
+        errors.append("watermark.detect.input_hash_mismatch: detector did not bind current pixels")
+    try:
+        marked_bytes = marked_path.stat().st_size
+    except OSError as exc:
+        errors.append(f"watermark.detect.input_failed: marked file metadata is unavailable: {exc}")
+    else:
+        if detection.get("input_bytes") != marked_bytes:
+            errors.append("watermark.detect.input_size_mismatch: detector input size differs")
+    safe_detection = {
+        field: detection.get(field)
+        for field in WATERMARK_DETECTION_FIELDS
+        if field != "image"
+    }
+    safe_detection["image"] = {
+        field: image.get(field) for field in WATERMARK_DETECTION_IMAGE_FIELDS
+    }
+    return safe_detection, errors
+
+
+def _verify_marked_transport(
+    marked_path: Path,
+    *,
+    payload_fingerprint: Any,
+    reported_transport: Any = None,
+) -> tuple[dict[str, Any] | None, list[str]]:
+    """Rerun the fixed output transport with the external key and bind its result."""
+    errors: list[str] = []
+    try:
+        from provenance_watermark import verify_transport_simulation
+
+        actual = verify_transport_simulation(marked_path)
+    except (ImportError, AttributeError, OSError, ValueError) as exc:
+        return None, [f"watermark.transport.failed: external-key transport verification failed: {exc}"]
+    if not isinstance(actual, dict):
+        return None, ["watermark.transport.failed: engine returned no transport object"]
+    _strict_object_fields(
+        actual,
+        label="watermark transport verifier response",
+        allowed=WATERMARK_TRANSPORT_FIELDS,
+        required=WATERMARK_TRANSPORT_FIELDS,
+        errors=errors,
+    )
+    if actual.get("status") != "payload_authenticated" or actual.get(
+        "payload_authenticated"
+    ) is not True:
+        errors.append("watermark.transport.unauthenticated: simulated output did not authenticate")
+    if actual.get("payload_fingerprint") != payload_fingerprint:
+        errors.append("watermark.transport.payload_mismatch: simulated payload differs")
+    if actual.get("profile") != "final-frame-width-390-if-larger-jpeg-q75":
+        errors.append("watermark.transport.profile_mismatch: simulation profile differs")
+    if actual.get("jpeg_quality") != 75:
+        errors.append("watermark.transport.profile_mismatch: JPEG quality differs")
+    if not isinstance(actual.get("simulated_sha256"), str) or not WATERMARK_HASH_PATTERN.fullmatch(
+        actual.get("simulated_sha256", "")
+    ):
+        errors.append("watermark.transport.output_invalid: simulated SHA-256 is invalid")
+    if (
+        not isinstance(actual.get("simulated_bytes"), int)
+        or isinstance(actual.get("simulated_bytes"), bool)
+        or actual.get("simulated_bytes", 0) <= 0
+    ):
+        errors.append("watermark.transport.output_invalid: simulated byte count is invalid")
+    agreement = actual.get("repeat_vote_agreement")
+    if not _finite_number(agreement) or not 0 <= float(agreement) <= 1:
+        errors.append("watermark.transport.output_invalid: vote agreement is invalid")
+    if reported_transport is not None:
+        if not isinstance(reported_transport, dict):
+            errors.append("watermark.transport.report_mismatch: report transport is not an object")
+        else:
+            for field in {
+                "profile",
+                "status",
+                "payload_authenticated",
+                "payload_fingerprint",
+                "width",
+                "height",
+                "jpeg_quality",
+            }:
+                if reported_transport.get(field) != actual.get(field):
+                    errors.append(
+                        f"watermark.transport.report_mismatch: {field} differs from independent simulation"
+                    )
+    safe_transport = {
+        field: actual.get(field) for field in WATERMARK_TRANSPORT_FIELDS
+    }
+    return safe_transport, errors
+
+
+def watermark_policy(organization: dict[str, Any]) -> dict[str, Any]:
+    """Return a normalized public policy without ever resolving a secret key."""
+    provenance = organization.get("provenance")
+    raw = provenance.get("generated_image_watermark") if isinstance(provenance, dict) else None
+    if not isinstance(raw, dict):
+        return {
+            "declared": False,
+            "mode": "migration-needed",
+            "scheme": WATERMARK_SCHEME,
+            "key_id": None,
+        }
+    return {
+        "declared": True,
+        "mode": raw.get("mode"),
+        "scheme": raw.get("scheme"),
+        "key_id": raw.get("key_id"),
+    }
+
+
+def asset_watermark_requirement(
+    asset: dict[str, Any],
+    asset_path: Path | None,
+) -> dict[str, Any]:
+    """Classify the deliberately narrow V1 watermark carrier set.
+
+    Only local opaque generated backgrounds and generated covers are candidates.
+    A merely derived cover is not enough: it might be a crop of a real photo,
+    and V1 has no recursive source-provenance proof. Photos, evidence, identity/functional assets, transparent
+    article micro art, SVG, data URLs, and remote URLs remain untouched.
+    """
+    location = asset.get("location")
+    kind = asset.get("kind")
+    origin = asset.get("origin")
+    visual_role = asset.get("visual_role")
+    raw_uses = asset.get("uses", [])
+    if isinstance(raw_uses, str):
+        # Treat a malformed scalar conservatively so `uses: "cover"` cannot
+        # bypass the generated-cover gate before schema validation reports it.
+        use_values = [raw_uses]
+    elif isinstance(raw_uses, list):
+        use_values = raw_uses
+    else:
+        use_values = []
+    uses = {
+        value.strip().lower()
+        for value in use_values
+        if isinstance(value, str) and value.strip()
+    }
+    reasons: list[str] = []
+    generated_scope = origin == "generated-illustrative" and (
+        kind == "background" or "cover" in uses
+    )
+    semantic_exclusions: list[str] = []
+    if kind in {"logo", "qr", "photo"}:
+        semantic_exclusions.append(f"excluded-kind:{kind}")
+    if visual_role in {"documentary-evidence", "article-micro", "identity", "functional"}:
+        semantic_exclusions.append(f"excluded-visual-role:{visual_role}")
+    if origin in {"user-supplied", "official", "photographed"}:
+        semantic_exclusions.append(f"excluded-origin:{origin}")
+    if not generated_scope or semantic_exclusions:
+        return {
+            "in_scope": False,
+            "eligible": False,
+            "required": False,
+            "carrier": None,
+            "reasons": list(
+                dict.fromkeys(
+                    semantic_exclusions or ["outside-v1-carrier-scope"]
+                )
+            ),
+        }
+    if not isinstance(location, str) or not location:
+        reasons.append("missing-location")
+    elif re.match(r"^(?:https?://|data:)", location, re.I):
+        reasons.append("remote-or-data-url")
+    elif Path(location).suffix.lower() != ".png":
+        reasons.append("non-png-carrier-not-supported-v1")
+    if reasons:
+        return {
+            "in_scope": True,
+            "eligible": False,
+            "required": True,
+            "carrier": None,
+            "reasons": list(dict.fromkeys(reasons)),
+        }
+    if asset_path is None or not asset_path.is_file():
+        return {
+            "in_scope": True,
+            "eligible": False,
+            "required": True,
+            "carrier": None,
+            "reasons": ["local-carrier-missing"],
+        }
+    try:
+        assess_carrier, _ = _watermark_functions()
+        carrier = assess_carrier(asset_path)
+    except (OSError, ValueError) as exc:
+        return {
+            "in_scope": True,
+            "eligible": False,
+            "required": True,
+            "carrier": None,
+            "reasons": [f"carrier-assessment-failed:{exc}"],
+        }
+    eligible = bool(isinstance(carrier, dict) and carrier.get("eligible") is True)
+    carrier_reasons = carrier.get("reason_codes") if isinstance(carrier, dict) else None
+    if not eligible:
+        if isinstance(carrier_reasons, list):
+            reasons.extend(str(value) for value in carrier_reasons)
+        elif isinstance(carrier, dict) and carrier.get("reason"):
+            reasons.append(str(carrier["reason"]))
+        else:
+            reasons.append("carrier-ineligible")
+    return {
+        "in_scope": True,
+        "eligible": eligible,
+        "required": True,
+        "carrier": carrier,
+        "reasons": list(dict.fromkeys(reasons)),
+    }
+
+
+def watermark_evidence_from_report(
+    report: Any,
+    report_path: Path,
+    marked_path: Path,
+    *,
+    pack_dir: Path,
+    source_path: Path,
+    key_id: str,
+) -> dict[str, Any]:
+    """Validate an embed report and reduce it to safe public registry evidence."""
+    errors: list[str] = []
+
+    def contains_private_identifier(value: Any) -> bool:
+        if isinstance(value, dict):
+            if {str(key).lower() for key in value} & {
+                "private_record",
+                "wm_id",
+                "reader_id",
+                "raw_identifier",
+                "secret",
+                "key_material",
+            }:
+                return True
+            return any(contains_private_identifier(child) for child in value.values())
+        if isinstance(value, list):
+            return any(contains_private_identifier(child) for child in value)
+        return False
+
+    raw_report = report
+    if contains_private_identifier(raw_report):
+        errors.append("watermark report must not contain private identifiers or secret material")
+    errors.extend(_public_embed_report_schema_errors(raw_report, source_path, marked_path))
+    report = raw_report if isinstance(raw_report, dict) else {}
+    scheme = report.get("algorithm")
+    source_sha256 = report.get("pre_sha256")
+    marked_sha256 = report.get("post_sha256")
+    payload_fingerprint = report.get("payload_fingerprint")
+    key_epoch = report.get("key_epoch")
+    reported_psnr = report.get("psnr_db")
+    reported_psnr_threshold = report.get("psnr_threshold_db")
+    detection = report.get("detection") if isinstance(report.get("detection"), dict) else {}
+    if report.get("schema_version") != 1:
+        errors.append("watermark report schema_version must be 1")
+    if report.get("status") != "local_verified" or report.get("local_verified") is not True:
+        errors.append("watermark report must have status=local_verified")
+    if scheme != WATERMARK_SCHEME:
+        errors.append(f"watermark report algorithm must be {WATERMARK_SCHEME}")
+    for label, value in (
+        ("pre_sha256", source_sha256),
+        ("post_sha256", marked_sha256),
+    ):
+        if not isinstance(value, str) or not WATERMARK_HASH_PATTERN.fullmatch(value):
+            errors.append(f"watermark report {label} must be a lowercase SHA-256")
+    if source_sha256 == marked_sha256 and source_sha256:
+        errors.append("watermark source and marked SHA-256 must differ")
+    if not isinstance(payload_fingerprint, str) or not WATERMARK_FINGERPRINT_PATTERN.fullmatch(payload_fingerprint):
+        errors.append("watermark report payload_fingerprint must be an irreversible SHA-256")
+    if (
+        not isinstance(key_epoch, int)
+        or isinstance(key_epoch, bool)
+        or not 0 <= key_epoch <= 255
+    ):
+        errors.append("watermark report key_epoch must be an integer from 0 through 255")
+    if not valid_watermark_key_id(key_id):
+        errors.append("watermark key_id must be a short lowercase non-secret slug")
+    if not _finite_number(reported_psnr_threshold) or float(
+        reported_psnr_threshold
+    ) != WATERMARK_MIN_PSNR_DB:
+        errors.append(
+            f"watermark report psnr_threshold_db must be {WATERMARK_MIN_PSNR_DB:.1f}"
+        )
+    if not _finite_number(reported_psnr):
+        errors.append("watermark report psnr_db must be a finite number")
+    if (
+        detection.get("authenticated") is not True
+        or detection.get("detected") is not True
+        or detection.get("status") != "payload_authenticated"
+    ):
+        errors.append("watermark report detection must be payload_authenticated")
+    if detection.get("payload_fingerprint") != payload_fingerprint:
+        errors.append("watermark report detection payload fingerprint does not match")
+    if detection.get("algorithm") != scheme:
+        errors.append("watermark report detection algorithm does not match")
+    if detection.get("key_epoch") != key_epoch:
+        errors.append("watermark report detection key epoch does not match")
+    if detection.get("version") != report.get("version"):
+        errors.append("watermark report detection payload version does not match")
+    if detection.get("purpose") != report.get("purpose"):
+        errors.append("watermark report detection payload purpose does not match")
+    if report.get("version") != 1:
+        errors.append("watermark report payload version must be 1")
+    if report.get("purpose") != 1:
+        errors.append("watermark report payload purpose must be 1")
+    if not marked_path.is_file():
+        errors.append(f"watermarked asset is missing: {marked_path}")
+    elif isinstance(marked_sha256, str) and file_sha256(marked_path) != marked_sha256:
+        errors.append("watermark report marked SHA-256 does not match the registered file")
+    if not report_path.is_file():
+        errors.append(f"watermark report is missing: {report_path}")
+    else:
+        try:
+            stored_report = read_json(report_path)
+        except ValueError as exc:
+            errors.append(f"watermark report file is invalid: {exc}")
+        else:
+            if stored_report != raw_report:
+                errors.append("watermark report object does not match its report file")
+    if not source_path.is_file():
+        errors.append(f"unwatermarked source asset is missing: {source_path}")
+    elif isinstance(source_sha256, str) and file_sha256(source_path) != source_sha256:
+        errors.append("watermark report source SHA-256 does not match the preserved source file")
+    if source_path.is_file():
+        try:
+            assess_carrier, _ = _watermark_functions()
+            assessed_carrier = assess_carrier(source_path)
+        except (OSError, ValueError) as exc:
+            errors.append(f"watermark carrier reassessment failed: {exc}")
+        else:
+            if assessed_carrier != report.get("carrier"):
+                errors.append(
+                    "watermark report carrier differs from independent source assessment"
+                )
+    if source_path.resolve() == marked_path.resolve():
+        errors.append("watermark source and marked derivative must be different files")
+    measured_psnr: float | None = None
+    if source_path.is_file() and marked_path.is_file():
+        try:
+            from provenance_watermark import measure_psnr
+
+            measured_psnr = float(measure_psnr(source_path, marked_path))
+        except (OSError, ValueError) as exc:
+            errors.append(f"watermark PSNR measurement failed: {exc}")
+        else:
+            if not _finite_number(measured_psnr):
+                errors.append("watermark measured PSNR must be finite")
+            elif measured_psnr < WATERMARK_MIN_PSNR_DB:
+                errors.append(
+                    f"watermark measured PSNR {measured_psnr:.4f} dB is below "
+                    f"{WATERMARK_MIN_PSNR_DB:.1f} dB"
+                )
+            if _finite_number(measured_psnr) and _finite_number(reported_psnr):
+                if abs(float(reported_psnr) - measured_psnr) > WATERMARK_PSNR_TOLERANCE_DB:
+                    errors.append(
+                        "watermark report psnr_db does not match independent pixel measurement"
+                    )
+    if marked_path.is_file():
+        authenticated_detection, authentication_errors = _authenticate_marked_pixels(
+            marked_path,
+            scheme=scheme,
+            payload_fingerprint=payload_fingerprint,
+            key_epoch=key_epoch,
+            version=report.get("version"),
+            purpose=report.get("purpose"),
+        )
+        errors.extend(authentication_errors)
+        if authenticated_detection != report.get("detection"):
+            errors.append(
+                "watermark report detection differs from independent marked-pixel authentication"
+            )
+        _, transport_errors = _verify_marked_transport(
+            marked_path,
+            payload_fingerprint=payload_fingerprint,
+            reported_transport=report.get("transport_simulation"),
+        )
+        errors.extend(transport_errors)
+
+    if source_path.is_file() and isinstance(source_sha256, str):
+        if file_sha256(source_path) != source_sha256:
+            errors.append("watermark source changed during evidence validation")
+    if marked_path.is_file() and isinstance(marked_sha256, str):
+        if file_sha256(marked_path) != marked_sha256:
+            errors.append("watermarked asset changed during evidence validation")
+
+    pack_root = pack_dir.resolve()
+    relative_paths: dict[str, str] = {}
+    for label, path in (("source_location", source_path), ("report_location", report_path)):
+        try:
+            relative_paths[label] = path.resolve().relative_to(pack_root).as_posix()
+        except ValueError:
+            errors.append(f"watermark {label} must stay inside the organization pack")
+    if errors:
+        raise ValueError("; ".join(errors))
+    return {
+        "scheme": scheme,
+        "payload_fingerprint": payload_fingerprint,
+        "key_id": key_id.strip(),
+        "key_epoch": key_epoch,
+        "psnr_db": round(float(measured_psnr), 4),
+        "psnr_threshold_db": WATERMARK_MIN_PSNR_DB,
+        "source_location": relative_paths["source_location"],
+        "source_sha256": source_sha256,
+        "marked_sha256": marked_sha256,
+        "local_verified": True,
+        "report_location": relative_paths["report_location"],
+        "report_sha256": file_sha256(report_path),
+    }
+
+
+def validate_asset_watermark(
+    asset: dict[str, Any],
+    asset_path: Path | None,
+    *,
+    expected_scheme: str = WATERMARK_SCHEME,
+    expected_key_id: str | None = None,
+    pack_dir: Path | None = None,
+    require_evidence: bool = False,
+) -> dict[str, Any]:
+    """Check stored evidence and optionally authenticate the current pixels."""
+    requirement = asset_watermark_requirement(asset, asset_path)
+    evidence = asset.get(WATERMARK_EVIDENCE_FIELD)
+    errors: list[str] = []
+    detection: dict[str, Any] | None = None
+    transport_simulation: dict[str, Any] | None = None
+    public_evidence: dict[str, Any] | None = None
+    if requirement["eligible"] and require_evidence and not isinstance(evidence, dict):
+        errors.append(f"watermark.required: asset {asset.get('id')} lacks local watermark evidence")
+    if isinstance(evidence, dict):
+        unknown = sorted(set(evidence) - WATERMARK_EVIDENCE_FIELDS)
+        if unknown:
+            errors.append(
+                f"watermark.evidence.unknown_fields: asset {asset.get('id')} contains "
+                + ", ".join(unknown)
+            )
+        missing = sorted(WATERMARK_EVIDENCE_FIELDS - set(evidence))
+        if missing:
+            errors.append(
+                f"watermark.evidence.incomplete: asset {asset.get('id')} is missing "
+                + ", ".join(missing)
+            )
+        if evidence.get("scheme") != expected_scheme:
+            errors.append(
+                f"watermark.scheme.mismatch: asset {asset.get('id')} must use {expected_scheme}"
+            )
+        payload_fingerprint = evidence.get("payload_fingerprint")
+        if not isinstance(payload_fingerprint, str) or not WATERMARK_FINGERPRINT_PATTERN.fullmatch(payload_fingerprint):
+            errors.append(
+                f"watermark.payload.invalid: asset {asset.get('id')} payload_fingerprint must be a SHA-256 fingerprint"
+            )
+        key_id = evidence.get("key_id")
+        if not valid_watermark_key_id(key_id):
+            errors.append(f"watermark.key.invalid: asset {asset.get('id')} key_id is invalid")
+        elif expected_key_id is not None and key_id != expected_key_id:
+            errors.append(
+                f"watermark.key.mismatch: asset {asset.get('id')} key_id must match organization policy"
+            )
+        key_epoch = evidence.get("key_epoch")
+        if (
+            not isinstance(key_epoch, int)
+            or isinstance(key_epoch, bool)
+            or not 0 <= key_epoch <= 255
+        ):
+            errors.append(
+                f"watermark.key.invalid: asset {asset.get('id')} key_epoch must be from 0 through 255"
+            )
+        evidence_psnr = evidence.get("psnr_db")
+        if (
+            not _finite_number(evidence_psnr)
+            or float(evidence_psnr) < WATERMARK_MIN_PSNR_DB
+        ):
+            errors.append(
+                f"watermark.psnr.invalid: asset {asset.get('id')} psnr_db must be at least "
+                f"{WATERMARK_MIN_PSNR_DB:.1f}"
+            )
+        if evidence.get("psnr_threshold_db") != WATERMARK_MIN_PSNR_DB:
+            errors.append(
+                f"watermark.psnr.invalid: asset {asset.get('id')} psnr_threshold_db must be "
+                f"{WATERMARK_MIN_PSNR_DB:.1f}"
+            )
+        for field in ("source_sha256", "marked_sha256", "report_sha256"):
+            value = evidence.get(field)
+            if not isinstance(value, str) or not WATERMARK_HASH_PATTERN.fullmatch(value):
+                errors.append(
+                    f"watermark.hash.invalid: asset {asset.get('id')} {field} must be a lowercase SHA-256"
+                )
+        if evidence.get("source_sha256") == evidence.get("marked_sha256"):
+            errors.append(
+                f"watermark.hash.invalid: asset {asset.get('id')} source and marked SHA-256 must differ"
+            )
+        if evidence.get("local_verified") is not True:
+            errors.append(
+                f"watermark.local.unverified: asset {asset.get('id')} must be locally verified"
+            )
+        if asset_path is None or not asset_path.is_file():
+            errors.append(f"watermark.asset.missing: asset {asset.get('id')} local file is missing")
+        elif evidence.get("marked_sha256") != file_sha256(asset_path):
+            errors.append(
+                f"watermark.marked_hash.mismatch: asset {asset.get('id')} marked SHA-256 does not match its pixels"
+            )
+        if pack_dir is None:
+            errors.append(
+                f"watermark.evidence.unbound: asset {asset.get('id')} cannot verify source/report paths"
+            )
+        else:
+            pack_root = pack_dir.resolve()
+            source_location = evidence.get("source_location")
+            report_location = evidence.get("report_location")
+            source_path = (
+                (pack_root / source_location).resolve()
+                if isinstance(source_location, str) and source_location
+                else None
+            )
+            report_path = (
+                (pack_root / report_location).resolve()
+                if isinstance(report_location, str) and report_location
+                else None
+            )
+            for label, path in (("source_location", source_path), ("report_location", report_path)):
+                if path is None:
+                    errors.append(
+                        f"watermark.path.invalid: asset {asset.get('id')} {label} is required"
+                    )
+                    continue
+                try:
+                    path.relative_to(pack_root)
+                except ValueError:
+                    errors.append(
+                        f"watermark.path.outside_pack: asset {asset.get('id')} {label} leaves the organization pack"
+                    )
+            if source_path is not None and report_path is not None:
+                if not source_path.is_file():
+                    errors.append(
+                        f"watermark.source.missing: asset {asset.get('id')} preserved source is missing"
+                    )
+                elif evidence.get("source_sha256") != file_sha256(source_path):
+                    errors.append(
+                        f"watermark.source_hash.mismatch: asset {asset.get('id')} source SHA-256 does not match"
+                    )
+                if asset_path is not None and source_path.resolve() == asset_path.resolve():
+                    errors.append(
+                        f"watermark.source.overwrite: asset {asset.get('id')} source and marked derivative are the same file"
+                    )
+                if not report_path.is_file():
+                    errors.append(
+                        f"watermark.report.missing: asset {asset.get('id')} public report is missing"
+                    )
+                elif evidence.get("report_sha256") != file_sha256(report_path):
+                    errors.append(
+                        f"watermark.report_hash.mismatch: asset {asset.get('id')} report SHA-256 does not match"
+                    )
+                elif source_path.is_file() and asset_path is not None and asset_path.is_file():
+                    try:
+                        loaded_report = read_json(report_path)
+                        expected_evidence = watermark_evidence_from_report(
+                            loaded_report,
+                            report_path,
+                            asset_path,
+                            pack_dir=pack_root,
+                            source_path=source_path,
+                            key_id=str(expected_key_id or key_id or ""),
+                        )
+                    except ValueError as exc:
+                        errors.append(
+                            f"watermark.report.invalid: asset {asset.get('id')} report failed validation: {exc}"
+                        )
+                    else:
+                        for field, expected in expected_evidence.items():
+                            if evidence.get(field) != expected:
+                                errors.append(
+                                    f"watermark.evidence.mismatch: asset {asset.get('id')} {field} differs from its report"
+                                )
+        if asset_path is not None and asset_path.is_file():
+            detection, authentication_errors = _authenticate_marked_pixels(
+                asset_path,
+                scheme=evidence.get("scheme"),
+                payload_fingerprint=evidence.get("payload_fingerprint"),
+                key_epoch=evidence.get("key_epoch"),
+            )
+            errors.extend(
+                f"{message} (asset {asset.get('id')})"
+                for message in authentication_errors
+            )
+            transport_simulation, transport_errors = _verify_marked_transport(
+                asset_path,
+                payload_fingerprint=evidence.get("payload_fingerprint"),
+            )
+            errors.extend(
+                f"{message} (asset {asset.get('id')})"
+                for message in transport_errors
+            )
+        public_evidence = {
+            field: evidence.get(field) for field in WATERMARK_EVIDENCE_FIELDS
+        }
+        for field in ("source_location", "report_location"):
+            value = public_evidence.get(field)
+            if isinstance(value, str):
+                location_path = Path(value)
+                if location_path.is_absolute() or ".." in location_path.parts:
+                    public_evidence[field] = None
+    return {
+        "asset_id": asset.get("id"),
+        "in_scope": requirement["in_scope"],
+        "eligible": requirement["eligible"],
+        "required": requirement["in_scope"] and require_evidence,
+        "ready": not errors,
+        "evidence": public_evidence,
+        "detection": detection,
+        "transport_simulation": transport_simulation,
+        "carrier": requirement.get("carrier"),
+        "reasons": requirement.get("reasons", []),
+        "errors": errors,
+    }
+
+
+def watermark_inventory(
+    organization: dict[str, Any],
+    assets_doc: dict[str, Any],
+    pack_dir: Path,
+) -> dict[str, Any]:
+    """Build the public pack/manifest/compile watermark status inventory."""
+    policy = watermark_policy(organization)
+    require_evidence = policy.get("mode") == "required"
+    reports: list[dict[str, Any]] = []
+    errors: list[str] = []
+    warnings: list[str] = []
+    if not policy["declared"]:
+        warnings.append(
+            "watermark.migration-needed: organization has no generated_image_watermark policy"
+        )
+    else:
+        if policy.get("mode") not in WATERMARK_POLICY_MODES:
+            errors.append(
+                "watermark.policy.invalid: generated_image_watermark.mode must be optional or required"
+            )
+        if policy.get("scheme") != WATERMARK_SCHEME:
+            errors.append(
+                f"watermark.policy.invalid: generated_image_watermark.scheme must be {WATERMARK_SCHEME}"
+            )
+        if not valid_watermark_key_id(policy.get("key_id")):
+            errors.append(
+                "watermark.policy.invalid: generated_image_watermark.key_id must be a short "
+                "lowercase non-secret slug"
+            )
+    raw_assets = assets_doc.get("assets", [])
+    assets = raw_assets if isinstance(raw_assets, list) else []
+    pack_root = pack_dir.resolve()
+    for asset in assets:
+        if not isinstance(asset, dict):
+            continue
+        location = asset.get("location")
+        asset_path = None
+        location_error = None
+        if isinstance(location, str) and not re.match(r"^(?:https?://|data:)", location, re.I):
+            candidate = (pack_root / location).resolve()
+            try:
+                candidate.relative_to(pack_root)
+            except ValueError:
+                location_error = (
+                    f"watermark.path.outside_pack: asset {asset.get('id')} location leaves "
+                    "the organization pack"
+                )
+            else:
+                asset_path = candidate
+        report = validate_asset_watermark(
+            asset,
+            asset_path,
+            expected_scheme=str(policy.get("scheme") or WATERMARK_SCHEME),
+            expected_key_id=(
+                str(policy.get("key_id"))
+                if isinstance(policy.get("key_id"), str)
+                else None
+            ),
+            pack_dir=pack_dir,
+            require_evidence=require_evidence,
+        )
+        if location_error is not None:
+            report["errors"].append(location_error)
+            report["ready"] = False
+        reports.append(report)
+        errors.extend(report["errors"])
+        if require_evidence and report["in_scope"] and not report["eligible"]:
+            reason = ", ".join(report.get("reasons", [])) or "carrier is not eligible"
+            errors.append(
+                f"watermark.carrier.ineligible: asset {report['asset_id']} must use a qualifying "
+                f"opaque PNG carrier under required policy ({reason})"
+            )
+    eligible = [item for item in reports if item["eligible"]]
+    verified = [
+        item
+        for item in eligible
+        if isinstance(item.get("evidence"), dict)
+        and item["evidence"].get("local_verified") is True
+        and isinstance(item.get("detection"), dict)
+        and item["detection"].get("authenticated") is True
+        and isinstance(item.get("transport_simulation"), dict)
+        and item["transport_simulation"].get("payload_authenticated") is True
+        and not item["errors"]
+    ]
+    return {
+        "policy": policy,
+        "ready": not errors,
+        "eligible_asset_ids": [item["asset_id"] for item in eligible],
+        "verified_asset_ids": [item["asset_id"] for item in verified],
+        "assets": reports,
+        "errors": list(dict.fromkeys(errors)),
+        "warnings": list(dict.fromkeys(warnings)),
+    }
 
 
 def _is_iso_datetime(value: Any) -> bool:

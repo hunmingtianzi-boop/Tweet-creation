@@ -8,7 +8,7 @@ The handoff must bind all transport artifacts to one current Ardot revision:
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "ardot": {
     "file_id": "...",
     "root_node_id": "...",
@@ -36,7 +36,22 @@ The handoff must bind all transport artifacts to one current Ardot revision:
       "path": "assets/cover.png",
       "sha256": "...",
       "role": "cover",
-      "wechat_thumb_media_id": null
+      "wechat_thumb_media_id": null,
+      "watermark": {
+        "scheme": "org-wechat-dct-v1",
+        "payload_fingerprint": "<64 lowercase hex characters>",
+        "key_id": "external-key-epoch-1",
+        "key_epoch": 1,
+        "psnr_db": 44.37,
+        "psnr_threshold_db": 42.0,
+        "source_location": "assets/generated/unwatermarked-masters/cover.png",
+        "source_sha256": "...",
+        "marked_sha256": "...",
+        "report_location": "assets/derived/cover-watermark.json",
+        "report_sha256": "...",
+        "local_verified": true,
+        "transport_status": null
+      }
     }
   ],
   "components": [
@@ -75,6 +90,8 @@ Equivalent tool-native data is acceptable; a literal JSON file is not required. 
 - `static` components do not need a capability profile. `horizontal-swipe` and `svg-smil-self-v1` require an information-equivalent fallback. Only `svg-smil-self-v1` may contain the policy's no-ID self-trigger SMIL subset.
 - Keep the target-account capability profile outside this bundle and outside the organization pack. Reference it by ID; never embed tokens, account secrets, or another account's certification.
 - After cover upload, bind the target-account `thumb_media_id` to the same cover asset hash and verify it in the saved draft.
+- For every eligible generated raster carrier, bind the public watermark evidence to the marked asset hash. Keep the secret and raw watermark-ID mapping outside this bundle, the organization pack, Ardot, and logs.
+- After saving the draft, download the actual WeChat-hosted body/cover derivative, run authenticated detection, and bind the result to its downloaded SHA-256, byte length, format, dimensions, expected payload fingerprint, and asset ID before recording `transport_verified` or `transport_lost`. URL or HTML readback alone is insufficient. A cropped/rotated/bordered phone screenshot is outside V1's guarantee and is not a substitute for the hosted object.
 
 ## Blocking mismatches
 
@@ -83,9 +100,11 @@ Stop before delivery when:
 - the selected root is ambiguous;
 - current text differs from the transport artifact;
 - an asset is missing or its hash changed after compilation;
+- an eligible generated raster lacks matching `local_verified` watermark evidence, its public evidence exposes a raw watermark ID or identity data, or the first embed/re-embed is attempted in the publisher;
 - the cover cannot be resolved;
 - the current cover hash has no target-account `thumb_media_id`, or the saved draft does not show that cover;
 - an interactive component lacks a static equivalent;
 - an interactive component lacks closed/open/fallback Ardot state evidence, matching fallback hashes, readback expectations, or a current target-account capability profile;
 - a component uses JavaScript, `<details>`, any transport `id`, cross-ID SMIL timing, or an interaction mode outside `wechat-svg-smil-self-v1`;
 - the target account has not been identified.
+- required watermark mode has any locally verified carrier without authenticated `transport_verified` evidence from the actual WeChat-hosted derivative.

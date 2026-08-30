@@ -19,7 +19,15 @@ from workflow_quality import (
     ALLOWED_TYPOGRAPHY_STRATEGIES,
     EXPLICIT_STYLE_REFERENCE_SCOPE,
     REQUIRED_STYLE_NON_COPY_CONSTRAINTS,
+    WATERMARK_POLICY_MODES,
+    WATERMARK_SCHEME,
+    asset_watermark_requirement,
     style_grammar_errors,
+    validate_asset_watermark,
+    valid_watermark_key_id,
+    watermark_evidence_from_report,
+    watermark_inventory,
+    watermark_policy,
 )
 
 
@@ -410,6 +418,11 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
         for field in ("id", "kind", "title", "location", "origin"):
             if not asset.get(field):
                 errors.append(f"asset {asset_id} missing {field}")
+        uses = asset.get("uses")
+        if not isinstance(uses, list) or any(
+            not isinstance(value, str) or not value.strip() for value in uses
+        ):
+            errors.append(f"asset {asset_id}.uses must be a list of non-empty strings")
         if asset.get("kind") in {"logo", "qr"} and asset.get("origin") not in SAFE_IDENTITY_ORIGINS:
             errors.append(f"asset {asset_id} is {asset.get('kind')} but origin is not official/user-supplied")
         location = asset.get("location")
@@ -495,6 +508,29 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
             errors.extend(background_quality["errors"])
 
     provenance = require_dict(org.get("provenance"), "organization.provenance", errors)
+    watermark_config = provenance.get("generated_image_watermark")
+    if watermark_config is None:
+        warnings.append(
+            "watermark.migration-needed: organization has no generated_image_watermark policy"
+        )
+    elif not isinstance(watermark_config, dict):
+        errors.append("organization.provenance.generated_image_watermark must be an object")
+    else:
+        if watermark_config.get("mode") not in WATERMARK_POLICY_MODES:
+            errors.append(
+                "organization.provenance.generated_image_watermark.mode must be optional or required"
+            )
+        if watermark_config.get("scheme") != WATERMARK_SCHEME:
+            errors.append(
+                "organization.provenance.generated_image_watermark.scheme must be "
+                + WATERMARK_SCHEME
+            )
+        key_id = watermark_config.get("key_id")
+        if not valid_watermark_key_id(key_id):
+            errors.append(
+                "organization.provenance.generated_image_watermark.key_id must be a short "
+                "lowercase non-secret slug"
+            )
     provenance_source_ids = require_list(
         provenance.get("source_ids"),
         "organization.provenance.source_ids",
@@ -618,6 +654,10 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
     require_dict(ardot_doc.get("page_names"), "ardot.page_names", errors)
     require_dict(ardot_doc.get("component_aliases"), "ardot.component_aliases", errors)
 
+    watermark_status = watermark_inventory(org, assets_doc, pack_dir)
+    errors.extend(watermark_status["errors"])
+    warnings.extend(watermark_status["warnings"])
+
     return {
         "ok": not errors,
         "path": str(pack_dir.resolve()),
@@ -628,6 +668,7 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
             "approved_routes": approved_routes,
             "background_family_quality": background_quality,
         },
+        "provenance_watermark": watermark_status,
         "counts": {
             "routes": len(routes),
             "article_types": len(article_types),
@@ -636,8 +677,8 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
             "components": len(components),
             "assets": len(assets),
         },
-        "errors": errors,
-        "warnings": warnings,
+        "errors": list(dict.fromkeys(errors)),
+        "warnings": list(dict.fromkeys(warnings)),
     }
 
 
@@ -739,6 +780,11 @@ def scaffold(org_id: str, name: str) -> dict[str, Any]:
                 "other-organization-visual-pack",
             ],
             "isolation_reviewed_at": None,
+            "generated_image_watermark": {
+                "mode": "required",
+                "scheme": WATERMARK_SCHEME,
+                "key_id": "external",
+            },
         },
     }
     organization["visual"] = {
@@ -987,7 +1033,8 @@ def prompt_blueprint(
         f"motifs: {motifs}; palette: {palette}; aspect ratio {aspect_ratio}; "
         f"{style_grammar_instruction}"
         f"keep a deliberate empty overlay zone and make the subject readable on a phone. "
-        f"Avoid: {avoid}. No letters, numbers, watermark, logo, or QR code."
+        f"Avoid: {avoid}. No visible letters, numbers, watermark, signature, logo, or QR code. "
+        "A hidden provenance watermark is applied by the workflow after generation."
     )
 
 
@@ -1033,7 +1080,9 @@ def micro_prompt_blueprint(
         f"ratio {aspect_ratio}. {style_grammar_instruction}"
         f"Use a transparent background or an open, soft-edged "
         f"composition with no rectangular panel, border, card, poster, UI frame, letters, "
-        f"numbers, watermark, logo, or QR code. Avoid: {avoid}."
+        f"visible numbers, watermark, signature, logo, or QR code. Avoid: {avoid}. "
+        "Hidden provenance marking, if any, is handled separately by workflow policy; "
+        "this transparent micro asset remains unmarked in V1."
     )
 
 
@@ -1298,6 +1347,89 @@ def command_register_asset(args: argparse.Namespace) -> None:
     if background_family_id:
         item["background_family_id"] = background_family_id
         item["background_variant"] = background_variant
+    watermark_requirement = asset_watermark_requirement(item, candidate)
+    watermark_report_path = getattr(args, "watermark_report", None)
+    watermark_source_path = getattr(args, "watermark_source", None)
+    if watermark_requirement["in_scope"] and not watermark_requirement["eligible"]:
+        reasons = ", ".join(watermark_requirement.get("reasons", []))
+        raise SystemExit(
+            "watermark.carrier.ineligible: generated background/cover must use a qualifying "
+            f"opaque PNG carrier ({reasons})"
+        )
+    if watermark_requirement["eligible"]:
+        if candidate is None:
+            raise SystemExit("eligible watermark carriers must be local raster files")
+        if watermark_report_path is None or watermark_source_path is None:
+            raise SystemExit(
+                "eligible generated backgrounds and generated covers require --watermark-source "
+                "and --watermark-report; embed a new marked derivative before registration"
+            )
+        policy = watermark_policy(read_json(args.pack / "organization.json"))
+        if (
+            not policy["declared"]
+            or policy.get("mode") not in WATERMARK_POLICY_MODES
+            or policy.get("scheme") != WATERMARK_SCHEME
+            or not valid_watermark_key_id(policy.get("key_id"))
+        ):
+            raise SystemExit(
+                "declare organization.provenance.generated_image_watermark before registering "
+                "an eligible carrier"
+            )
+        pack_root = args.pack.resolve()
+        watermark_report_path = Path(watermark_report_path)
+        if not watermark_report_path.is_absolute():
+            watermark_report_path = pack_root / watermark_report_path
+        watermark_report_path = watermark_report_path.resolve()
+        watermark_source_path = Path(watermark_source_path)
+        if not watermark_source_path.is_absolute():
+            watermark_source_path = pack_root / watermark_source_path
+        watermark_source_path = watermark_source_path.resolve()
+        for label, path in (
+            ("marked asset", candidate),
+            ("watermark source", watermark_source_path),
+            ("watermark report", watermark_report_path),
+        ):
+            try:
+                path.relative_to(pack_root)
+            except ValueError as exc:
+                raise SystemExit(f"{label} must stay inside the organization pack") from exc
+        try:
+            watermark_report = read_json(watermark_report_path)
+            if not isinstance(watermark_report, dict):
+                raise ValueError("watermark report must be a JSON object")
+            item["watermark"] = watermark_evidence_from_report(
+                watermark_report,
+                watermark_report_path,
+                candidate,
+                pack_dir=pack_root,
+                source_path=watermark_source_path,
+                key_id=str(policy["key_id"]),
+            )
+            from provenance_watermark import detect_watermark
+
+            source_detection = detect_watermark(watermark_source_path)
+            if source_detection.get("authenticated") is True:
+                raise ValueError("watermark source must be an unwatermarked master")
+            watermark_check = validate_asset_watermark(
+                item,
+                candidate,
+                expected_scheme=str(policy["scheme"]),
+                expected_key_id=str(policy["key_id"]),
+                pack_dir=pack_root,
+                require_evidence=True,
+            )
+        except ValueError as exc:
+            raise SystemExit(f"watermark evidence validation failed: {exc}") from exc
+        if watermark_check["errors"]:
+            raise SystemExit(
+                "watermark evidence validation failed: "
+                + "; ".join(watermark_check["errors"])
+            )
+    elif watermark_report_path is not None or watermark_source_path is not None:
+        raise SystemExit(
+            "--watermark-source/--watermark-report are only valid for eligible local opaque "
+            "generated backgrounds or generated covers"
+        )
     items.append(item)
     write_json(assets_path, document)
     report = validate_pack(args.pack)
@@ -1377,6 +1509,16 @@ def build_parser() -> argparse.ArgumentParser:
     register_parser.add_argument("--visual-role", choices=sorted(VISUAL_ASSET_ROLES))
     register_parser.add_argument("--background-family-id")
     register_parser.add_argument("--background-variant", choices=("master", "companion"))
+    register_parser.add_argument(
+        "--watermark-source",
+        type=Path,
+        help="Pack-local unwatermarked master used to create the marked derivative",
+    )
+    register_parser.add_argument(
+        "--watermark-report",
+        type=Path,
+        help="Public local_verified report created while embedding this marked derivative",
+    )
     register_parser.set_defaults(func=command_register_asset)
     return parser
 

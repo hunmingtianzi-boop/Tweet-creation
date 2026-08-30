@@ -16,6 +16,7 @@ from workflow_quality import (
     calibration_state,
     validate_interaction_plan,
     validate_typography_plan,
+    watermark_inventory,
 )
 
 
@@ -136,6 +137,7 @@ def resolve_asset(ref: str, pack: dict[str, Any], article_path: Path) -> dict[st
             "origin": item.get("origin"),
             "location": location,
             "local_path": local_path,
+            "watermark": item.get("watermark"),
         }
     local_path = (article_path.parent / ref).resolve()
     return {
@@ -172,6 +174,13 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
     calibration["background_family_quality"] = report.get("visual_calibration", {}).get(
         "background_family_quality"
     )
+    provenance_watermark = report.get("provenance_watermark")
+    if not isinstance(provenance_watermark, dict):
+        provenance_watermark = watermark_inventory(
+            organization,
+            pack["assets"],
+            pack["path"],
+        )
     storyboard = build_storyboard_plan(article_path)
     visual_kit_plan = build_visual_kit_plan(article_path, org_dir)
     ardot = pack["ardot"]
@@ -327,6 +336,7 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
             ),
         },
         "calibration": calibration,
+        "provenance_watermark": provenance_watermark,
         "storyboard": storyboard,
         "variables": variables,
         "visual_kit": visual_kit_plan,
@@ -341,6 +351,7 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
             "STOP if visual_kit.ready_for_layout is false",
             "STOP if typography.ready is false",
             "STOP if interaction_plan.ready is false",
+            "STOP if provenance_watermark.ready is false for a required generated-image watermark policy",
             "when style_reference.policy is explicit-style-grammar, preserve the canonical grammar SHA-256 and copy no reference text, photographs, logos, specific layout, component geometry, or artwork",
             "generate four distinct micro illustrations, verify real Alpha, register them, and record native Ardot component evidence before article layout",
             "author 2–3 semantic dynamic modules by default; a repeated card group counts as one module, and fewer modules require an explicit user/editor static exception",
@@ -357,11 +368,13 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
             "keep every micro image at or below 72 percent of the 390 px row and every micro component at or below 82 percent; distribute the four roles across both text edges with varied scale and at least three composition relations",
             "export every actual visual-kit instance from the article root into the hashed inventory and node-property evidence; repeated roles are allowed but no instance may be omitted",
             "upload registered image assets to their named image slots",
+            "use the already-watermarked registered derivative; never embed a watermark for the first time in Ardot or during WeChat compile",
             "capture section screenshots and iterate before any WeChat handoff",
         ],
         "qa": {
             "ready_for_layout": (
                 calibration["ready"]
+                and provenance_watermark["ready"]
                 and storyboard["ready_for_visual_kit"]
                 and visual_kit_plan["ready_for_layout"]
                 and typography["ready"]
@@ -369,6 +382,7 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
             ),
             "blocking": [
                 "organization or selected route lacks an approved Ardot calibration benchmark",
+                "required generated background or generated cover lacks locally verified watermark evidence",
                 "background family pixels fail surface-mode unity, copy-zone variance, tonal continuity, or 4.5:1 body-text contrast",
                 "article lacks an approved narrative storyboard with complete block coverage",
                 "article-specific visual kit lacks any required role or does not use four distinct generated micro assets",
