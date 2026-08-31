@@ -43,7 +43,7 @@ WeChat adapter     → 图片上传、内联样式、草稿创建
      --output output/<organization-id>/<slug>/visual-kit-plan.json
    ```
 
-5. 逐张生成、检查并注册四类视觉。四个透明微组件在 V1 中明确为 `not_eligible`，不得为了水印修改 Alpha。四个角色必须使用四枚不同生成图；每张绑定正文原句、具体主体/动作、分镜章节与构图职责，并通过 `inspect_asset.py` 的 Alpha/尺寸/宽高比检查。对于不透明 AI 底图或纯生成 raster 封面，保留无水印母版，先用 `provenance_watermark.py embed` 生成并验证 final derivative，再登记资产；详细合同见 [provenance-watermark.md](provenance-watermark.md)。
+5. 逐张生成、派生、检查并注册四类视觉。Codex Desktop 默认加载 `chatgpt-web-image-route` 与 `codex-with-chatgpt`，只用内置 Browser 生成受控 key 背景原图并下载原始 PNG。用安全运行的 `prepare_micro_cutout.py` 将可安全分离的原图变成 `assets/derived/` RGBA8 成品，并绑定 raw/prompt/provider/处理器/配置/报告/输出 SHA；原图和生成器声明不直接进 Ardot。四个透明微组件在 V1 中明确为 `not_eligible`，不得为了水印修改 Alpha。四个角色必须使用四枚不同 derivative；每张绑定正文原句、具体主体/动作、分镜章节与构图职责，并通过 `inspect_asset.py` 的 Alpha/尺寸/宽高比检查。对于不透明 AI 底图或纯生成 raster 封面，保留无水印母版，先用 `provenance_watermark.py embed` 生成并验证 final derivative，再登记资产；详细合同见 [provenance-watermark.md](provenance-watermark.md)。
 6. 先在 Ardot 中创建四个原生 Ornament 组件，把 file URL、component node ID 和 exact name 写回 `article.visual_kit.assets`。
 7. 确认 `ready_for_layout: true` 后，生成装配清单：
 

@@ -1,16 +1,37 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "kind": "org-wechat-runtime-adapter",
   "harness": "codex-desktop",
   "truth_boundary": "routing-only; the host tool trace is required for live proof",
   "capabilities": {
-    "image.generate": {
+    "image.generate.opaque": {
       "route": "tool",
       "requires": ["image_gen__imagegen"]
+    },
+    "image.generate.rgba": {
+      "route": "chatgpt-web",
+      "requires": [
+        "codex-with-chatgpt",
+        "browser:control-in-app-browser",
+        "mcp__node_repl__js"
+      ],
+      "provider_skill": {
+        "id": "chatgpt-web-image-route",
+        "required_status": "loaded",
+        "contract": "chatgpt-web-image-route-v1"
+      },
+      "output_contract": "subject-cutout-rgba8-v1",
+      "processor": "scripts/prepare_micro_cutout.py",
+      "live_proof": "first-generated-original-download-plus-processor-and-image-inspection"
     },
     "image.inspect": {
       "route": "tool",
       "requires": ["view_image"]
+    },
+    "chatgpt.session": {
+      "route": "skill+browser",
+      "requires": ["codex-with-chatgpt"],
+      "status": "requires-current-session-doctor-and-login-probe"
     },
     "ardot.create": {
       "route": "mcp",

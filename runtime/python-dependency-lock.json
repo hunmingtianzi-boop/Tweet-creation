@@ -6,7 +6,8 @@
     "scripts/runtime_preflight.py",
     "scripts/compile_wechat.py",
     "scripts/validate_transport_fidelity.py",
-    "scripts/provenance_watermark.py"
+    "scripts/provenance_watermark.py",
+    "scripts/prepare_micro_cutout.py"
   ],
   "scripts_importable_census": {
     "algorithm": "top-level-python-importables-v1",
@@ -46,6 +47,10 @@
       {
         "kind": "source",
         "path": "orgs.py"
+      },
+      {
+        "kind": "source",
+        "path": "prepare_micro_cutout.py"
       },
       {
         "kind": "source",

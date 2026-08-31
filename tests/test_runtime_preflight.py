@@ -66,7 +66,7 @@ def runtime_tool(
 
 def valid_profile() -> dict:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "org-wechat-runtime-profile",
         "harness": {
             "name": "test-host",
@@ -88,7 +88,12 @@ def valid_profile() -> dict:
             },
         ],
         "tools": [
-            runtime_tool("image_gen__imagegen", "image.generate", "codex-image-provider"),
+            runtime_tool(
+                "image_gen__imagegen", "image.generate.opaque", "codex-image-provider"
+            ),
+            runtime_tool(
+                "test__rgba_generate", "image.generate.rgba", "test-rgba-provider"
+            ),
             runtime_tool("view_image", "image.inspect", "codex-image-provider"),
             runtime_tool(
                 "mcp__ardot_remote__fetch_file_info", "ardot.read", "ardot-remote"
@@ -129,11 +134,19 @@ def valid_profile() -> dict:
             },
         },
         "capabilities": {
-            "image_generation": {
+            "opaque_image_generation": {
                 "mode": "tool",
                 "status": "bound_unprobed",
                 "tool_ids": ["image_gen__imagegen"],
-                "probe": probe("runtime-registry", "imagegen-schema-bound"),
+                "probe": probe("runtime-registry", "opaque-imagegen-schema-bound"),
+            },
+            "rgba_cutout_generation": {
+                "mode": "tool",
+                "status": "bound_unprobed",
+                "tool_ids": ["test__rgba_generate"],
+                "output_contract": "subject-cutout-rgba8-v1",
+                "processor": "scripts/prepare_micro_cutout.py",
+                "probe": probe("runtime-registry", "rgba-imagegen-schema-bound"),
             },
             "visual_inspection": {
                 "mode": "tool",
@@ -189,6 +202,50 @@ def valid_profile() -> dict:
             },
         },
     }
+
+
+def select_codex_chatgpt_rgba_route(profile: dict) -> dict:
+    """Bind the current Codex adapter's composite ChatGPT/IAB RGBA route."""
+
+    profile["harness"] = {
+        "name": "codex-desktop",
+        "adapter_path": "runtime/adapters/codex-desktop.json",
+        "adapter_sha256": sha256_uri(ROOT / "runtime" / "adapters" / "codex-desktop.json"),
+    }
+    profile["tools"] = [
+        item for item in profile["tools"] if item["kind"] != "image.generate.rgba"
+    ]
+    for item in profile["tools"]:
+        if item["kind"] == "browser.control":
+            item["provider"] = "codex-chatgpt-browser"
+            item["session_id"] = "codex-chatgpt-session-20260831"
+    profile["tools"].append(
+        runtime_tool(
+            "codex-with-chatgpt",
+            "chatgpt.session",
+            "codex-chatgpt-browser",
+            "skill-registry",
+        )
+    )
+    profile["tools"][-1]["session_id"] = "codex-chatgpt-session-20260831"
+    profile["capabilities"]["rgba_cutout_generation"] = {
+        "mode": "chatgpt-web",
+        "status": "bound_unprobed",
+        "tool_ids": [
+            "codex-with-chatgpt",
+            "browser:control-in-app-browser",
+            "mcp__node_repl__js",
+        ],
+        "provider_skill": {
+            "id": "chatgpt-web-image-route",
+            "status": "loaded",
+            "contract": "chatgpt-web-image-route-v1",
+        },
+        "output_contract": "subject-cutout-rgba8-v1",
+        "processor": "scripts/prepare_micro_cutout.py",
+        "probe": probe("runtime-registry", "chatgpt-web-route-bound-no-live-image-proof"),
+    }
+    return profile
 
 
 def error_codes(report: dict) -> set[str]:
@@ -250,7 +307,7 @@ class RuntimePreflightTests(unittest.TestCase):
         self.assertEqual(report["check_level"], "unattested")
         self.assertIn("runtime.probe.unattested", error_codes(report))
         self.assertIn(
-            "runtime.capability.imagegen_live_probe_deferred",
+            "runtime.capability.rgba_live_probe_deferred",
             {item["code"] for item in report["warnings"]},
         )
 
@@ -268,6 +325,10 @@ class RuntimePreflightTests(unittest.TestCase):
         self.assertEqual(report["check_level"], "binding")
         self.assertRegex(report["binding_nonce"], r"^[A-Za-z0-9_-]{32,}$")
         self.assertRegex(report["binding_digest"], r"^sha256:[0-9a-f]{64}$")
+        self.assertEqual(
+            report["resolved_capabilities"]["rgba_cutout_generation"]["live_proof"],
+            "deferred-until-first-generated-asset",
+        )
         self.assertRegex(
             report["python"]["cryptography_version"], r"^(?:4[3-9]|50)\."
         )
@@ -280,7 +341,8 @@ class RuntimePreflightTests(unittest.TestCase):
         )
         self.assertNotIn("token=", json.dumps(actions, ensure_ascii=False))
         self.assertTrue(actions["bind-image-inspection"]["blocking"])
-        self.assertTrue(actions["bind-image-generation"]["blocking"])
+        self.assertTrue(actions["bind-opaque-image-generation"]["blocking"])
+        self.assertTrue(actions["bind-rgba-cutout-generation"]["blocking"])
         self.assertTrue(actions["bind-host-receipt-attestation"]["blocking"])
 
     def test_host_setup_actions_follow_selected_ardot_and_wechat_routes(self) -> None:
@@ -329,6 +391,97 @@ class RuntimePreflightTests(unittest.TestCase):
             "authorize-wechat-api-provider",
         )
 
+    def test_codex_chatgpt_rgba_route_is_prepared_before_ardot(self) -> None:
+        profile = select_codex_chatgpt_rgba_route(valid_profile())
+        profile["capabilities"].pop("wechat_delivery")
+        profile["capabilities"].pop("host_receipt_attestation")
+        profile["links"].pop("wechat_current_account")
+        profile["tools"] = [
+            item for item in profile["tools"] if item["kind"] != "host.receipt.attest"
+        ]
+        report = self.run_check(
+            profile, phase="authoring", binding_only=True, environment={}
+        )
+        self.assertTrue(report["binding_ready"], report["errors"])
+        action_ids = [item["id"] for item in report["host_setup_actions"]]
+        for expected in (
+            "load-chatgpt-image-route-skill",
+            "load-codex-with-chatgpt-skill",
+            "prepare-codex-with-chatgpt",
+            "open-chatgpt-image-session",
+            "bind-rgba-download-processing",
+        ):
+            self.assertIn(expected, action_ids)
+            self.assertLess(action_ids.index(expected), action_ids.index("connect-ardot-mcp"))
+        actions = {item["id"]: item for item in report["host_setup_actions"]}
+        self.assertEqual(
+            actions["prepare-codex-with-chatgpt"]["steps"],
+            ["update-check", "sandbox-allow", "doctor"],
+        )
+        self.assertEqual(
+            actions["open-chatgpt-image-session"]["user_step_if_needed"],
+            "complete-chatgpt-login-only",
+        )
+        self.assertNotIn("url", actions["open-chatgpt-image-session"])
+        self.assertEqual(
+            actions["open-chatgpt-image-session"]["target"],
+            "current-c2c-session-chat-or-project-conversation",
+        )
+        self.assertIn(
+            "first-real-generated-file",
+            actions["bind-rgba-download-processing"]["expected_result"],
+        )
+
+    def test_codex_chatgpt_rgba_route_requires_skill_contract_and_one_session(self) -> None:
+        profile = select_codex_chatgpt_rgba_route(valid_profile())
+        profile["capabilities"].pop("wechat_delivery")
+        profile["capabilities"].pop("host_receipt_attestation")
+        profile["links"].pop("wechat_current_account")
+        profile["tools"] = [
+            item for item in profile["tools"] if item["kind"] != "host.receipt.attest"
+        ]
+
+        missing_skill = copy.deepcopy(profile)
+        missing_skill["capabilities"]["rgba_cutout_generation"]["provider_skill"][
+            "status"
+        ] = "available"
+        report = self.run_check(
+            missing_skill, phase="authoring", binding_only=True, environment={}
+        )
+        self.assertIn("runtime.skills.provider_skill_not_loaded", error_codes(report))
+
+        mismatched_session = copy.deepcopy(profile)
+        for item in mismatched_session["tools"]:
+            if item["id"] == "codex-with-chatgpt":
+                item["session_id"] = "different-chatgpt-session"
+        report = self.run_check(
+            mismatched_session, phase="authoring", binding_only=True, environment={}
+        )
+        self.assertIn("runtime.capability.tool_context_mismatch", error_codes(report))
+
+    def test_chatgpt_doctor_is_not_live_rgba_image_proof(self) -> None:
+        profile = select_codex_chatgpt_rgba_route(valid_profile())
+        rgba = profile["capabilities"]["rgba_cutout_generation"]
+        rgba["status"] = "passed"
+        rgba["probe"] = probe("c2c-doctor", "doctor-green-but-no-generated-file")
+        report = self.run_check(profile)
+        self.assertIn(
+            "runtime.capability.rgba_session_not_live_image_proof",
+            error_codes(report),
+        )
+        self.assertIn("runtime.probe.method_invalid", error_codes(report))
+
+    def test_chatgpt_login_wall_blocks_live_rgba_readiness(self) -> None:
+        profile = select_codex_chatgpt_rgba_route(valid_profile())
+        profile["capabilities"]["rgba_cutout_generation"]["status"] = (
+            "needs_user_login"
+        )
+        report = self.run_check(profile)
+        self.assertIn(
+            "runtime.capability.rgba_provider_needs_user_login",
+            error_codes(report),
+        )
+
     def test_delivery_actions_keep_image_inspection_blocking_without_generation(self) -> None:
         profile = valid_profile()
         actions = {
@@ -343,14 +496,31 @@ class RuntimePreflightTests(unittest.TestCase):
             )
         }
         self.assertTrue(actions["bind-image-inspection"]["blocking"])
-        self.assertNotIn("bind-image-generation", actions)
+        self.assertNotIn("bind-opaque-image-generation", actions)
+        self.assertNotIn("bind-rgba-cutout-generation", actions)
+        self.assertNotIn("open-chatgpt-image-session", actions)
 
-    def test_missing_image_generation_tool_is_blocking(self) -> None:
+    def test_missing_opaque_image_generation_tool_is_blocking(self) -> None:
         profile = valid_profile()
-        profile["tools"] = [item for item in profile["tools"] if item["kind"] != "image.generate"]
+        profile["tools"] = [
+            item for item in profile["tools"] if item["kind"] != "image.generate.opaque"
+        ]
         report = self.run_check(profile)
         self.assertFalse(report["ok"])
         self.assertIn("runtime.capability.tool_unresolved", error_codes(report))
+
+    def test_rgba_tool_route_requires_cutout_contract_and_processor(self) -> None:
+        profile = valid_profile()
+        profile["capabilities"]["rgba_cutout_generation"]["output_contract"] = (
+            "generic-png"
+        )
+        profile["capabilities"]["rgba_cutout_generation"]["processor"] = (
+            "scripts/inspect_asset.py"
+        )
+        report = self.run_check(profile, binding_only=True, environment={})
+        codes = error_codes(report)
+        self.assertIn("runtime.capability.rgba_output_contract_mismatch", codes)
+        self.assertIn("runtime.capability.rgba_processor_mismatch", codes)
 
     def test_ardot_mcp_requires_read_write_and_export(self) -> None:
         profile = valid_profile()
@@ -429,7 +599,7 @@ class RuntimePreflightTests(unittest.TestCase):
         profile = valid_profile()
         secret_shaped_id = "sk-proj-FAKESECRET1234567890"
         profile["tools"][0]["id"] = secret_shaped_id
-        profile["capabilities"]["image_generation"]["tool_ids"] = [secret_shaped_id]
+        profile["capabilities"]["opaque_image_generation"]["tool_ids"] = [secret_shaped_id]
         report = self.run_check(profile, binding_only=True, environment={})
         self.assertFalse(report["ok"])
         self.assertIn("runtime.secret.inline_value_forbidden", error_codes(report))
@@ -438,7 +608,9 @@ class RuntimePreflightTests(unittest.TestCase):
     def test_fake_tool_id_is_not_in_selected_adapter(self) -> None:
         profile = valid_profile()
         profile["tools"][0]["id"] = "fake.image.generator"
-        profile["capabilities"]["image_generation"]["tool_ids"] = ["fake.image.generator"]
+        profile["capabilities"]["opaque_image_generation"]["tool_ids"] = [
+            "fake.image.generator"
+        ]
         report = self.run_check(profile, binding_only=True, environment={})
         self.assertIn("runtime.tools.adapter_route_unresolved", error_codes(report))
 
@@ -543,9 +715,12 @@ class RuntimePreflightTests(unittest.TestCase):
 
     def test_phase_specific_skill_must_be_loaded(self) -> None:
         profile = valid_profile()
-        profile["capabilities"].pop("image_generation")
+        profile["capabilities"].pop("opaque_image_generation")
+        profile["capabilities"].pop("rgba_cutout_generation")
         profile["tools"] = [
-            item for item in profile["tools"] if item["kind"] != "image.generate"
+            item
+            for item in profile["tools"]
+            if item["kind"] not in {"image.generate.opaque", "image.generate.rgba"}
         ]
         profile["skills"][0]["status"] = "available"
         profile["skills"][1]["status"] = "loaded"
@@ -569,6 +744,8 @@ class RuntimePreflightTests(unittest.TestCase):
         adapter = json.loads(
             (ROOT / "runtime" / "adapters" / "codex-desktop.json").read_text(encoding="utf-8")
         )
+        self.assertEqual(setup["schema_version"], 2)
+        self.assertEqual(adapter["schema_version"], 2)
         self.assertEqual(setup["semantic_capabilities"], list(EXPECTED_SEMANTIC_CAPABILITIES))
         self.assertEqual(set(adapter["capabilities"]), set(EXPECTED_SEMANTIC_CAPABILITIES))
         self.assertIn("routing-only", adapter["truth_boundary"])
@@ -578,16 +755,17 @@ class RuntimePreflightTests(unittest.TestCase):
         self.assertIn("no callable", host_route["reason"])
         self.assertTrue(setup["startup_policy"]["wait_for_user_login"])
         self.assertFalse(setup["startup_policy"]["persist_session_query"])
+        self.assertEqual(setup["external"]["chatgpt_web"]["url"], "https://chatgpt.com/")
+        rgba_route = adapter["capabilities"]["image.generate.rgba"]
+        self.assertEqual(rgba_route["route"], "chatgpt-web")
+        self.assertEqual(rgba_route["output_contract"], "subject-cutout-rgba8-v1")
+        self.assertEqual(rgba_route["processor"], "scripts/prepare_micro_cutout.py")
+        self.assertEqual(
+            rgba_route["provider_skill"]["contract"], "chatgpt-web-image-route-v1"
+        )
 
     def test_current_codex_adapter_blocks_delivery_but_keeps_authoring_available(self) -> None:
-        delivery = valid_profile()
-        delivery["harness"] = {
-            "name": "codex-desktop",
-            "adapter_path": "runtime/adapters/codex-desktop.json",
-            "adapter_sha256": sha256_uri(
-                ROOT / "runtime" / "adapters" / "codex-desktop.json"
-            ),
-        }
+        delivery = select_codex_chatgpt_rgba_route(valid_profile())
         delivery["tools"] = [
             item for item in delivery["tools"] if item["kind"] != "host.receipt.attest"
         ]
@@ -602,9 +780,6 @@ class RuntimePreflightTests(unittest.TestCase):
         authoring["capabilities"].pop("wechat_delivery")
         authoring["capabilities"].pop("host_receipt_attestation")
         authoring["links"].pop("wechat_current_account")
-        authoring["tools"] = [
-            item for item in authoring["tools"] if item["kind"] != "browser.control"
-        ]
         report = self.run_check(
             authoring, phase="authoring", binding_only=True, environment={}
         )
@@ -614,6 +789,8 @@ class RuntimePreflightTests(unittest.TestCase):
         critical = {
             "requirements.txt",
             "runtime/python-dependency-lock.json",
+            "skills/chatgpt-web-image-route/SKILL.md",
+            "skills/chatgpt-web-image-route/references/image-generation-contract.md",
             "references/使用说明.md",
             "references/organization-pack-migration.md",
             "references/source-zero-audit.md",
@@ -637,6 +814,7 @@ class RuntimePreflightTests(unittest.TestCase):
             "scripts/build_storyboard.py",
             "scripts/build_visual_kit.py",
             "scripts/inspect_asset.py",
+            "scripts/prepare_micro_cutout.py",
             "scripts/build_ardot_manifest.py",
             "scripts/build_visual_review.py",
             "scripts/compile_wechat.py",
@@ -825,12 +1003,11 @@ class RuntimePreflightTests(unittest.TestCase):
         profile["capabilities"].pop("ardot_authoring")
         profile["capabilities"].pop("wechat_delivery")
         profile["capabilities"].pop("host_receipt_attestation")
-        profile["tools"] = [
-            item
-            for item in profile["tools"]
-            if not item["kind"].startswith("ardot.")
-            and item["kind"] not in {"browser.control", "host.receipt.attest"}
-        ]
+        profile["capabilities"].pop("opaque_image_generation")
+        profile["capabilities"].pop("rgba_cutout_generation")
+        profile["capabilities"].pop("visual_inspection")
+        profile["capabilities"].pop("secret_store")
+        profile["tools"] = []
         profile["tools"].append(
             runtime_tool(
                 "mcp__ardot_remote__create_design", "ardot.create", "ardot-remote"
@@ -859,6 +1036,9 @@ class RuntimePreflightTests(unittest.TestCase):
             "blank-design-create-route-ready",
         )
         self.assertNotIn("open-wechat-account", actions)
+        self.assertNotIn("open-chatgpt-image-session", actions)
+        self.assertNotIn("bind-image-inspection", actions)
+        self.assertNotIn("resolve-watermark-runtime", actions)
 
     def test_cli_writes_binding_report_and_returns_success(self) -> None:
         profile = valid_profile()

@@ -203,7 +203,7 @@ python3 scripts/build_visual_kit.py article.json \
   --output output/<organization-id>/<slug>/visual-kit-plan.json
 ```
 
-The four required roles are `floating-spot`, `section-transition`, `inline-explainer`, and `closing-motif`. Every entry must bind to exact article copy and one approved storyboard chapter, with a specific subject/action and a composition role of `anchor`, `motion`, `connector`, or `punctuation`. Use at least three different composition roles and four distinct generated assets. Every asset must pass the RGBA8/robust-Alpha/tight-crop/no-matte gate, record its exact `asset_sha256`, and record its native Ardot component file URL, node ID, and exact name. Then generate the Ardot assembly manifest:
+The four required roles are `floating-spot`, `section-transition`, `inline-explainer`, and `closing-motif`. Every entry must bind to exact article copy and one approved storyboard chapter, with a specific subject/action and a composition role of `anchor`, `motion`, `connector`, or `punctuation`. Use at least three different composition roles and four distinct derived assets. On Codex Desktop, `build_visual_kit.py` defaults each source request to `chatgpt-web-image-route-v1`: Codex operates ChatGPT only through the built-in Browser, performs an original PNG download, and runs the secure `prepare_micro_cutout.py` processor. Another harness may replace the provider, not the output contract. Each registered article-micro asset must bind its raw source, prompt/provider route, processor/config, derivation report, and final SHA; pass the RGBA8/robust-Alpha/tight-crop/no-matte/no-halo/no-debris gate; record its exact derivative `asset_sha256`; and record its native Ardot component file URL, node ID, and exact name. Then generate the Ardot assembly manifest:
 
 ```bash
 python3 scripts/build_ardot_manifest.py article.json \
@@ -261,7 +261,7 @@ watermark ID or secret is permitted in an article, manifest, HTML, or report.
   a preserved source, independently verified PSNR, matching final/report hashes,
   or authenticated detection blocks `--check` when the organization policy is
   `required`.
-- Missing visual-kit roles, fewer than four distinct current-article generated micro assets, failed Alpha/aspect validation, missing native Ardot component evidence, or non-generated assets in the kit block `--check`.
+- Missing visual-kit roles, fewer than four distinct current-article derived micro assets, missing original-download/derivation lineage, RGB or all-opaque pseudo-RGBA, failed Alpha/aspect/halo/debris/matte validation, a raw source referenced by Ardot, or missing native Ardot component evidence blocks `--check`.
 - A missing organization/route calibration, incomplete storyboard, ungrounded visual subject, or failed `visual_review_file` blocks `--check`.
 - A missing, changed, duplicated, hidden, rasterized, or non-terminal reserved workflow attribution blocks transport and handoff.
 - Missing expressive typography recipe/construction evidence, fewer than two non-font techniques or editable layers, a font-swap-only moment, a baked title image, an unlicensed font, or an ungrounded display phrase blocks `--check` when the organization uses `expressive-native`.

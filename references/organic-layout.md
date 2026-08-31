@@ -21,6 +21,8 @@ python3 scripts/build_visual_kit.py article.json \
 
 按提示逐张生图，运行 `python3 scripts/inspect_asset.py FILE --role ROLE`，保存并注册。随后在 Ardot 创建四个原生 Ornament 组件，把 file/node/name 证据写入 `article.visual_kit.assets`。只有计划中的 `ready_for_layout` 为 `true`，才允许创建文章画板。
 
+Codex Desktop 默认先加载 `skills/chatgpt-web-image-route/SKILL.md` 和 `codex-with-chatgpt`，只用内置 Browser 让 ChatGPT 生成受控单色 key 背景原图并执行页面真实下载。原图不进 Ardot；必须先经安全运行的 `scripts/prepare_micro_cutout.py` 得到 `assets/derived/` 中的 RGBA8 成品和完整派生报告，再检查、注册和组件化。本地 ImageGen、C2C doctor、页面预览、截图或仅切换为 RGBA mode 都不证明透明资产成立。
+
 如果没有图像生成能力，停在这一步。不要用色块、边框或卡片代替缺失的小插图。
 
 ## 小插图验收
@@ -33,7 +35,7 @@ python3 scripts/build_visual_kit.py article.json \
 - 与组织路线、色彩和图像语言一致；
 - 无文字，方便文案继续在 Ardot 中编辑。
 
-“有 Alpha”不等于“已抠图”。通行资产必须是主体专用 8-bit RGBA：留白在 Ardot 中制造，PNG 只保留主体、自然阴影和开放笔触。注册器会用 robust Alpha bbox 忽略微小飞点，拒绝超大透明画布、主体截边、矩形/圆角白片和近实色 matte，并持久化 cutout 证据。
+“有 Alpha”不等于“已抠图”。通行资产必须是主体专用 8-bit RGBA：留白在 Ardot 中制造，PNG 只保留主体、自然阴影和开放笔触。原图的模型“透明”声明不可信；完成品必须绑定 raw/prompt/provider/处理器/配置/报告/输出 SHA。注册器会用 robust Alpha bbox 忽略微小飞点，拒绝超大透明画布、全画布 low-Alpha 残留、主体截边、脱离碎片、彩色/中性 halo、矩形/圆角/纹理化 matte，并持久化 cutout 证据。
 
 拒绝：
 
@@ -43,6 +45,8 @@ python3 scripts/build_visual_kit.py article.json \
 - 烘焙中文、日期、数字、Logo、二维码和水印；
 - 需要再套一个框才能使用的图。
 - 小主体放在巨大透明画布中，或抠图边缘留有白底、黑底、色板与 halo。
+- 将 ChatGPT 页面截图、预览 Canvas、剪贴板或远程 URL 当作原始下载；
+- 对背景不均、主体碰边、复杂透明材质或真实照片强制自动抠图。
 
 检查透明图时必须读取文件 Alpha 信息；不要只看预览中的棋盘格。
 

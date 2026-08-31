@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -13,6 +14,8 @@ from typing import Any
 
 from asset_quality import (
     MICRO_CUTOUT_EVIDENCE_FIELDS,
+    file_sha256,
+    inspect_png,
     validate_background_family_assets,
     validate_micro_asset,
 )
@@ -84,6 +87,8 @@ SOURCE_ZERO_EXCLUSIONS = {
     "prior-article-screenshot",
     "other-organization-visual-pack",
 }
+CUTOUT_DERIVATION_KIND = "org-wechat-micro-cutout-derivation-v1"
+PREFIXED_SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 def read_json(path: Path) -> Any:
@@ -97,6 +102,281 @@ def read_json(path: Path) -> Any:
 
 def write_json(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _prefixed_file_sha256(path: Path) -> str:
+    return "sha256:" + file_sha256(path)
+
+
+def _canonical_sha256(value: Any) -> str:
+    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def _cutout_image_facts(path: Path) -> dict[str, Any]:
+    """Recompute report-visible pixel facts from the current PNG bytes."""
+
+    from PIL import Image
+
+    with Image.open(path) as opened:
+        opened.load()
+        header = f"{opened.mode}:{opened.width}x{opened.height}:".encode("ascii")
+        transparent_rgb_zeroed = None
+        if opened.mode == "RGBA":
+            transparent_rgb_zeroed = all(
+                alpha != 0 or (red == 0 and green == 0 and blue == 0)
+                for red, green, blue, alpha in opened.getdata()
+            )
+        return {
+            "format": opened.format,
+            "mode": opened.mode,
+            "width_px": opened.width,
+            "height_px": opened.height,
+            "pixel_sha256": "sha256:" + hashlib.sha256(header + opened.tobytes()).hexdigest(),
+            "metadata_free": not bool(opened.info),
+            "transparent_rgb_zeroed": transparent_rgb_zeroed,
+        }
+
+
+def _cutout_composite_probe_sha256(path: Path, color: str) -> str:
+    from PIL import Image
+
+    rgb = tuple(int(color[index : index + 2], 16) for index in (1, 3, 5))
+    with Image.open(path) as opened:
+        opened.load()
+        foreground = opened.convert("RGBA")
+    background = Image.new("RGBA", foreground.size, (*rgb, 255))
+    composite = Image.alpha_composite(background, foreground).convert("RGB")
+    header = f"RGB:{composite.width}x{composite.height}:".encode("ascii")
+    return "sha256:" + hashlib.sha256(header + composite.tobytes()).hexdigest()
+
+
+def _resolve_cutout_report_location(
+    pack_dir: Path,
+    report_path: Path,
+    location: Any,
+    label: str,
+    errors: list[str],
+) -> Path | None:
+    if not isinstance(location, str) or not location or re.match(r"^(?:https?://|data:)", location):
+        errors.append(f"{label} must be a local path relative to the cutout report")
+        return None
+    candidate = report_path.parent / location
+    if candidate.is_symlink():
+        errors.append(f"{label} cannot be a symlink")
+        return None
+    try:
+        resolved = candidate.resolve(strict=True)
+        resolved.relative_to(pack_dir)
+    except (OSError, ValueError):
+        errors.append(f"{label} must resolve to a regular file inside the organization pack")
+        return None
+    if not resolved.is_file() or resolved.is_symlink():
+        errors.append(f"{label} must resolve to a regular non-symlink file")
+        return None
+    return resolved
+
+
+def validate_cutout_derivation_report(
+    pack_dir: Path,
+    report_path: Path,
+    final_path: Path,
+    role: str,
+) -> dict[str, Any]:
+    """Verify a create-once RGB/native-RGBA -> approved cutout lineage report."""
+
+    errors: list[str] = []
+    pack_root = pack_dir.resolve()
+    if report_path.is_symlink():
+        errors.append("cutout report cannot be a symlink")
+        return {"ok": False, "errors": errors, "report": None, "lineage": None}
+    try:
+        report_file = report_path.resolve(strict=True)
+        report_file.relative_to(pack_root)
+    except (OSError, ValueError):
+        errors.append("cutout report must be a regular file inside the organization pack")
+        return {"ok": False, "errors": errors, "report": None, "lineage": None}
+    try:
+        report = read_json(report_file)
+    except ValueError as exc:
+        errors.append(str(exc))
+        return {"ok": False, "errors": errors, "report": None, "lineage": None}
+    if not isinstance(report, dict):
+        errors.append("cutout report must be a JSON object")
+        return {"ok": False, "errors": errors, "report": report, "lineage": None}
+    if report.get("schema_version") != 1 or report.get("kind") != CUTOUT_DERIVATION_KIND:
+        errors.append("cutout report schema/kind is invalid")
+    if report.get("status") != "approved" or report.get("role") != role:
+        errors.append("cutout report must be approved for the registered role")
+    report_article_id = report.get("article_id")
+    report_slot_id = report.get("asset_slot_id")
+    if not isinstance(report_article_id, str) or not SLUG.fullmatch(report_article_id):
+        errors.append("cutout report article_id must be a lowercase hyphenated slug")
+    if not isinstance(report_slot_id, str) or not re.fullmatch(
+        r"[a-z0-9][a-z0-9._-]{1,127}", report_slot_id
+    ):
+        errors.append("cutout report asset_slot_id must be a stable lowercase slot ID")
+    if report.get("location_base") != "report-parent":
+        errors.append("cutout report location_base must be report-parent")
+
+    source = report.get("source") if isinstance(report.get("source"), dict) else {}
+    output = report.get("output") if isinstance(report.get("output"), dict) else {}
+    source_file = _resolve_cutout_report_location(
+        pack_root, report_file, source.get("location"), "cutout source", errors
+    )
+    output_file = _resolve_cutout_report_location(
+        pack_root, report_file, output.get("location"), "cutout output", errors
+    )
+    final_resolved: Path | None = None
+    try:
+        final_resolved = final_path.resolve(strict=True)
+        final_resolved.relative_to(pack_root)
+    except (OSError, ValueError):
+        errors.append("registered cutout output must remain inside the organization pack")
+    if output_file is not None and final_resolved is not None and output_file != final_resolved:
+        errors.append("cutout report output does not match the registered derivative")
+    if source_file is not None:
+        relative_source = source_file.relative_to(pack_root).as_posix()
+        if not relative_source.startswith("assets/generated/"):
+            errors.append("cutout source must remain under assets/generated")
+        try:
+            source_inspection = inspect_png(source_file)
+        except (OSError, ValueError) as exc:
+            errors.append(f"cutout source cannot be decoded: {exc}")
+        else:
+            if source_inspection.get("bit_depth") != 8 or source_inspection.get("color_type") not in {2, 6}:
+                errors.append("cutout source must be an RGB8 or RGBA8 PNG")
+        if source.get("file_sha256") != _prefixed_file_sha256(source_file):
+            errors.append("cutout source SHA-256 does not match the report")
+        try:
+            source_facts = _cutout_image_facts(source_file)
+        except (OSError, ValueError) as exc:
+            errors.append(f"cutout source pixel facts cannot be recomputed: {exc}")
+        else:
+            for field in ("format", "mode", "width_px", "height_px", "pixel_sha256"):
+                if source.get(field) != source_facts.get(field):
+                    errors.append(f"cutout source {field} does not match current pixels")
+    if output_file is not None:
+        relative_output = output_file.relative_to(pack_root).as_posix()
+        if not relative_output.startswith("assets/derived/"):
+            errors.append("approved cutout output must remain under assets/derived")
+        if output.get("file_sha256") != _prefixed_file_sha256(output_file):
+            errors.append("cutout output SHA-256 does not match the report")
+        try:
+            output_facts = _cutout_image_facts(output_file)
+        except (OSError, ValueError) as exc:
+            errors.append(f"cutout output pixel facts cannot be recomputed: {exc}")
+        else:
+            if output_facts.get("format") != "PNG" or output_facts.get("mode") != "RGBA":
+                errors.append("cutout output current pixels must be an RGBA PNG")
+            for field in ("width_px", "height_px", "pixel_sha256"):
+                if output.get(field) != output_facts.get(field):
+                    errors.append(f"cutout output {field} does not match current pixels")
+            if output_facts.get("transparent_rgb_zeroed") is not True:
+                errors.append("cutout output transparent RGB is not actually zeroed")
+            if output_facts.get("metadata_free") is not True:
+                errors.append("cutout output contains PNG metadata")
+    if output.get("mode") != "RGBA8" or output.get("transparent_rgb_zeroed") is not True:
+        errors.append("cutout output must declare canonical RGBA8 with zeroed transparent RGB")
+    if output.get("metadata_free") is not True:
+        errors.append("cutout output must declare metadata_free=true")
+
+    generation = report.get("generation") if isinstance(report.get("generation"), dict) else {}
+    if not isinstance(generation.get("route"), str) or not generation.get("route"):
+        errors.append("cutout generation route is required")
+    if not PREFIXED_SHA256.fullmatch(str(generation.get("prompt_sha256", ""))):
+        errors.append("cutout prompt SHA-256 is invalid")
+    if generation.get("alpha_was_not_assumed") is not True:
+        errors.append("cutout report must state that source Alpha was not assumed")
+
+    processor = report.get("processor") if isinstance(report.get("processor"), dict) else {}
+    if processor.get("method") not in {
+        "border-connected-chroma-matting-v1",
+        "native-rgba-normalize-v1",
+    }:
+        errors.append("cutout processor method is unsupported")
+    processor_script = Path(__file__).resolve().parent / "prepare_micro_cutout.py"
+    if (
+        processor.get("script") != "scripts/prepare_micro_cutout.py"
+        or not processor_script.is_file()
+        or processor.get("script_sha256") != _prefixed_file_sha256(processor_script)
+    ):
+        errors.append("cutout processor script binding is invalid")
+    config = processor.get("config")
+    if not isinstance(config, dict) or processor.get("config_sha256") != _canonical_sha256(config):
+        errors.append("cutout processor config SHA-256 does not match")
+
+    background = (
+        report.get("background_assessment")
+        if isinstance(report.get("background_assessment"), dict)
+        else {}
+    )
+    if background.get("source_background_removable") is not True:
+        errors.append("cutout report did not prove a safely removable source background")
+    probes = report.get("composite_probes")
+    probe_items = {
+        item.get("background"): item.get("pixel_sha256")
+        for item in probes
+        if isinstance(item, dict)
+        and isinstance(item.get("background"), str)
+        and PREFIXED_SHA256.fullmatch(str(item.get("pixel_sha256", "")))
+    } if isinstance(probes, list) else {}
+    probe_colors = set(probe_items)
+    if not {"#000000", "#FFFFFF"}.issubset(probe_colors):
+        errors.append("cutout report requires hash-bound black and white composite probes")
+    configured_probe_colors = config.get("probe_colors") if isinstance(config, dict) else None
+    if not isinstance(configured_probe_colors, list) or any(
+        not isinstance(color, str) or not HEX_COLOR.fullmatch(color)
+        for color in configured_probe_colors
+    ):
+        errors.append("cutout processor probe-color config is invalid")
+    elif output_file is not None:
+        expected_probe_colors = {color.upper() for color in configured_probe_colors}
+        if probe_colors != expected_probe_colors or len(probes or []) != len(expected_probe_colors):
+            errors.append("cutout composite probes do not match the processor config")
+        for color in sorted(expected_probe_colors & probe_colors):
+            if probe_items[color] != _cutout_composite_probe_sha256(output_file, color):
+                errors.append(f"cutout composite probe {color} does not match current pixels")
+
+    final_validation = (
+        report.get("final_validation")
+        if isinstance(report.get("final_validation"), dict)
+        else {}
+    )
+    stored_inspection = final_validation.get("inspection")
+    if (
+        final_validation.get("ok") is not True
+        or final_validation.get("error_codes") != []
+        or not isinstance(stored_inspection, dict)
+        or final_validation.get("inspection_sha256") != _canonical_sha256(stored_inspection)
+    ):
+        errors.append("cutout final validation evidence is invalid")
+    if output_file is not None:
+        current = validate_micro_asset(output_file, role)
+        if not current["ok"]:
+            errors.extend(f"cutout derivative gate: {message}" for message in current["errors"])
+        if isinstance(stored_inspection, dict) and stored_inspection != current.get("inspection"):
+            errors.append("cutout final inspection does not match current derivative pixels")
+
+    lineage = None
+    if source_file is not None and output_file is not None:
+        lineage = {
+            "report_location": report_file.relative_to(pack_root).as_posix(),
+            "report_sha256": _prefixed_file_sha256(report_file),
+            "source_location": source_file.relative_to(pack_root).as_posix(),
+            "source_sha256": _prefixed_file_sha256(source_file),
+            "output_sha256": _prefixed_file_sha256(output_file),
+            "method": processor.get("method"),
+            "article_id": report_article_id,
+            "asset_slot_id": report_slot_id,
+            "prompt_sha256": generation.get("prompt_sha256"),
+            "generation_route": generation.get("route"),
+            "processor_script_sha256": processor.get("script_sha256"),
+            "config_sha256": processor.get("config_sha256"),
+        }
+    return {"ok": not errors, "errors": errors, "report": report, "lineage": lineage}
 
 
 def load_pack(pack_dir: Path) -> dict[str, Any]:
@@ -461,6 +741,10 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
         if visual_role == "article-micro" and not role_items:
             errors.append(f"article-micro asset {asset_id} requires at least one visual-kit role")
         if is_article_micro:
+            if asset.get("origin") == "derived" and len(role_items) != 1:
+                errors.append(
+                    f"derived article-micro asset {asset_id} requires exactly one visual-kit role"
+                )
             quality = asset.get("quality")
             cutout_evidence = quality.get("cutout_evidence") if isinstance(quality, dict) else None
             if (
@@ -504,6 +788,36 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
                             errors.append(
                                 f"article-micro asset {asset_id} detailed cutout evidence does not match current pixels"
                             )
+                    if asset.get("origin") == "derived" and role_items:
+                        lineage = asset.get("cutout")
+                        report_location = (
+                            lineage.get("report_location") if isinstance(lineage, dict) else None
+                        )
+                        if (
+                            not isinstance(lineage, dict)
+                            or not isinstance(report_location, str)
+                            or not report_location
+                        ):
+                            errors.append(
+                                f"derived article-micro asset {asset_id} requires cutout lineage"
+                            )
+                        else:
+                            report_candidate = pack_dir / report_location
+                            lineage_report = validate_cutout_derivation_report(
+                                pack_dir, report_candidate, candidate, role_items[0]
+                            )
+                            errors.extend(
+                                f"derived article-micro asset {asset_id} lineage: {message}"
+                                for message in lineage_report["errors"]
+                            )
+                            actual_lineage = lineage_report.get("lineage")
+                            if isinstance(actual_lineage, dict) and any(
+                                lineage.get(field) != actual_lineage.get(field)
+                                for field in actual_lineage
+                            ):
+                                errors.append(
+                                    f"derived article-micro asset {asset_id} stored cutout lineage does not match report/files"
+                                )
                 else:
                     errors.append(f"article-micro asset {asset_id} requires a readable local PNG")
             else:
@@ -1344,13 +1658,39 @@ def command_register_asset(args: argparse.Namespace) -> None:
     else:
         candidate = None
     roles = getattr(args, "role", None) or []
+    cutout_report_arg = getattr(args, "cutout_report", None)
+    cutout_lineage: dict[str, Any] | None = None
     if roles:
-        if args.origin != "generated-illustrative":
-            raise SystemExit("micro-visual roles require generated-illustrative origin")
+        if args.origin != "derived":
+            raise SystemExit(
+                "new micro-visual registration requires origin=derived and --cutout-report; "
+                "legacy generated-illustrative entries remain readable but cannot be newly registered"
+            )
+        if len(roles) != 1:
+            raise SystemExit("a derived micro-visual requires exactly one role")
         if args.kind not in {"illustration", "decoration"}:
             raise SystemExit("micro-visual roles require illustration or decoration kind")
         if candidate is None:
             raise SystemExit("micro-visual alpha verification requires a local PNG file")
+        if cutout_report_arg is None:
+            raise SystemExit("derived micro-visual registration requires --cutout-report")
+        report_candidate = Path(cutout_report_arg)
+        if not report_candidate.is_absolute():
+            report_candidate = args.pack / report_candidate
+        derivation = validate_cutout_derivation_report(
+            args.pack.resolve(), report_candidate, candidate, roles[0]
+        )
+        if not derivation["ok"]:
+            raise SystemExit("micro-visual cutout lineage failed: " + "; ".join(derivation["errors"]))
+        cutout_lineage = derivation["lineage"]
+        generated_for = getattr(args, "generated_for", None) or []
+        if (
+            not isinstance(cutout_lineage, dict)
+            or cutout_lineage.get("article_id") not in generated_for
+        ):
+            raise SystemExit(
+                "--generated-for must include the article_id bound by the cutout report"
+            )
         quality_reports = [validate_micro_asset(candidate, role) for role in roles]
         failures = [error for report in quality_reports for error in report["errors"]]
         if failures:
@@ -1398,9 +1738,10 @@ def command_register_asset(args: argparse.Namespace) -> None:
                 field: inspection[field] for field in MICRO_CUTOUT_EVIDENCE_FIELDS
             },
         }
+        item["cutout"] = cutout_lineage
     if getattr(args, "generated_for", None):
-        if args.origin != "generated-illustrative":
-            raise SystemExit("--generated-for is only valid for generated-illustrative assets")
+        if args.origin not in {"generated-illustrative", "derived"}:
+            raise SystemExit("--generated-for is only valid for generated or derived illustrative assets")
         item["generated_for_articles"] = args.generated_for
     if args.source_id:
         item["source_id"] = args.source_id
@@ -1562,6 +1903,11 @@ def build_parser() -> argparse.ArgumentParser:
     register_parser.add_argument("--style", required=True)
     register_parser.add_argument("--use", action="append")
     register_parser.add_argument("--role", action="append", choices=sorted(VISUAL_KIT_ROLES))
+    register_parser.add_argument(
+        "--cutout-report",
+        type=Path,
+        help="Create-once org-wechat-micro-cutout-derivation-v1 report for a derived micro asset",
+    )
     register_parser.add_argument(
         "--generated-for",
         action="append",

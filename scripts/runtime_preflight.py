@@ -27,7 +27,7 @@ if __name__ == "__main__":
 
 PROFILE_KIND = "org-wechat-runtime-profile"
 REPORT_KIND = "org-wechat-runtime-preflight-report"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 PHASES = {"bootstrap", "authoring", "delivery", "full"}
 DEFAULT_PROBE_MAX_AGE_MINUTES = 60
 
@@ -58,6 +58,8 @@ REQUIRED_PATHS = (
     "runtime/setup-links.json",
     "runtime/adapters/codex-desktop.json",
     "runtime/python-dependency-lock.json",
+    "skills/chatgpt-web-image-route/SKILL.md",
+    "skills/chatgpt-web-image-route/references/image-generation-contract.md",
     "style-presets/prismatic-paper-editorial.json",
     "scripts/orgs.py",
     "scripts/secure_runner.py",
@@ -68,6 +70,7 @@ REQUIRED_PATHS = (
     "scripts/build_storyboard.py",
     "scripts/build_visual_kit.py",
     "scripts/inspect_asset.py",
+    "scripts/prepare_micro_cutout.py",
     "scripts/build_ardot_manifest.py",
     "scripts/build_visual_review.py",
     "scripts/compile_wechat.py",
@@ -89,6 +92,8 @@ LINK_SCAN_FILES = (
     "references/使用说明.md",
     "references/organization-pack-migration.md",
     "references/ardot-workflow.md",
+    "skills/chatgpt-web-image-route/SKILL.md",
+    "skills/chatgpt-web-image-route/references/image-generation-contract.md",
     "skills/ardot-wechat-publisher/SKILL.md",
 )
 
@@ -97,11 +102,14 @@ EXPECTED_SETUP_LINKS = {
     "ardot_web": "https://ardot.tencent.com/",
     "wechat_web": "https://mp.weixin.qq.com/",
     "wechat_api": "https://api.weixin.qq.com/",
+    "chatgpt_web": "https://chatgpt.com/",
 }
 
 EXPECTED_SEMANTIC_CAPABILITIES = (
-    "image.generate",
+    "image.generate.opaque",
+    "image.generate.rgba",
     "image.inspect",
+    "chatgpt.session",
     "ardot.create",
     "ardot.read",
     "ardot.write",
@@ -126,14 +134,10 @@ PHASE_LOADED_SKILL = {
 }
 
 PHASE_CAPABILITIES = {
-    "bootstrap": (
-        "image_generation",
-        "visual_inspection",
-        "ardot_bootstrap",
-        "secret_store",
-    ),
+    "bootstrap": ("ardot_bootstrap",),
     "authoring": (
-        "image_generation",
+        "opaque_image_generation",
+        "rgba_cutout_generation",
         "visual_inspection",
         "ardot_authoring",
         "secret_store",
@@ -146,7 +150,8 @@ PHASE_CAPABILITIES = {
         "secret_store",
     ),
     "full": (
-        "image_generation",
+        "opaque_image_generation",
+        "rgba_cutout_generation",
         "visual_inspection",
         "ardot_authoring",
         "wechat_delivery",
@@ -156,7 +161,8 @@ PHASE_CAPABILITIES = {
 }
 
 CAPABILITY_MODES = {
-    "image_generation": {"tool"},
+    "opaque_image_generation": {"tool"},
+    "rgba_cutout_generation": {"chatgpt-web", "tool"},
     "visual_inspection": {"tool"},
     "ardot_bootstrap": {"mcp", "ui"},
     "ardot_authoring": {"mcp", "ui"},
@@ -212,6 +218,8 @@ TRUSTED_BUNDLE_PATHS = (
     "runtime/setup-links.json",
     "runtime/adapters/codex-desktop.json",
     "runtime/python-dependency-lock.json",
+    "skills/chatgpt-web-image-route/SKILL.md",
+    "skills/chatgpt-web-image-route/references/image-generation-contract.md",
     "style-presets/prismatic-paper-editorial.json",
     "scripts/runtime_preflight.py",
     "scripts/secure_runner.py",
@@ -221,6 +229,7 @@ TRUSTED_BUNDLE_PATHS = (
     "scripts/build_storyboard.py",
     "scripts/build_visual_kit.py",
     "scripts/inspect_asset.py",
+    "scripts/prepare_micro_cutout.py",
     "scripts/build_ardot_manifest.py",
     "scripts/build_visual_review.py",
     "scripts/compile_wechat.py",
@@ -656,7 +665,10 @@ def _validate_local_paths(workspace_root: Path, errors: list[dict[str, str]]) ->
     else:
         _validate_no_secrets(setup_links, errors, "runtime.setup_links")
     if isinstance(setup_links, dict):
-        if setup_links.get("schema_version") != 1 or setup_links.get("kind") != "org-wechat-setup-links":
+        if (
+            setup_links.get("schema_version") != SCHEMA_VERSION
+            or setup_links.get("kind") != "org-wechat-setup-links"
+        ):
             setup_links_status = "failed"
             _error(
                 errors,
@@ -702,6 +714,12 @@ def _validate_local_paths(workspace_root: Path, errors: list[dict[str, str]]) ->
             ("secure_runner", "scripts/secure_runner.py"),
             ("python_dependency_lock", "runtime/python-dependency-lock.json"),
             ("codex_adapter", "runtime/adapters/codex-desktop.json"),
+            ("chatgpt_image_route_skill", "skills/chatgpt-web-image-route/SKILL.md"),
+            (
+                "chatgpt_image_route_contract",
+                "skills/chatgpt-web-image-route/references/image-generation-contract.md",
+            ),
+            ("cutout_processor", "scripts/prepare_micro_cutout.py"),
             ("usage", "references/使用说明.md"),
             ("qa", "references/qa.md"),
         ):
@@ -755,7 +773,7 @@ def _validate_local_paths(workspace_root: Path, errors: list[dict[str, str]]) ->
     if isinstance(adapter, dict):
         adapter_capabilities = adapter.get("capabilities")
         if (
-            adapter.get("schema_version") != 1
+            adapter.get("schema_version") != SCHEMA_VERSION
             or adapter.get("kind") != "org-wechat-runtime-adapter"
             or adapter.get("harness") != "codex-desktop"
             or not isinstance(adapter_capabilities, dict)
@@ -792,6 +810,59 @@ def _validate_local_paths(workspace_root: Path, errors: list[dict[str, str]]) ->
                 "runtime/adapters/codex-desktop.json.capabilities",
                 "every Codex adapter capability must declare a route, or an explicit unavailable reason with no phantom callable",
             )
+        else:
+            opaque_route = adapter_capabilities.get("image.generate.opaque")
+            rgba_route = adapter_capabilities.get("image.generate.rgba")
+            chatgpt_route = adapter_capabilities.get("chatgpt.session")
+            if (
+                not isinstance(opaque_route, dict)
+                or opaque_route.get("route") != "tool"
+                or opaque_route.get("requires") != ["image_gen__imagegen"]
+            ):
+                setup_links_status = "failed"
+                _error(
+                    errors,
+                    "runtime.local.adapter_visual_route_invalid",
+                    "runtime/adapters/codex-desktop.json.capabilities.image.generate.opaque",
+                    "Codex Desktop opaque generation must use the native image_gen route",
+                )
+            if (
+                not isinstance(rgba_route, dict)
+                or rgba_route.get("route") != "chatgpt-web"
+                or rgba_route.get("requires")
+                != [
+                    "codex-with-chatgpt",
+                    "browser:control-in-app-browser",
+                    "mcp__node_repl__js",
+                ]
+                or rgba_route.get("output_contract") != "subject-cutout-rgba8-v1"
+                or rgba_route.get("processor") != "scripts/prepare_micro_cutout.py"
+                or rgba_route.get("provider_skill")
+                != {
+                    "id": "chatgpt-web-image-route",
+                    "required_status": "loaded",
+                    "contract": "chatgpt-web-image-route-v1",
+                }
+            ):
+                setup_links_status = "failed"
+                _error(
+                    errors,
+                    "runtime.local.adapter_visual_route_invalid",
+                    "runtime/adapters/codex-desktop.json.capabilities.image.generate.rgba",
+                    "Codex Desktop RGBA generation must use the reviewed ChatGPT web route and cutout contract",
+                )
+            if (
+                not isinstance(chatgpt_route, dict)
+                or chatgpt_route.get("route") != "skill+browser"
+                or chatgpt_route.get("requires") != ["codex-with-chatgpt"]
+            ):
+                setup_links_status = "failed"
+                _error(
+                    errors,
+                    "runtime.local.adapter_visual_route_invalid",
+                    "runtime/adapters/codex-desktop.json.capabilities.chatgpt.session",
+                    "Codex Desktop ChatGPT sessions must be bound through the codex-with-chatgpt Skill",
+                )
 
     agent_error_count = len(errors)
     _validate_agent_mcp_contract(workspace_root, "agents/openai.yaml", errors)
@@ -1058,7 +1129,7 @@ def _validate_harness_adapter(
     _validate_no_secrets(adapter, errors, "profile.harness.adapter")
     adapter_capabilities = adapter.get("capabilities")
     if (
-        adapter.get("schema_version") != 1
+        adapter.get("schema_version") != SCHEMA_VERSION
         or adapter.get("kind") != "org-wechat-runtime-adapter"
         or adapter.get("harness") != name
         or not isinstance(adapter_capabilities, dict)
@@ -1398,8 +1469,15 @@ def _validate_capabilities(
             continue
         status = item.get("status")
         if not binding_only:
+            if name == "rgba_cutout_generation" and status == "needs_user_login":
+                _error(
+                    errors,
+                    "runtime.capability.rgba_provider_needs_user_login",
+                    f"{path}.status",
+                    "the selected image provider requires login before visual generation",
+                )
             accepted_statuses = {"passed"}
-            if name == "image_generation":
+            if name in {"opaque_image_generation", "rgba_cutout_generation"}:
                 accepted_statuses.add("bound_unprobed")
             if status not in accepted_statuses:
                 _error(
@@ -1409,25 +1487,181 @@ def _validate_capabilities(
                     f"capability status must be one of {sorted(accepted_statuses)}",
                 )
             elif status == "bound_unprobed":
+                warning_code = (
+                    "runtime.capability.rgba_live_probe_deferred"
+                    if name == "rgba_cutout_generation"
+                    else "runtime.capability.opaque_live_probe_deferred"
+                )
                 _warning(
                     warnings,
-                    "runtime.capability.imagegen_live_probe_deferred",
+                    warning_code,
                     f"{path}.status",
                     "image generation is bound but unprobed; the first real generation is a blocking live probe",
                 )
 
-        if name == "image_generation":
+        if name == "opaque_image_generation":
             tool_ids = _require_tool_kinds(
                 item.get("tool_ids"),
                 f"{path}.tool_ids",
                 tool_map,
                 errors,
-                ({"image.generate"},),
+                ({"image.generate.opaque"},),
             )
             _require_adapter_routes(
-                ("image.generate",), tool_ids, adapter_capabilities, errors, f"{path}.tool_ids"
+                ("image.generate.opaque",),
+                tool_ids,
+                adapter_capabilities,
+                errors,
+                f"{path}.tool_ids",
             )
-            probe_methods = {"runtime-registry", "read-only-live"}
+            adapter_route = adapter_capabilities.get("image.generate.opaque")
+            if not isinstance(adapter_route, dict) or adapter_route.get("route") != "tool":
+                _error(
+                    errors,
+                    "runtime.capability.opaque_route_unresolved",
+                    path,
+                    "selected adapter must expose a direct opaque-image generation route",
+                )
+            probe_methods = (
+                {"runtime-registry"}
+                if status == "bound_unprobed"
+                else {"generated-asset-live"}
+            )
+        elif name == "rgba_cutout_generation":
+            output_contract = item.get("output_contract")
+            if output_contract != "subject-cutout-rgba8-v1":
+                _error(
+                    errors,
+                    "runtime.capability.rgba_output_contract_mismatch",
+                    f"{path}.output_contract",
+                    "RGBA cutout generation must bind subject-cutout-rgba8-v1",
+                )
+            processor = item.get("processor")
+            if processor != "scripts/prepare_micro_cutout.py":
+                _error(
+                    errors,
+                    "runtime.capability.rgba_processor_mismatch",
+                    f"{path}.processor",
+                    "RGBA cutouts must pass through scripts/prepare_micro_cutout.py",
+                )
+            adapter_route = adapter_capabilities.get("image.generate.rgba")
+            adapter_mode = adapter_route.get("route") if isinstance(adapter_route, dict) else None
+            if adapter_mode != mode:
+                _error(
+                    errors,
+                    "runtime.capability.rgba_route_unresolved",
+                    f"{path}.mode",
+                    "selected RGBA mode does not match the current harness adapter route",
+                )
+            if (
+                not isinstance(adapter_route, dict)
+                or adapter_route.get("output_contract") != output_contract
+                or adapter_route.get("processor") != processor
+            ):
+                _error(
+                    errors,
+                    "runtime.capability.rgba_adapter_contract_mismatch",
+                    path,
+                    "selected adapter must preserve the RGBA output contract and cutout processor",
+                )
+            if mode == "tool":
+                tool_ids = _require_tool_kinds(
+                    item.get("tool_ids"),
+                    f"{path}.tool_ids",
+                    tool_map,
+                    errors,
+                    ({"image.generate.rgba"},),
+                )
+                _require_adapter_routes(
+                    ("image.generate.rgba",),
+                    tool_ids,
+                    adapter_capabilities,
+                    errors,
+                    f"{path}.tool_ids",
+                )
+            else:
+                tool_ids = _require_tool_kinds(
+                    item.get("tool_ids"),
+                    f"{path}.tool_ids",
+                    tool_map,
+                    errors,
+                    ({"chatgpt.session", "browser.control"},),
+                )
+                _require_adapter_routes(
+                    ("image.generate.rgba", "chatgpt.session", "browser.control"),
+                    tool_ids,
+                    adapter_capabilities,
+                    errors,
+                    f"{path}.tool_ids",
+                )
+                provider_skill = item.get("provider_skill")
+                if not isinstance(provider_skill, dict):
+                    _error(
+                        errors,
+                        "runtime.skills.provider_skill_missing",
+                        f"{path}.provider_skill",
+                        "ChatGPT web generation requires the reviewed wrapper Skill",
+                    )
+                else:
+                    if provider_skill.get("id") != "chatgpt-web-image-route":
+                        _error(
+                            errors,
+                            "runtime.skills.provider_skill_missing",
+                            f"{path}.provider_skill.id",
+                            "provider Skill id must be chatgpt-web-image-route",
+                        )
+                    if provider_skill.get("status") != "loaded":
+                        _error(
+                            errors,
+                            "runtime.skills.provider_skill_not_loaded",
+                            f"{path}.provider_skill.status",
+                            "the ChatGPT image-route wrapper Skill must be loaded before authoring",
+                        )
+                    if provider_skill.get("contract") != "chatgpt-web-image-route-v1":
+                        _error(
+                            errors,
+                            "runtime.skills.provider_skill_contract_mismatch",
+                            f"{path}.provider_skill.contract",
+                            "provider Skill must implement chatgpt-web-image-route-v1",
+                        )
+                adapter_provider_skill = (
+                    adapter_route.get("provider_skill")
+                    if isinstance(adapter_route, dict)
+                    else None
+                )
+                if (
+                    not isinstance(adapter_route, dict)
+                    or not isinstance(adapter_provider_skill, dict)
+                    or not isinstance(provider_skill, dict)
+                    or adapter_provider_skill.get("id") != provider_skill.get("id")
+                    or adapter_provider_skill.get("contract")
+                    != provider_skill.get("contract")
+                    or adapter_provider_skill.get("required_status")
+                    != provider_skill.get("status")
+                ):
+                    _error(
+                        errors,
+                        "runtime.capability.rgba_adapter_contract_mismatch",
+                        path,
+                        "profile provider Skill, output contract, and processor must match the adapter",
+                    )
+                if not binding_only and isinstance(item.get("probe"), dict):
+                    if item["probe"].get("method") in {
+                        "c2c-doctor",
+                        "chatgpt-session",
+                        "provider-session",
+                    }:
+                        _error(
+                            errors,
+                            "runtime.capability.rgba_session_not_live_image_proof",
+                            f"{path}.probe.method",
+                            "C2C doctor/session readiness is not proof of a generated RGBA asset",
+                        )
+            probe_methods = (
+                {"runtime-registry"}
+                if status == "bound_unprobed"
+                else {"generated-asset-live"}
+            )
         elif name == "visual_inspection":
             tool_ids = _require_tool_kinds(
                 item.get("tool_ids"),
@@ -1755,7 +1989,20 @@ def _validate_capabilities(
                 max_age_minutes=max_age_minutes,
                 required_methods=probe_methods,
             )
-        resolved[name] = {"mode": mode, "tool_ids": tool_ids}
+        resolved_item: dict[str, Any] = {"mode": mode, "tool_ids": tool_ids}
+        if name in {"opaque_image_generation", "rgba_cutout_generation"}:
+            resolved_item["live_proof"] = (
+                "deferred-until-first-generated-asset"
+                if binding_only or status == "bound_unprobed"
+                else "profile-claim-unattested"
+            )
+        if name == "rgba_cutout_generation":
+            resolved_item["output_contract"] = item.get("output_contract")
+            resolved_item["processor"] = item.get("processor")
+            if mode == "chatgpt-web":
+                resolved_item["provider_skill"] = item.get("provider_skill")
+                resolved_item["session_readiness_is_image_proof"] = False
+        resolved[name] = resolved_item
 
     for optional in sorted(set(PHASE_CAPABILITIES["full"]) - set(required)):
         if optional not in capabilities:
@@ -1797,6 +2044,9 @@ def _binding_digest(
     capability_keys = {
         "mode",
         "tool_ids",
+        "provider_skill",
+        "output_contract",
+        "processor",
         "workspace_link",
         "expected_file_id",
         "expected_root_id",
@@ -1847,6 +2097,61 @@ def _build_host_setup_actions(
     capabilities = profile.get("capabilities")
     if not isinstance(capabilities, dict):
         capabilities = {}
+    rgba_capability = capabilities.get("rgba_cutout_generation")
+    rgba_mode = rgba_capability.get("mode") if isinstance(rgba_capability, dict) else None
+    if "rgba_cutout_generation" in PHASE_CAPABILITIES[phase] and rgba_mode == "chatgpt-web":
+        actions.extend(
+            [
+                {
+                    "id": "load-chatgpt-image-route-skill",
+                    "action": "load-skill",
+                    "target": "chatgpt-web-image-route",
+                    "blocking": True,
+                    "expected_result": "repository-wrapper-and-chatgpt-web-image-route-v1-contract-loaded",
+                },
+                {
+                    "id": "load-codex-with-chatgpt-skill",
+                    "action": "load-skill",
+                    "target": "codex-with-chatgpt",
+                    "blocking": True,
+                    "expected_result": "current-skill-registry-resource-loaded",
+                },
+                {
+                    "id": "prepare-codex-with-chatgpt",
+                    "action": "run-provider-preflight",
+                    "target": "codex-with-chatgpt",
+                    "steps": ["update-check", "sandbox-allow", "doctor"],
+                    "blocking": True,
+                    "expected_result": "local-bridge-and-workspace-session-green-no-image-proof-claimed",
+                },
+                {
+                    "id": "open-chatgpt-image-session",
+                    "action": "claim-or-reuse-c2c-managed-iab-chat",
+                    "target": "current-c2c-session-chat-or-project-conversation",
+                    "credential_free_login_entry": EXPECTED_SETUP_LINKS["chatgpt_web"],
+                    "blocking": True,
+                    "user_step_if_needed": "complete-chatgpt-login-only",
+                    "expected_result": (
+                        "same-provider-session-visible-and-ready-for-image-request;"
+                        "base-entry-used-only-for-login-or-c2c-approved-new-long-chat"
+                    ),
+                },
+                {
+                    "id": "bind-rgba-download-processing",
+                    "action": "bind-original-download-and-processor",
+                    "targets": [
+                        "provider-original-png-download",
+                        "scripts/prepare_micro_cutout.py",
+                        "image.inspect",
+                    ],
+                    "blocking": True,
+                    "expected_result": (
+                        "download-route-and-cutout-processor-visible;"
+                        "first-real-generated-file-remains-the-live-proof"
+                    ),
+                },
+            ]
+        )
     ardot_capability_name = "ardot_bootstrap" if phase == "bootstrap" else "ardot_authoring"
     ardot_capability = capabilities.get(ardot_capability_name)
     ardot_mode = ardot_capability.get("mode") if isinstance(ardot_capability, dict) else None
@@ -1931,8 +2236,8 @@ def _build_host_setup_actions(
                 ),
             }
         )
-    actions.extend(
-        [
+    if "secret_store" in PHASE_CAPABILITIES[phase]:
+        actions.append(
             {
                 "id": "resolve-watermark-runtime",
                 "action": "resolve-secret-references",
@@ -1942,24 +2247,40 @@ def _build_host_setup_actions(
                 ],
                 "blocking": True,
                 "expected_result": "boolean-checks-only-no-values",
-            },
+            }
+        )
+    if "visual_inspection" in PHASE_CAPABILITIES[phase]:
+        actions.append(
             {
                 "id": "bind-image-inspection",
                 "action": "bind-callables",
                 "targets": ["image.inspect"],
                 "blocking": True,
                 "expected_result": "inspection-callable-visible-neutral-read-required",
-            },
-        ]
-    )
-    if "image_generation" in PHASE_CAPABILITIES[phase]:
+            }
+        )
+    if "opaque_image_generation" in PHASE_CAPABILITIES[phase]:
         actions.append(
             {
-                "id": "bind-image-generation",
+                "id": "bind-opaque-image-generation",
                 "action": "bind-callables",
-                "targets": ["image.generate"],
+                "targets": ["image.generate.opaque"],
                 "blocking": True,
-                "expected_result": "callable-visible-first-real-asset-is-live-proof",
+                "expected_result": "opaque-callable-visible-first-real-asset-is-live-proof",
+            }
+        )
+    if "rgba_cutout_generation" in PHASE_CAPABILITIES[phase] and rgba_mode == "tool":
+        actions.append(
+            {
+                "id": "bind-rgba-cutout-generation",
+                "action": "bind-callables-and-processor",
+                "targets": [
+                    "image.generate.rgba",
+                    "scripts/prepare_micro_cutout.py",
+                    "image.inspect",
+                ],
+                "blocking": True,
+                "expected_result": "rgba-callable-and-processor-visible-first-real-asset-is-live-proof",
             }
         )
     return actions

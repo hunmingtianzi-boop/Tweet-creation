@@ -18,6 +18,7 @@
 - 标题字只有字号/字重的泛化建议，没有表现型字体的语义配额、授权边界、Ardot 可编辑 node/style 证据和禁止烘焙字图门槛。
 - 最新正向测试进一步暴露：仅校验 family ID 会让黑/白大色块、明暗跳变与正文吞字通过；仅校验 treatment/font/node 则会让“只换字体”的死板标题冒充艺术字。两者都会把本应在校准阶段解决的问题拖到全文后的人工微调。
 - 生成底图只有普通 SHA 时，能证明仓库内文件未变，但不能在微信转码后提供来源线索；若临近编译或发布才加水印，又会破坏 Ardot revision 与资产哈希的同一性。
+- 微组件只有“生图时要求透明 + 终态 Alpha 检查”，没有原图下载、RGB/key-background 到 RGBA 的可复现生产链；本地 ImageGen 无法稳定给出 Alpha，模型声明、棋盘格或仅改 mode 又会产生伪透明。原检查还会误放行全画布 low-Alpha 色污、彩色 halo、脱离碎片和纹理化不规则底板。
 
 ## 最新 source-zero 传输回归（只作结构证据）
 
@@ -49,6 +50,9 @@
 - [x] 连续底图：批准校准必须登记一个 generated-family、一个 master、1–3 个 companion、copy-safe zone，并在资产层绑定 family/variant。
 - [x] 四类微组件：四个角色必须由四枚当前文章专属资产分别承担，并绑定正文原句、章节、主体、动作、构图职责和 Ardot 原生组件。
 - [x] Alpha/抠图验收：解码 RGBA8，使用最大连通主体忽略飞点并检查紧裁切、截边、白/黑/彩色 matte、半透明白黑 halo、尺寸、角色宽高比与 SHA-256；登记后每次 ready 门禁都从当前像素重算。
+- [x] ChatGPT 默认生图路由：Codex Desktop 加载仓库内 `chatgpt-web-image-route` 与已安装 `codex-with-chatgpt`，只用内置 Browser 生成和下载原始 PNG；不把 C2C doctor、文字回复、页面预览、截图、Canvas、剪贴板或远程 URL 当成图像证据。
+- [x] 确定性 RGBA 生产链：默认生成单一主体 + 受控单色 key 背景，由 `prepare_micro_cutout.py` 只对真 Alpha 或安全可分离背景生成 create-once RGBA8 derivative，并绑定 raw/prompt/provider/处理器/配置/报告/输出 SHA。背景不均、主体碰边或复杂透明材质时 fail-and-regenerate，不强抠任意照片。
+- [x] Alpha 对抗样本：新像素门禁拒绝彩色/key halo、全画布 low-Alpha 残留、未声明脱离碎片和纹理化底板，且只允许 Ardot/transport 引用已验证 derivative SHA。
 - [x] compact-editorial：除字号、行高、字距、段距外，新增 24–40 px `major_gap_px` 门槛，并继续约束内容占用率和最大无意空洞。
 - [x] Ardot 证据：visual review v3 要求本地 390 px node export、文件哈希、真实像素尺寸、导出时间、article root 绑定和 density-to-screenshot 哈希绑定；并用完整 instance inventory 与哈希化 node-property exports 计算微组件宽度、错落、文字包框和字号层级。
 - [x] 测试隔离：测试完全使用运行时生成的组织包、文章、RGBA 微组件和 390 px 截图，不读取任何历史推文设计。

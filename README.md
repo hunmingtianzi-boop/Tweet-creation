@@ -82,9 +82,9 @@ python3 -I -S scripts/secure_runner.py scripts/runtime_preflight.py output/runti
   --output output/runtime/binding-report-UNIQUE.json
 ```
 
-只有 binding report 同时为 `ok: true` 和 `binding_ready: true`，且当前宿主工具轨迹已通过所选路线的真实只读探针，才进入材料读取与视觉校准。报告的 `phase_ready` 故意保持 `false`，避免将自填 profile 误当宿主证据。ImageGen 的首张正式资产与验图 SHA 承担 live proof；Ardot 与微信必须真实读取当前 file/root/可见账号。缺登录时停在登录步骤。profile 与报告只放在 Git 忽略的 `output/runtime/`，不得包含 token、Cookie、AppSecret 或水印密钥。Codex 的精确工具路由见 [runtime/adapters/codex-desktop.json](runtime/adapters/codex-desktop.json)，完整合同见[运行环境启动自检](references/runtime-preflight.md)。
+只有 binding report 同时为 `ok: true` 和 `binding_ready: true`，且当前宿主工具轨迹已通过所选路线的真实只读探针，才进入材料读取与视觉校准。报告的 `phase_ready` 故意保持 `false`，避免将自填 profile 误当宿主证据。Codex Desktop 的默认透明小组件路由是 `chatgpt-web-image-route` + `codex-with-chatgpt` + 内置 Browser；首张正式资产的页面生成、原图下载事件、raw SHA、RGBA 派生报告和终态验图共同承担 live proof。C2C doctor、ChatGPT 文字回复或页面预览均不算。Ardot 与微信必须真实读取当前 file/root/可见账号。缺登录时停在登录步骤。profile 与报告只放在 Git 忽略的 `output/runtime/`，不得包含 token、Cookie、AppSecret 或水印密钥。Codex 的精确工具路由见 [runtime/adapters/codex-desktop.json](runtime/adapters/codex-desktop.json)，完整合同见[运行环境启动自检](references/runtime-preflight.md)。
 
-绑定通过后立即执行报告的 `host_setup_actions`：Ardot 选 MCP 时连接/OAuth，选 UI 时只加载已声明的 Browser/Computer Use 路线，然后打开当前目标；微信选 API 时授权 provider，只有 UI 路线才打开无 token 公众平台入口等待扫码。若要 OAuth、provider 授权或扫码登录，在开始制作前就停下等用户完成，然后于同一 session 重新探针，不把带 token 的跳转链接落盘。
+绑定通过后立即执行报告的 `host_setup_actions`：`authoring/full` 先加载两个 ChatGPT 技能和内置 Browser，运行 C2C 日常检查，保持一个可见的 ChatGPT 标签；如果要登录/2FA/同意，在读材料前就只请求这一个操作。之后再准备 Ardot；微信选 API 时授权 provider，只有 UI 路线才打开无 token 公众平台入口。ChatGPT 严禁 Computer Use 和外部浏览器。`bootstrap` 只准备 `ardot.create`，`delivery` 不打开 ChatGPT。任何登录成功后都在同一 session 重新探针，不把带 token 的跳转链接或 ChatGPT 对话 URL 落盘。
 
 新组织还没有 Ardot file/root 时，先将上述命令改为 `--phase bootstrap`，验证 `ardot.create` 后只创建空白设计/页，再使用新 file/root 重跑目标阶段（默认 `full`，用户明确只做 Ardot 时为 `authoring`）。`bootstrap` 不要求微信目标或登录，也不需要伪造 Ardot 链接。
 
@@ -191,13 +191,27 @@ python3 scripts/build_visual_kit.py article.json \
   --output output/new-account-id/article-slug/visual-kit-plan.json
 ```
 
-逐张生图、验图，每张都必须绑定正文原句、具体主体/动作、分镜章节和构图职责。四张图分别运行像素级 Alpha、尺寸与角色宽高比检查：
+逐张生图、验图，每张都必须绑定正文原句、具体主体/动作、分镜章节和构图职责。Codex Desktop 默认让 ChatGPT 在计划指定的单色 key 背景上生成单一主体，用内置 Browser 下载原始 PNG。原图放 `assets/generated/`，不直接进 Ardot。先生成 create-once 的 RGBA 派生图与报告：
 
 ```bash
-python3 scripts/inspect_asset.py path/to/micro.png --role floating-spot
+python3 -I -S scripts/secure_runner.py scripts/prepare_micro_cutout.py \
+  path/to/raw.png path/to/derived.png \
+  --role floating-spot \
+  --article-id article-slug \
+  --asset-slot-id kit.floating-spot \
+  --prompt-sha256 sha256:PROMPT_SHA \
+  --generation-route chatgpt-web-image-route-v1 \
+  --key-color '#00FF3C' \
+  --report path/to/cutout-report.json
 ```
 
-把四张图做成 Ardot 原生组件，将 component file/node/name 证据写回文章。只有 `ready_for_layout: true` 才生成 Ardot 装配清单：
+然后对派生图运行像素级 Alpha、尺寸与角色宽高比检查：
+
+```bash
+python3 scripts/inspect_asset.py path/to/derived.png --role floating-spot
+```
+
+只有安全可移除的 key 背景或已真正具备 Alpha 的原图才会产生派生图。背景不均、主体碰边、彩色 halo、碎片或底板均阻断并重新生图，不降低门槛。把四张 `assets/derived/` 成品做成 Ardot 原生组件，将 component file/node/name 证据写回文章。只有 `ready_for_layout: true` 才生成 Ardot 装配清单：
 
 ```bash
 python3 scripts/build_ardot_manifest.py article.json \

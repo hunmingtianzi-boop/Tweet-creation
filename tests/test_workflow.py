@@ -1652,6 +1652,25 @@ class WatermarkWorkflowTests(FreshWorkflowTestCase):
 
 
 class VisualKitTests(FreshWorkflowTestCase):
+    def test_chatgpt_web_is_default_source_and_alpha_is_never_trusted(self) -> None:
+        plan = build_visual_kit_plan(self.article, self.pack)
+        route = plan["generation_route"]
+        self.assertEqual(route["default"], "chatgpt-web-image-route-v1")
+        self.assertEqual(route["session_skill"], "codex-with-chatgpt")
+        self.assertFalse(route["computer_use_allowed"])
+        self.assertFalse(route["alpha_claim_trusted"])
+        self.assertEqual(route["processor"], "scripts/prepare_micro_cutout.py")
+        self.assertEqual(route["output_contract"], "subject-cutout-rgba8-v1")
+        self.assertEqual(len({slot["source_generation"]["key_color"] for slot in plan["slots"]}), 4)
+        for slot in plan["slots"]:
+            source = slot["source_generation"]
+            self.assertEqual(slot["asset_slot_id"], f"kit.{slot['role']}")
+            self.assertEqual(source["route"], "chatgpt-web-image-route-v1")
+            self.assertNotEqual(source["key_color"], source["fallback_key_color"])
+            self.assertIn(source["key_color"], slot["prompt"])
+            self.assertIn("download the original PNG", slot["prompt"])
+            self.assertNotIn("real 8-bit RGBA PNG", slot["prompt"])
+
     def test_four_distinct_grounded_alpha_components_unlock_layout(self) -> None:
         plan = build_visual_kit_plan(self.article, self.pack)
         self.assertTrue(plan["ready_for_layout"], plan["blocking_reasons"])

@@ -12,8 +12,8 @@ organization-pack/
 └── assets/
     ├── official/       # Logo, QR, official identity files
     ├── photos/         # Real people, events, projects, venues
-    ├── generated/      # Approved illustrative bitmaps
-    └── derived/        # Crops, compressed copies, background removal
+    ├── generated/      # Provider originals and approved opaque illustrative bitmaps
+    └── derived/        # Hash-bound crops, compressed copies, and RGBA cutouts
 ```
 
 Run `python3 scripts/orgs.py validate PACK_DIR` after every material edit.
@@ -107,7 +107,7 @@ New packs start as `not-linked`. Set `linked` only after a real Ardot file, vari
 
 ## `assets.json`
 
-Each asset has an ID, kind, title, path or URL, style, uses, origin, and optional source ID. Local paths resolve relative to the organization pack. Real evidence photos declare `visual_role: documentary-evidence` and a `source_id`. Generated backgrounds declare `visual_role: illustrative-atmosphere`, `background_family_id`, and `background_variant` (`master` or `companion`). Generated micro illustrations declare `visual_role: article-micro`, exactly one of the four `roles`, the current slug in `generated_for_articles`, and stored P0 cutout quality metadata: `alpha_verified`, `cutout_verified`, exact SHA/dimensions, and robust bbox/padding/matte evidence. Confirmed packs re-run the pixel gate and reject stale evidence.
+Each asset has an ID, kind, title, path or URL, style, uses, origin, and optional source ID. Local paths resolve relative to the organization pack. Real evidence photos declare `visual_role: documentary-evidence` and a `source_id`. Generated backgrounds declare `visual_role: illustrative-atmosphere`, `background_family_id`, and `background_variant` (`master` or `companion`). A newly registered micro illustration is the **derived RGBA result**, not the provider original: it declares `origin: derived`, `visual_role: article-micro`, exactly one of the four `roles`, the current slug in `generated_for_articles`, a validated `cutout` lineage object, and stored P0 quality metadata (`alpha_verified`, `cutout_verified`, exact SHA/dimensions, and robust bbox/padding/matte evidence). Confirmed packs re-hash the lineage files, re-run the pixel gate, and reject stale evidence.
 
 An eligible opaque `generated-illustrative` background or fully generated
 raster cover is registered from its marked final derivative and carries only
@@ -150,7 +150,72 @@ Do not store account secrets, access tokens, watermark keys, raw watermark IDs,
 private watermark registries, or other private credentials in an organization
 pack.
 
-Generate an article-type asset plan with `scripts/orgs.py asset-plan`, then register approved files with `scripts/orgs.py register-asset`. For a newly generated micro illustration, pass `--role ROLE --generated-for ARTICLE_ID --visual-role article-micro`; registration requires deterministically decodable 8-bit RGBA, robust Alpha geometry, a tight subject crop, no clipped substantive pixels, and no rectangular/rounded/near-solid matte. Spacing belongs in Ardot, not in a large transparent PNG canvas. Every article gets a fresh visual-kit plan and must produce four different assets for all four roles before layout. Logos and QR codes always remain official or user-supplied assets.
+Generate an article-type asset plan with `scripts/orgs.py asset-plan`, then prepare and register each micro illustration through the following raw→derived contract.
+
+### Micro-illustration raw→derived lineage
+
+The ChatGPT/provider download is a **raw generation source**. Keep its original bytes under `assets/generated/`; it may be RGB8 on the planned uniform chroma-key background or native RGBA8, but provider/file-extension claims about transparency are never trusted. The raw file is normally not a standalone `assets[]` entry. It must never carry `visual_role: article-micro`, a visual-kit `role`, or be placed in Ardot as the final component image.
+
+Create a separate output and report with the actual processor CLI. All three paths are create-once and distinct; replace the example prompt hash with the SHA-256 of the exact generation prompt. `--key-color` is required for the controlled opaque-key route and may be omitted only when the downloaded native RGBA already passes the strengthened gate.
+
+```bash
+python3 -I -S scripts/secure_runner.py scripts/prepare_micro_cutout.py \
+  organizations/new-account-id/assets/generated/article-object-raw.png \
+  organizations/new-account-id/assets/derived/article-object-cutout.png \
+  --report organizations/new-account-id/assets/derived/article-object-cutout.json \
+  --role floating-spot \
+  --article-id article-slug \
+  --asset-slot-id kit.floating-spot \
+  --prompt-sha256 sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+  --generation-route chatgpt-web-image-route-v1 \
+  --key-color '#00FF3C'
+```
+
+The create-once `org-wechat-micro-cutout-derivation-v1` report binds the raw and final locations and file/pixel hashes; article ID, slot ID and role; generation route and prompt hash; processor script/config hashes and method; background/mask/edge assessment; black/white composite probes; and the final RGBA inspection. The validator resolves both files relative to the report, requires the source under `assets/generated/` and the output under `assets/derived/`, and re-computes the hashes and current pixel inspection. A copied report or an `approved: true` claim cannot substitute for those bytes.
+
+Register only the derivative. These are the actual `register-asset` arguments for a new micro illustration:
+
+```bash
+python3 scripts/orgs.py register-asset organizations/new-account-id \
+  --id spot.article-object \
+  --kind illustration \
+  --title "Article object spot" \
+  --location assets/derived/article-object-cutout.png \
+  --origin derived \
+  --style article-specific \
+  --use recruitment \
+  --role floating-spot \
+  --cutout-report assets/derived/article-object-cutout.json \
+  --generated-for article-slug \
+  --visual-role article-micro
+```
+
+`--kind` must be `illustration` or `decoration`; exactly one `--role` is allowed; `--generated-for` must include the report's `article_id`; and `--location` must resolve to the same derivative named by `--cutout-report`. Successful registration derives and stores this auditable shape rather than trusting caller-supplied lineage:
+
+```json
+{
+  "origin": "derived",
+  "visual_role": "article-micro",
+  "roles": ["floating-spot"],
+  "generated_for_articles": ["article-slug"],
+  "cutout": {
+    "report_location": "assets/derived/article-object-cutout.json",
+    "report_sha256": "sha256:<report-bytes>",
+    "source_location": "assets/generated/article-object-raw.png",
+    "source_sha256": "sha256:<provider-original-bytes>",
+    "output_sha256": "sha256:<derived-rgba-bytes>",
+    "method": "border-connected-chroma-matting-v1",
+    "article_id": "article-slug",
+    "asset_slot_id": "kit.floating-spot",
+    "prompt_sha256": "sha256:<exact-prompt>",
+    "generation_route": "chatgpt-web-image-route-v1",
+    "processor_script_sha256": "sha256:<processor-bytes>",
+    "config_sha256": "sha256:<canonical-config>"
+  }
+}
+```
+
+Direct registration of a ChatGPT original as `article-micro` is forbidden, even if it looks transparent or its mode says RGBA. New micro registration with a role fails unless `origin=derived` and `--cutout-report` verifies. The derivative must also be deterministically decodable RGBA8 with real transparent pixels, robust Alpha geometry, a tight subject crop, no clipped substantive pixels, no halo/debris, and no rectangular/rounded/near-solid matte. Spacing belongs in Ardot, not in a large transparent PNG canvas. Every article gets a fresh visual-kit plan and four different derivatives for the four roles before layout. Logos and QR codes always remain official or user-supplied assets.
 
 ## Visual-reference provenance
 

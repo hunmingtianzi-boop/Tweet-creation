@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "kind": "org-wechat-setup-links",
   "startup_policy": {
     "open_after_binding": true,
@@ -24,6 +24,10 @@
     "wechat_api": {
       "url": "https://api.weixin.qq.com/",
       "purpose": "official API base; this repository still requires an actual publisher provider"
+    },
+    "chatgpt_web": {
+      "url": "https://chatgpt.com/",
+      "purpose": "credential-free ChatGPT entry; the codex-with-chatgpt Skill owns safe session setup and login"
     }
   },
   "local": {
@@ -51,6 +55,18 @@
       "path": "runtime/adapters/codex-desktop.json",
       "purpose": "Codex Desktop semantic capability routing; presence is not live proof"
     },
+    "chatgpt_image_route_skill": {
+      "path": "skills/chatgpt-web-image-route/SKILL.md",
+      "purpose": "reviewed wrapper for the default Codex Desktop transparent-image route"
+    },
+    "chatgpt_image_route_contract": {
+      "path": "skills/chatgpt-web-image-route/references/image-generation-contract.md",
+      "purpose": "provider-neutral original-download and RGBA cutout evidence contract"
+    },
+    "cutout_processor": {
+      "path": "scripts/prepare_micro_cutout.py",
+      "purpose": "deterministic micro-asset background removal and RGBA validation processor"
+    },
     "usage": {
       "path": "references/使用说明.md",
       "purpose": "operator workflow"
@@ -61,8 +77,10 @@
     }
   },
   "semantic_capabilities": [
-    "image.generate",
+    "image.generate.opaque",
+    "image.generate.rgba",
     "image.inspect",
+    "chatgpt.session",
     "ardot.create",
     "ardot.read",
     "ardot.write",

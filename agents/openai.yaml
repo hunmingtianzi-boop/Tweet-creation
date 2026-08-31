@@ -2,7 +2,7 @@ interface:
   display_name: "Organization WeChat Studio"
   short_description: "Build source-zero Ardot WeChat articles with safe interaction"
   brand_color: "#1648C8"
-  default_prompt: "Use $org-wechat-studio, pass the binding-only startup gate and current host tool probes first, then build a source-zero organization pack, article-specific visuals, 2–3 semantic interaction modules, and an Ardot-native WeChat article with verified-draft delivery."
+  default_prompt: "Use $org-wechat-studio, pass the binding-only startup gate and current host tool probes first, prepare $chatgpt-web-image-route for original image downloads and verified RGBA cutouts, then build a source-zero organization pack, 2–3 semantic interaction modules, and an Ardot-native WeChat article with verified-draft delivery."
 dependencies:
   tools:
     - type: "mcp"

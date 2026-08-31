@@ -368,9 +368,20 @@ def _robust_alpha_geometry(
             "partial_pixel_count": 0,
             "near_white_halo_ratio": None,
             "near_black_halo_ratio": None,
+            "partial_near_white_ratio": None,
+            "partial_near_black_ratio": None,
+            "partial_dominant_chroma_ratio": None,
+            "partial_pixel_subject_ratio": None,
+            "low_alpha_pixel_ratio": 0.0,
+            "low_alpha_bbox_canvas_fill_ratio": None,
+            "nonzero_alpha_touches_canvas_edge": False,
+            "component_count": 0,
+            "second_component_ratio": 0.0,
+            "secondary_component_ratio": 0.0,
+            "bbox_border_occupancy": None,
         }
 
-    largest_component: list[int] = []
+    components: list[list[int]] = []
     for seed in range(pixel_count):
         if mask[seed] != 1:
             continue
@@ -388,8 +399,9 @@ def _robust_alpha_geometry(
                     if mask[neighbor] == 1:
                         mask[neighbor] = 2
                         stack.append(neighbor)
-        if len(component) > len(largest_component):
-            largest_component = component
+        components.append(component)
+    components.sort(key=len, reverse=True)
+    largest_component = components[0]
 
     left, top = width, height
     right = bottom = -1
@@ -430,10 +442,23 @@ def _robust_alpha_geometry(
     partial_pixels = 0
     near_white_halo = 0
     near_black_halo = 0
-    for row in rows:
+    low_alpha_pixels = 0
+    low_alpha_left, low_alpha_top = width, height
+    low_alpha_right = low_alpha_bottom = -1
+    nonzero_alpha_touches_canvas_edge = False
+    chroma_bins: dict[tuple[int, int, int], int] = {}
+    for y, row in enumerate(rows):
         for x in range(width):
             offset = x * channels
             alpha = row[offset + alpha_offset]
+            if alpha > 0 and (x == 0 or y == 0 or x == width - 1 or y == height - 1):
+                nonzero_alpha_touches_canvas_edge = True
+            if 0 < alpha < alpha_threshold:
+                low_alpha_pixels += 1
+                low_alpha_left = min(low_alpha_left, x)
+                low_alpha_top = min(low_alpha_top, y)
+                low_alpha_right = max(low_alpha_right, x)
+                low_alpha_bottom = max(low_alpha_bottom, y)
             if not 0 < alpha < 250:
                 continue
             partial_pixels += 1
@@ -443,7 +468,37 @@ def _robust_alpha_geometry(
                 near_white_halo += 1
             if spread <= 12 and max(red, green, blue) <= 18:
                 near_black_halo += 1
+            if spread >= 80 and max(red, green, blue) >= 100:
+                color = (red // 16, green // 16, blue // 16)
+                chroma_bins[color] = chroma_bins.get(color, 0) + 1
     dominant = max(color_bins.values()) if color_bins else 0
+    dominant_chroma = max(chroma_bins.values()) if chroma_bins else 0
+    low_alpha_bbox_canvas_fill_ratio = None
+    if low_alpha_pixels:
+        low_alpha_bbox_canvas_fill_ratio = round(
+            ((low_alpha_right - low_alpha_left + 1) * (low_alpha_bottom - low_alpha_top + 1))
+            / pixel_count,
+            6,
+        )
+    ring = max(1, round(min(bbox_width, bbox_height) * 0.05))
+    inner_width = max(0, bbox_width - 2 * ring)
+    inner_height = max(0, bbox_height - 2 * ring)
+    bbox_border_area = bbox_area - inner_width * inner_height
+    bbox_border_pixels = 0
+    for index in largest_component:
+        y, x = divmod(index, width)
+        if (
+            x < left + ring
+            or x > right - ring
+            or y < top + ring
+            or y > bottom - ring
+        ):
+            bbox_border_pixels += 1
+    component_sizes = [len(component) for component in components]
+    second_component_ratio = (
+        component_sizes[1] / substantive_pixels if len(component_sizes) > 1 else 0.0
+    )
+    secondary_component_ratio = (substantive_pixels - selected_count) / substantive_pixels
     padding = {
         "left": round(left / width, 6),
         "top": round(top / height, 6),
@@ -466,6 +521,25 @@ def _robust_alpha_geometry(
         "partial_pixel_count": partial_pixels,
         "near_white_halo_ratio": round(near_white_halo / selected_count, 6),
         "near_black_halo_ratio": round(near_black_halo / selected_count, 6),
+        "partial_near_white_ratio": round(near_white_halo / partial_pixels, 6)
+        if partial_pixels
+        else 0.0,
+        "partial_near_black_ratio": round(near_black_halo / partial_pixels, 6)
+        if partial_pixels
+        else 0.0,
+        "partial_dominant_chroma_ratio": round(dominant_chroma / partial_pixels, 6)
+        if partial_pixels
+        else 0.0,
+        "partial_pixel_subject_ratio": round(partial_pixels / selected_count, 6),
+        "low_alpha_pixel_ratio": round(low_alpha_pixels / pixel_count, 6),
+        "low_alpha_bbox_canvas_fill_ratio": low_alpha_bbox_canvas_fill_ratio,
+        "nonzero_alpha_touches_canvas_edge": nonzero_alpha_touches_canvas_edge,
+        "component_count": len(components),
+        "second_component_ratio": round(second_component_ratio, 6),
+        "secondary_component_ratio": round(secondary_component_ratio, 6),
+        "bbox_border_occupancy": round(bbox_border_pixels / bbox_border_area, 6)
+        if bbox_border_area
+        else None,
     }
 
 
@@ -520,6 +594,17 @@ def inspect_png(path: Path) -> dict[str, Any]:
         "alpha_partial_pixel_count": None,
         "alpha_near_white_halo_ratio": None,
         "alpha_near_black_halo_ratio": None,
+        "alpha_partial_near_white_ratio": None,
+        "alpha_partial_near_black_ratio": None,
+        "alpha_partial_dominant_chroma_ratio": None,
+        "alpha_partial_pixel_subject_ratio": None,
+        "alpha_low_nonzero_pixel_ratio": None,
+        "alpha_low_nonzero_bbox_canvas_fill_ratio": None,
+        "alpha_nonzero_touches_canvas_edge": None,
+        "alpha_component_count": None,
+        "alpha_second_component_ratio": None,
+        "alpha_secondary_component_ratio": None,
+        "alpha_bbox_border_occupancy": None,
     }
     if not has_alpha_channel:
         return result
@@ -603,6 +688,21 @@ def inspect_png(path: Path) -> dict[str, Any]:
             "alpha_partial_pixel_count": robust["partial_pixel_count"],
             "alpha_near_white_halo_ratio": robust["near_white_halo_ratio"],
             "alpha_near_black_halo_ratio": robust["near_black_halo_ratio"],
+            "alpha_partial_near_white_ratio": robust["partial_near_white_ratio"],
+            "alpha_partial_near_black_ratio": robust["partial_near_black_ratio"],
+            "alpha_partial_dominant_chroma_ratio": robust["partial_dominant_chroma_ratio"],
+            "alpha_partial_pixel_subject_ratio": robust["partial_pixel_subject_ratio"],
+            "alpha_low_nonzero_pixel_ratio": robust["low_alpha_pixel_ratio"],
+            "alpha_low_nonzero_bbox_canvas_fill_ratio": robust[
+                "low_alpha_bbox_canvas_fill_ratio"
+            ],
+            "alpha_nonzero_touches_canvas_edge": robust[
+                "nonzero_alpha_touches_canvas_edge"
+            ],
+            "alpha_component_count": robust["component_count"],
+            "alpha_second_component_ratio": robust["second_component_ratio"],
+            "alpha_secondary_component_ratio": robust["secondary_component_ratio"],
+            "alpha_bbox_border_occupancy": robust["bbox_border_occupancy"],
         }
     )
     return result
@@ -677,6 +777,39 @@ def validate_micro_asset(path: Path, role: str) -> dict[str, Any]:
     if inspection.get("alpha_touches_canvas_edge") is True:
         error_codes.add("micro.asset.clipped_subject")
         errors.append("micro asset substantive alpha touches a canvas edge; subject may be clipped")
+    if inspection.get("alpha_nonzero_touches_canvas_edge") is True:
+        error_codes.add("micro.asset.alpha_residue_touches_canvas_edge")
+        errors.append(
+            "micro asset contains non-zero Alpha on the outer canvas edge; clipped subject or "
+            "low-Alpha background residue is forbidden"
+        )
+    low_alpha_ratio = inspection.get("alpha_low_nonzero_pixel_ratio")
+    low_alpha_bbox_ratio = inspection.get("alpha_low_nonzero_bbox_canvas_fill_ratio")
+    if (
+        isinstance(low_alpha_ratio, float)
+        and low_alpha_ratio >= 0.08
+        and isinstance(low_alpha_bbox_ratio, float)
+        and low_alpha_bbox_ratio >= 0.70
+    ):
+        error_codes.add("micro.asset.low_alpha_background_plane")
+        errors.append(
+            "micro asset contains a canvas-scale low-Alpha background plane; transparent "
+            "pixels must belong only to the subject edge or an intentional local effect"
+        )
+    second_component_ratio = inspection.get("alpha_second_component_ratio")
+    secondary_component_ratio = inspection.get("alpha_secondary_component_ratio")
+    if (
+        isinstance(second_component_ratio, float)
+        and second_component_ratio >= 0.10
+    ) or (
+        isinstance(secondary_component_ratio, float)
+        and secondary_component_ratio >= 0.25
+    ):
+        error_codes.add("micro.asset.detached_debris")
+        errors.append(
+            "micro asset contains a detached substantial component; retain one coherent subject "
+            "with only small nearby open strokes"
+        )
     dominant_ratio = inspection.get("alpha_dominant_color_ratio")
     near_white_ratio = inspection.get("alpha_near_white_ratio")
     if (
@@ -695,14 +828,36 @@ def validate_micro_asset(path: Path, role: str) -> dict[str, Any]:
     ):
         error_codes.add("micro.asset.white_matte")
         errors.append("micro asset contains a white matte or rounded white card; background must be removed")
-    white_halo_ratio = inspection.get("alpha_near_white_halo_ratio")
-    black_halo_ratio = inspection.get("alpha_near_black_halo_ratio")
-    if isinstance(white_halo_ratio, float) and white_halo_ratio >= 0.06:
+    bbox_border_occupancy = inspection.get("alpha_bbox_border_occupancy")
+    if (
+        isinstance(bbox_fill_ratio, float)
+        and bbox_fill_ratio >= 0.82
+        and isinstance(bbox_border_occupancy, float)
+        and bbox_border_occupancy >= 0.55
+    ):
+        error_codes.add("micro.asset.background_plane_silhouette")
+        errors.append(
+            "micro asset silhouette behaves like an irregular or textured background plane; "
+            "use a subject-only cut-out"
+        )
+    white_halo_ratio = inspection.get("alpha_partial_near_white_ratio")
+    black_halo_ratio = inspection.get("alpha_partial_near_black_ratio")
+    colored_halo_ratio = inspection.get("alpha_partial_dominant_chroma_ratio")
+    partial_subject_ratio = inspection.get("alpha_partial_pixel_subject_ratio")
+    meaningful_partial_edge = (
+        isinstance(partial_subject_ratio, float) and partial_subject_ratio >= 0.02
+    )
+    if meaningful_partial_edge and isinstance(white_halo_ratio, float) and white_halo_ratio >= 0.60:
         error_codes.add("micro.asset.white_halo")
         errors.append("micro asset contains a visible semi-transparent white edge halo")
-    if isinstance(black_halo_ratio, float) and black_halo_ratio >= 0.06:
+    if meaningful_partial_edge and isinstance(black_halo_ratio, float) and black_halo_ratio >= 0.60:
         error_codes.add("micro.asset.black_halo")
         errors.append("micro asset contains a visible semi-transparent black edge halo")
+    if meaningful_partial_edge and isinstance(colored_halo_ratio, float) and colored_halo_ratio >= 0.60:
+        error_codes.add("micro.asset.colored_halo")
+        errors.append(
+            "micro asset contains a dominant semi-transparent colored edge halo; remove key-color spill"
+        )
     return {
         "ok": not errors,
         "path": str(path),

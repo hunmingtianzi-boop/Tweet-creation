@@ -48,6 +48,43 @@ KIT_ROLES = (
     },
 )
 
+KEY_BACKGROUND_CANDIDATES = (
+    "#00FF3C",
+    "#FF00D4",
+    "#00E5FF",
+    "#5B00FF",
+    "#FF5A00",
+)
+
+
+def _hex_rgb(value: str) -> tuple[int, int, int] | None:
+    match = re.fullmatch(r"#([0-9A-Fa-f]{6})", value)
+    if not match:
+        return None
+    encoded = match.group(1)
+    return tuple(int(encoded[index : index + 2], 16) for index in (0, 2, 4))
+
+
+def ranked_key_backgrounds(tokens: dict[str, Any]) -> list[str]:
+    """Prefer chroma keys that are furthest from the calibrated organization palette."""
+
+    palette = [
+        parsed
+        for value in tokens.values()
+        if isinstance(value, str) and (parsed := _hex_rgb(value)) is not None
+    ]
+
+    def distance(candidate: str) -> float:
+        rgb = _hex_rgb(candidate)
+        if rgb is None or not palette:
+            return 0.0
+        return min(
+            sum((channel - reference) ** 2 for channel, reference in zip(rgb, item))
+            for item in palette
+        )
+
+    return sorted(KEY_BACKGROUND_CANDIDATES, key=distance, reverse=True)
+
 
 def read_json(path: Path) -> dict[str, Any]:
     try:
@@ -148,14 +185,17 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
         f"{name} {tokens[name]}"
         for name in ("ink", "accent", "accent_alt", "surface_alt")
     )
+    key_backgrounds = ranked_key_backgrounds(tokens)
     slots: list[dict[str, Any]] = []
     missing_roles: list[str] = []
     semantic_errors: list[str] = []
     composition_roles: set[str] = set()
     registered_generated_ids: set[str] = set()
     native_component_node_ids: set[str] = set()
-    for definition in KIT_ROLES:
+    for slot_index, definition in enumerate(KIT_ROLES):
         role = definition["role"]
+        key_color = key_backgrounds[slot_index % len(key_backgrounds)]
+        fallback_key_color = key_backgrounds[(slot_index + 1) % len(key_backgrounds)]
         approved = by_role.get(role)
         asset_id = approved.get("id") if approved else None
         chapter_id = approved.get("storyboard_chapter") if approved else None
@@ -182,7 +222,11 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
         expected_component_name = f"WeChat/Ornament/{''.join(part.title() for part in role.split('-'))}/{pack['ardot']['variable_mode']}"
         ready = bool(
             registered_asset
-            and registered_asset.get("origin") == "generated-illustrative"
+            # New registrations are always `derived` and carry a verified
+            # raw-source -> cutout lineage.  Keep legacy generated entries
+            # readable so existing organization packs can be migrated, while
+            # `orgs.py register-asset` prevents creating new legacy micros.
+            and registered_asset.get("origin") in {"derived", "generated-illustrative"}
             and article_id in (registered_asset.get("generated_for_articles") or [])
         )
         if registered_asset:
@@ -266,18 +310,21 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
             f"Its composition job is {composition_role or '[anchor/motion/connector/punctuation]'} at {placement}. "
             f"Follow the calibrated {route['dominant_style']} direction with motifs "
             f"{motifs} and palette {palette}. {grammar_instruction}"
-            f"Aspect ratio {definition['aspect_ratio']}. Use a "
-            f"real 8-bit RGBA PNG with a clean irregular/open Alpha edge. Crop tightly around the "
-            f"subject with only a small transparent safety margin; all editorial spacing must be "
-            f"created later in Ardot, never baked into a large transparent canvas. Show only the "
-            f"subject and its natural shadow/open effect, with no white, black, or colored matte. "
+            f"Aspect ratio {definition['aspect_ratio']}. Generate one isolated subject on a perfectly "
+            f"flat {key_color} key background, keeping a clean 6–12% key-colored border around every "
+            f"substantive pixel. The key color must not appear in the subject. Do not draw a "
+            f"checkerboard or claim transparency in the preview; Codex will download the original PNG "
+            f"and derive or verify the real Alpha channel locally. All editorial spacing will be "
+            f"created later in Ardot, never baked into the source canvas. Show only the subject and an "
+            f"open effect that does not cast onto a ground plane. "
             f"Do not create a rectangle, card, UI panel, border, poster, generic blob, letters, "
-            f"numbers, visible watermark or signature, logo, or QR code. The workflow may apply "
-            f"a hidden provenance watermark after generation; do not imitate it in the artwork. Avoid: {avoid}."
+            f"numbers, watermark, signature, logo, or QR code. Transparent article micros are not "
+            f"watermark carriers. Avoid: {avoid}."
         )
         slots.append(
             {
                 **definition,
+                "asset_slot_id": f"kit.{role}",
                 "status": "approved-and-registered" if ready else "generate-required",
                 "asset_id": asset_id,
                 "storyboard_chapter": chapter_id,
@@ -287,10 +334,22 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
                 "composition_role": composition_role,
                 "placement": placement,
                 "prompt": prompt,
+                "source_generation": {
+                    "route": "chatgpt-web-image-route-v1",
+                    "provider_skill": "chatgpt-web-image-route",
+                    "raw_output_contract": "original-png-v1",
+                    "alpha_claim_trusted": False,
+                    "key_color": key_color,
+                    "fallback_key_color": fallback_key_color,
+                    "processor": "scripts/prepare_micro_cutout.py",
+                    "output_contract": "subject-cutout-rgba8-v1",
+                },
                 "registration": {
-                    "origin": "generated-illustrative",
+                    "source_origin": "generated-illustrative",
+                    "origin": "derived",
                     "role": role,
                     "generated_for": article_id,
+                    "cutout_report_required": True,
                 },
                 "alpha_validation": alpha_report,
                 "ardot_component_name": expected_component_name,
@@ -342,6 +401,17 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
         "storyboard": storyboard,
         "minimum_micro_component_roles": len(KIT_ROLES),
         "minimum_unique_generated_micro_assets": minimum_unique_assets,
+        "generation_route": {
+            "default": "chatgpt-web-image-route-v1",
+            "provider_skill": "chatgpt-web-image-route",
+            "session_skill": "codex-with-chatgpt",
+            "browser_skill": "browser:control-in-app-browser",
+            "computer_use_allowed": False,
+            "raw_download_required": True,
+            "alpha_claim_trusted": False,
+            "processor": "scripts/prepare_micro_cutout.py",
+            "output_contract": "subject-cutout-rgba8-v1",
+        },
         "visual_kit_status": visual_kit_status,
         "ready_for_layout": ready_for_layout,
         "missing_roles": missing_roles,
@@ -351,9 +421,10 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
         "required_sequence": [
             "STOP if the organization route has no approved Ardot calibration benchmark",
             "STOP if the narrative storyboard is not approved and complete",
-            "generate every missing slot before any article layout",
-            "run inspect_asset.py for each role and reject missing/opaque Alpha, wrong aspect, rectangular, framed, generic, or text-bearing results",
-            f"save and register approved images as generated-illustrative assets with generated_for_articles={article_id}",
+            "load chatgpt-web-image-route and codex-with-chatgpt, then generate every missing slot through one visible built-in-browser ChatGPT session before any article layout",
+            "download each original PNG; screenshots, preview canvases, clipboard pixels, and copied remote URLs are forbidden substitutes",
+            "run prepare_micro_cutout.py and inspect_asset.py for each role; reject unsafe key backgrounds, missing/opaque Alpha, wrong aspect, matte, halo, debris, framing, generic subjects, or text",
+            f"save raw sources under assets/generated and register only approved derived RGBA cutouts with generated_for_articles={article_id}",
             "record the registered IDs under article.visual_kit.assets",
             "create four distinct native Ardot ornament components and record file_url, node_id, and exact name on each article.visual_kit asset",
             "only then assemble the long article",
