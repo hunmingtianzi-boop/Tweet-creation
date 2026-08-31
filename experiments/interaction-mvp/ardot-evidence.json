@@ -64,7 +64,7 @@
       "ardot_component": "WeChat/Interaction/TapReveal/State=Closed|Open/MVP",
       "transport_mode": "svg-smil-self-v1",
       "html_selector": "[data-interaction=\"svg-smil-self\"]",
-      "fallback": "b-dynamic/wechat-fallback.html",
+      "fallback": "b-dynamic/static-fallback-fragment.html",
       "fallback_component": "WeChat/Baseline/StaticPathItem/MVP",
       "policy_version": "wechat-svg-smil-self-v1"
     },
@@ -72,7 +72,7 @@
       "ardot_component": "WeChat/Interaction/SwipePhoto/Item/MVP",
       "transport_mode": "horizontal-swipe",
       "html_selector": "[data-interaction=\"horizontal-swipe\"]",
-      "fallback": "b-dynamic/wechat-fallback.html",
+      "fallback": "b-dynamic/static-fallback-fragment.html",
       "policy_version": "wechat-svg-smil-self-v1"
     }
   ],

@@ -31,6 +31,7 @@ The compiler accepts UTF-8 JSON:
     "assets": [
       {
         "id": "spot.example-a",
+        "asset_sha256": "<64 lowercase hex characters from the approved cutout>",
         "role": "floating-spot",
         "storyboard_chapter": "opening",
         "source_text": "One exact sentence copied from the article",
@@ -96,7 +97,7 @@ The compiler accepts UTF-8 JSON:
 
 `article_id` is a stable lowercase slug for this exact article. `organization_id` must match the organization pack. `article_type` must exist in `organization.json`. Omit `route` to use the article type’s configured route.
 
-The same JSON drives both Ardot assembly and the final WeChat adapter. Ardot is the visual source of truth. A block may set optional `variant`; otherwise the selected route supplies the variant and `ardot.json` maps it to an exact native component.
+This JSON drives semantic validation and Ardot assembly. It does not drive final WeChat layout. After visual approval, only a frozen `ardot-current-root-layer-export-v1` from the current root may drive delivery HTML; the article-JSON adapter is an explicit non-delivery preview. Ardot is the visual source of truth. A block may set optional `variant`; otherwise the selected route supplies the variant and `ardot.json` maps it to an exact native component.
 
 ## Interaction plan
 
@@ -183,7 +184,7 @@ The same JSON drives both Ardot assembly and the final WeChat adapter. Ardot is 
 }
 ```
 
-`build_ardot_manifest.py` 在装配前只校验 module 数量、分布、source block 落点、instance key/hash 与静态例外；此时三态节点可以尚未完成。`compile_wechat.py --check` 才要求当前 article root、revision、组件覆盖列表，以及每个 module 的 `closed/open/fallback` 本地 390 px Ardot 截图和真实文件哈希。最终 `visual_review.ardot.article_node_id` 与 `capture.revision_hash` 还必须分别等于 interaction plan 的 root 与 revision。
+`build_ardot_manifest.py` 在装配前只校验 module 数量、分布、source block 落点、instance key/hash 与静态例外；此时三态节点可以尚未完成。作者预览才从 article JSON 渲染，必须显式加 `--authoring-preview`。最终 `compile_wechat.py --transport-fidelity ... --live-root-export ... --live-root-receipt ... --check` 只接受当前 article root 的冻结图层 export、独立 fresh reread 与宿主 Ed25519 签名 receipt；receipt 还绑定 runtime/trusted bundle 与 intended HTML path。transport 本身同时绑定 root/revision、连续 chapter geometry、完整 source-node/font/render-style/body-asset census、独立资产，以及每个 module 的 `closed/open/fallback` 节点与 tree hash。
 
 如果原始材料只有 0–1 个合理交互机会，或用户明确要求静态，改用 `authoring_mode: static-exception`，并写入允许的 `category`、至少 12 字的具体 `reason` 与 `confirmed_by: user|editor`。目标账号暂无能力档案不属于创作例外；它只让投递层选静态等价版。
 
@@ -202,7 +203,7 @@ python3 scripts/build_visual_kit.py article.json \
   --output output/<organization-id>/<slug>/visual-kit-plan.json
 ```
 
-The four required roles are `floating-spot`, `section-transition`, `inline-explainer`, and `closing-motif`. Every entry must bind to exact article copy and one approved storyboard chapter, with a specific subject/action and a composition role of `anchor`, `motion`, `connector`, or `punctuation`. Use at least three different composition roles and four distinct generated assets. Every asset must pass pixel Alpha/aspect validation and record its native Ardot component file URL, node ID, and exact name. Then generate the Ardot assembly manifest:
+The four required roles are `floating-spot`, `section-transition`, `inline-explainer`, and `closing-motif`. Every entry must bind to exact article copy and one approved storyboard chapter, with a specific subject/action and a composition role of `anchor`, `motion`, `connector`, or `punctuation`. Use at least three different composition roles and four distinct generated assets. Every asset must pass the RGBA8/robust-Alpha/tight-crop/no-matte gate, record its exact `asset_sha256`, and record its native Ardot component file URL, node ID, and exact name. Then generate the Ardot assembly manifest:
 
 ```bash
 python3 scripts/build_ardot_manifest.py article.json \

@@ -8,6 +8,7 @@ description: Research an organization, create or update its reusable organizatio
 Create organization-specific WeChat articles without reducing the organization to a logo and color swap. Separate stable publishing mechanics from the organization’s identity and the facts of the current article.
 
 For commands and file locations, read [references/使用说明.md](references/使用说明.md). For a new account, also read [references/organization-pack-migration.md](references/organization-pack-migration.md). The current hardening rationale is recorded in [references/source-zero-audit.md](references/source-zero-audit.md). Read [references/style-options.md](references/style-options.md) only when the user explicitly supplies a style reference or selects a reviewed style preset. Read [references/provenance-watermark.md](references/provenance-watermark.md) before registering a generated opaque background or fully generated raster cover.
+Before freezing any final HTML or publisher handoff, read [references/ardot-transport-fidelity.md](references/ardot-transport-fidelity.md).
 
 ## Mandatory runtime preflight
 
@@ -18,10 +19,12 @@ Before opening source material, creating an organization pack, generating an ima
 3. Run the binding check before sending either URL to an external tool:
 
    ```bash
-   python3 scripts/runtime_preflight.py output/runtime/runtime-profile.json \
+   python3 -I -S scripts/secure_runner.py scripts/runtime_preflight.py output/runtime/runtime-profile.json \
      --phase full --binding-only \
      --output output/runtime/binding-report-UNIQUE.json
    ```
+
+   The `-I -S` secure runner is mandatory for runtime preflight, final transport validation/compilation, and watermark verification. Never replace it with direct `python3 scripts/...`, `PYTHONPATH`, a user-site hook, or an unlocked dependency path. A new harness/Python/platform combination must first add reviewed distribution hashes to `runtime/python-dependency-lock.json` and update the trusted release digest.
 
    For the no-workspace bootstrap case, substitute `--phase bootstrap`; its profile omits the Ardot workspace link and uses `ardot_bootstrap` bound to `ardot.create`.
 
@@ -138,6 +141,7 @@ Before opening source material, creating an organization pack, generating an ima
 - Default a normal article to 2–3 semantic interaction modules. A module is one reader task and one static-equivalent region; its child SVGs or swipe triggers are transport instances, not extra modules. Do not count decorative motion, the four mandatory micro illustrations, or expressive typography toward this budget.
 - Default every block to an open composition with no enclosing background, border, radius, or shadow. Add a container only when the content truly needs comparison, interaction, or a hard boundary.
 - Do not begin the article root until the four micro-visual roles exist as native Ardot components. Use them beside text, across transitions, along a continuous path, and near the ending—not as rectangular panel backgrounds.
+- Every micro raster is a subject-only, tightly cropped 8-bit RGBA cutout. It may contain the subject's natural shadow or open effect, but never a white/black/colored matte, background plane, text, frame, or layout whitespace. Registration must pass the robust Alpha/cutout gate; the Ardot image node must retain that exact asset ID and SHA, with no visible backplate or section screenshot substituted for it.
 - A micro component is a partial-width editorial accent, not a miniature poster or a full-row raster panel. Keep each raster/illustration layer at or below 72% of the 390 px row and the whole component at or below 82%. Across the four mandatory roles, use both left and right offsets, at least three distinct offsets, at least three composition relations, visible scale variation, and placements in at least three screenshot sections.
 - When a micro component includes copy, leave the copy open: no enclosing border, filled rectangle, chip, badge, rounded label, or closed shape node. Keep the text native and editable. Its primary phrase must be at least 22 px and 1.35× the local body size, using `scale-contrast` plus at least one non-frame technique such as mixed weight, color contrast, deliberate line break, baseline offset, or a vector accent. Outline/offset layers may shape glyphs; they must never become a box around the words.
 - Keep body copy readable on a solid or near-solid surface. Use strong backgrounds for covers, transitions, evidence summaries, calls to action, and endings.
@@ -151,20 +155,36 @@ Before opening source material, creating an organization pack, generating an ima
 
 ## Authoring and delivery
 
-- Treat the structured article JSON as the portable content source.
-- Treat Ardot as the visual source of truth. Build native frames and reusable components using the same semantic component IDs as the article JSON. Never make HTML or a flattened long image the editable design source.
-- Preserve the fixed workflow attribution `感谢拓浙 AI 生态提供本篇内容生产工作流支持。` as the final visible native editable text in Ardot and as the final visible section in transport. Freeze it in handoff schema v4 and verify normalized terminal text after draft save; a transport `data-*` marker alone is insufficient because WeChat may sanitize it.
+- Treat the structured article JSON as the portable semantic/content source only. After visual approval it cannot drive final layout or delivery rendering.
+- Treat the current Ardot root as the sole visual source of truth. Build native frames and reusable components using the same semantic component IDs as the article JSON. Never make HTML, a flattened long image, or a manually redrawn SVG the editable or delivery design source.
+- Preserve the fixed workflow attribution `感谢拓浙 AI 生态提供本篇内容生产工作流支持。` as the final visible native editable text in Ardot and as the final visible section in transport. Freeze it in handoff schema v5 and verify normalized terminal text after draft save; a transport `data-*` marker alone is insufficient because WeChat may sanitize it.
 - Read `ardot.json`, apply the organization variable mode, fetch components by exact name, create missing route-specific variants, and assemble one 390 px article root in block order.
 - Capture and inspect Hero, section, statement, process/case, CTA, and other high-impact sections before handoff. Iterate on composition in Ardot; do not polish the hidden transport renderer as a substitute for visual authoring.
-- After visual approval, run the hidden final adapter when a WeChat draft or portable handoff is required:
+- After visual approval, export one immutable `ardot-current-root-layer-export-v1` from the same root. Chapter geometry uses `article-root-390-v1`: the first starts at `y=0`, every next chapter starts exactly at the prior bottom, and the last bottom equals the artboard height. The hash-bound current-root export must also carry the exact `transport_sections` layer census and `body_asset_ids`; every background, cutout, photo, text and interaction uses its real source node, unique z-order, supported render style and asset/text hash. Native text declares an approved WeChat system font family rather than accepting a silent font replacement. Export each text-free background as the complete `1170 x (chapter_height * 3)` layer, keep photos and approved cutouts independent, bind every SVG to an actual Ardot state export plus fallback, and include one hash-bound `390 x chapter_height` reference screenshot per chapter.
+- Immediately before final compilation, read the same root again through the active Ardot-capable host and save it as a separate fresh current-root export. It needs a timezone-aware `captured_at` strictly later than the frozen export and different bytes/inode; renaming, copying or hard-linking frozen evidence is forbidden. The harness must expose a real `host.receipt.attest` callable and issue `ardot-host-live-read-receipt-v1` from that tool result with a host-only Ed25519 private key. The repository may read the matching public key only from a root-owned, non-symlink, group/other-nonwritable trust-store file; `ORG_WECHAT_HOST_RECEIPT_TRUST_STORE` may select that protected absolute path but an environment-provided public key is forbidden. The signed fields include the runtime binding, trusted-bundle digest and intended final HTML path identity, so this repository can verify but cannot issue receipts. Missing host attestation blocks delivery/full while leaving authoring usable. Then run:
 
   ```bash
-  python3 scripts/compile_wechat.py article.json --org path/to/organization-pack --output output/article-slug --check
+  python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py handoff.json \
+    --intended-html output/article-slug/wechat.html \
+    --live-root-export qa/live-current-root.json \
+    --live-root-receipt qa/live-current-root-receipt.json \
+    --require-live-root
+  python3 -I -S scripts/secure_runner.py scripts/compile_wechat.py --transport-fidelity handoff.json \
+    --live-root-export qa/live-current-root.json \
+    --live-root-receipt qa/live-current-root-receipt.json \
+    --output output/article-slug --check
+  python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py handoff.json \
+    --html output/article-slug/wechat.html \
+    --live-root-export qa/live-current-root.json \
+    --live-root-receipt qa/live-current-root-receipt.json \
+    --compile-report output/article-slug/compile-report.json \
+    --require-compile-report
   ```
 
-- `index.html` and `wechat.html` are transport/debug artifacts, not the design source.
-- Freeze handoff schema v4 with a hash-bound `ardot-current-root-export`, then run `python3 scripts/validate_workflow_attribution.py HANDOFF_JSON`. After saving and reopening the WeChat draft, export the actual visible body text and rerun with `--saved-draft-visible-text FILE --require-readback`. Both gates must pass; the draft credit must occur exactly once and be terminal.
-- The static adapter must carry all four article-micro roles as text-free, unframed, partial-width instances (`<= 72%` image width) in their storyboard chapters. It must not silently drop the visual kit or send it through a generic full-width image/card renderer.
+- `compile_wechat.py article.json --authoring-preview --org ...` is a non-delivery diagnostic only. It emits `authoring-preview.html`, never `wechat.html`, and records `delivery_eligible: false`; the publisher must reject it.
+- `index.html` and final `wechat.html` are transport/debug artifacts, not the design source. Final HTML must contain one chapter section per frozen Ardot section node and one native text marker per frozen text node. Its host-signed intended path, path-identity hash, device/inode, SHA-256, byte length, handoff SHA and transport revision are terminally bound in `compile-report.json` together with the original live receipt; rerun the gate with that live export/receipt immediately before upload or paste.
+- Freeze handoff schema v5 with both the hash-bound `ardot-current-root-export` and full transport layer export, then run `validate_workflow_attribution.py` and `validate_transport_fidelity.py`. After saving and reopening the WeChat draft, export actual visible body text plus `wechat-saved-draft-readback-v1`; the host must issue `wechat-host-saved-draft-receipt-v1`, signed with the same host-only Ed25519 authority and bound to account/draft, HTML, compile report, live receipt and complete readback bytes. Rerun both gates with `--readback-receipt`; unsigned local screenshots, downloaded files or plausible `mmbiz.qpic.cn` strings are not readback proof.
+- The final adapter must carry every approved cutout as an independent, true-alpha, partial-width layer at its Ardot-derived geometry. It must not silently drop the visual kit, bake it into a background/composite, or send it through a generic full-width image/card renderer.
 - The authoring layer normally hands 2–3 approved interaction modules to the last-mile publisher under policy `wechat-svg-smil-self-v1`. The only dynamic candidates are no-ID self-trigger `<set>` / `<animateTransform begin="click">` SVG and inline CSS horizontal swipe. JavaScript, `<details>`, transport IDs, cross-ID timing, fragment references, and unprobed SMIL are forbidden. Every transport instance requires a unique semantic-hash-matched static fallback.
 - Before creating a WeChat draft, upload body images to the organization’s connected account and replace local paths with returned WeChat URLs. Upload the cover through the account’s supported cover-material flow.
 - For every locally verified marked carrier, download the actual WeChat-hosted body image or cover derivative after draft save and run authenticated detection. Only `transport_verified` proves that the mark survived WeChat; HTML structure and URL readback are insufficient. In required mode, unresolved `transport_lost` blocks publication.
@@ -181,7 +201,7 @@ Treat any of the following as blocking for final delivery:
 - reference text, photographs, logos, specific layout, component geometry, artwork, or unsupported reference-shaped fields entering a route grammar, prompt, visual kit, or Ardot manifest;
 - unresolved placeholders;
 - missing local assets;
-- missing or incomplete `article.visual_kit`, fewer than four distinct generated micro assets, any missing visual role, failed pixel Alpha/aspect check, or missing native Ardot component node evidence;
+- missing or incomplete `article.visual_kit`, fewer than four distinct generated micro assets, any missing visual role, non-RGBA8/undecodable Alpha, oversized transparent canvas, clipped subject, rectangular/rounded/solid matte, stale cutout SHA/evidence, or missing native Ardot component node evidence;
 - article layout started before the micro illustrations were made into Ardot components;
 - more than 20% boxed content sections, two consecutive boxes, or every block owning a background/border/radius container;
 - missing organization/route calibration benchmark or provisional organization status;
@@ -192,7 +212,8 @@ Treat any of the following as blocking for final delivery:
 - missing `interaction_plan`; a normal article outside the 2–3 semantic-module budget; child instances, decoration, micro illustrations, or display type used to pad the count; repeated chapter/placement bands; ungrounded instance copy; duplicate fallback keys or semantic hashes; or a static exception without a specific user/editor-confirmed reason;
 - a visual-kit item without grounded source copy, a specific subject/action, or a chapter/composition role;
 - missing or failing screenshot-backed schema-v3 `visual_review_file` before final transport;
-- missing, changed, hidden, rasterized, duplicated, or non-terminal workflow attribution in Ardot, compiled transport, handoff v4, or saved-draft normalized text;
+- missing, changed, hidden, rasterized, duplicated, or non-terminal workflow attribution in Ardot, compiled transport, handoff v5, or saved-draft normalized text;
+- missing/failing `ardot-current-root-layer-export-v1`; missing fresh live-root reread or valid short-lived host-signed receipt; a frozen export reused, renamed, copied or hard-linked as live evidence; a non-later or timezone-less live capture time; discontinuous/overlapping chapter y geometry; current-root visible component/section/layer/source/style/body-asset census mismatch; an unsupported or silently substituted font/crop/rotation/mask; duplicate/missing interaction state node IDs or tree hashes; any final renderer driven by article JSON; mixed screenshot/template/freehand-SVG sources; unsigned nested DOM or extra attributes; a final HTML path identity/device/inode/bytes/revision that differs from `compile-report.json`; a QA/contact/section-composite body image; a background without exact 3x geometry or zero-text node evidence; a decoration not independently bound to its approved cutout and source node; a supplied rather than recomputed SVG structure signature; detached readback without the bound compile artifact; a non-`mmbiz.qpic.cn` hosted asset; or missing chapter-level revision/asset/SVG/screenshot readback;
 - missing measured evidence for all four micro-component roles; an image wider than 72% of the row; a component wider than 82%; fewer than three screenshot sections, three distinct offsets, three composition relations, both left/right offsets, or visible scale variation; framed copy; or copy-bearing micro components without native text nodes, 22 px / 1.35× primary scale contrast, and a second non-frame emphasis technique;
 - missing `information_density` / `background_family_coherence` / `background_surface_unity` / `reading_surface_contrast` / `expressive_typography` / `art_type_construction` / `no_baked_art_text` screenshot checks, unhashed/non-390 px Ardot exports, fewer than five density samples, measured body-text contrast below 4.5, `compact-editorial` major gaps outside 24–40 px, body line-height outside the selected mode, or an accidental empty region larger than 20% of a sampled section;
 - a metric without a source ID;

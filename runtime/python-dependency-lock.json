@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "kind": "org-wechat-python-dependency-lock",
+  "hash_algorithm": "distribution-files-sha256-v1",
+  "allowed_entrypoints": [
+    "scripts/runtime_preflight.py",
+    "scripts/compile_wechat.py",
+    "scripts/validate_transport_fidelity.py",
+    "scripts/provenance_watermark.py"
+  ],
+  "scripts_importable_census": {
+    "algorithm": "top-level-python-importables-v1",
+    "entries": [
+      {
+        "kind": "source",
+        "path": "asset_quality.py"
+      },
+      {
+        "kind": "source",
+        "path": "build_ardot_manifest.py"
+      },
+      {
+        "kind": "source",
+        "path": "build_storyboard.py"
+      },
+      {
+        "kind": "source",
+        "path": "build_visual_directions.py"
+      },
+      {
+        "kind": "source",
+        "path": "build_visual_kit.py"
+      },
+      {
+        "kind": "source",
+        "path": "build_visual_review.py"
+      },
+      {
+        "kind": "source",
+        "path": "compile_wechat.py"
+      },
+      {
+        "kind": "source",
+        "path": "inspect_asset.py"
+      },
+      {
+        "kind": "source",
+        "path": "orgs.py"
+      },
+      {
+        "kind": "source",
+        "path": "provenance_watermark.py"
+      },
+      {
+        "kind": "source",
+        "path": "runtime_preflight.py"
+      },
+      {
+        "kind": "source",
+        "path": "secure_runner.py"
+      },
+      {
+        "kind": "source",
+        "path": "secure_runtime.py"
+      },
+      {
+        "kind": "source",
+        "path": "transport_fidelity.py"
+      },
+      {
+        "kind": "source",
+        "path": "validate_transport_fidelity.py"
+      },
+      {
+        "kind": "source",
+        "path": "validate_workflow_attribution.py"
+      },
+      {
+        "kind": "source",
+        "path": "wechat_interaction_policy.py"
+      },
+      {
+        "kind": "source",
+        "path": "workflow_quality.py"
+      }
+    ]
+  },
+  "platforms": {
+    "darwin-arm64-cpython-39": {
+      "distributions": {
+        "Pillow": {
+          "version": "11.3.0",
+          "file_count": 139,
+          "aggregate_sha256": "sha256:62be361d75daf3345ea1df882af9d54d52e098bcb6972a415da3a5e51a3a500d"
+        },
+        "cryptography": {
+          "version": "50.0.0",
+          "file_count": 122,
+          "aggregate_sha256": "sha256:5496515a076162969af120e92c21776f8ba1412b0f8e3e2025a4bf429b68bfb7"
+        },
+        "cffi": {
+          "version": "2.0.0",
+          "file_count": 31,
+          "aggregate_sha256": "sha256:e0f4bfd0aeebdb78ffaa2c0d7521d51cdbb662310658e5c3d2ddcefdfb47a79a"
+        },
+        "pycparser": {
+          "version": "2.23",
+          "file_count": 24,
+          "aggregate_sha256": "sha256:2e3f27dd929a11d18c014246e4bb0085ba8664c62b28c1cbe5ac007daaa970bd"
+        }
+      }
+    }
+  }
+}

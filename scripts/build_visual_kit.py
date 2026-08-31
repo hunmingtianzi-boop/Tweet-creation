@@ -218,6 +218,12 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
                         f"visual role {role} stored Alpha quality evidence does not match asset {asset_id}"
                     )
                     ready = False
+                approved_sha256 = approved.get("asset_sha256") if approved else None
+                if approved_sha256 != actual_inspection.get("sha256"):
+                    semantic_errors.append(
+                        f"visual role {role} article asset_sha256 must match the approved cutout pixels"
+                    )
+                    ready = False
             native_component = approved.get("ardot_component") if approved else None
             if not isinstance(native_component, dict):
                 semantic_errors.append(f"visual role {role} requires native Ardot component evidence")
@@ -261,7 +267,10 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
             f"Follow the calibrated {route['dominant_style']} direction with motifs "
             f"{motifs} and palette {palette}. {grammar_instruction}"
             f"Aspect ratio {definition['aspect_ratio']}. Use a "
-            f"real PNG alpha transparency and an irregular/open edge; keep generous negative space. "
+            f"real 8-bit RGBA PNG with a clean irregular/open Alpha edge. Crop tightly around the "
+            f"subject with only a small transparent safety margin; all editorial spacing must be "
+            f"created later in Ardot, never baked into a large transparent canvas. Show only the "
+            f"subject and its natural shadow/open effect, with no white, black, or colored matte. "
             f"Do not create a rectangle, card, UI panel, border, poster, generic blob, letters, "
             f"numbers, visible watermark or signature, logo, or QR code. The workflow may apply "
             f"a hidden provenance watermark after generation; do not imitate it in the artwork. Avoid: {avoid}."

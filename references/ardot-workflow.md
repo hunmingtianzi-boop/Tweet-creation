@@ -99,7 +99,9 @@ Ardot 仍是交互设计的唯一源。每个 module 必须额外保存三个原
 
 ## 微信投递
 
-视觉定稿且 `article.visual_review_file` 通过后，才运行 `compile_wechat.py` 生成内部投递文件。适配层需要把 Ardot 审核后的组件语义映射为微信允许的内联样式，并将正文图片上传到目标公众号；它只能复制已经 registered/local_verified 的 marked derivative，不能首次嵌入或修改水印。投递前冻结 handoff schema v4，记录感谢语的 Ardot text node、组件名、文本 SHA、可编辑/可见/末位状态，并使用 `validate_workflow_attribution.py` 从哈希绑定的当前 root 导出独立校验；保存后以重新打开草稿的规范化可见文本和顺序再跑 `--require-readback`，不依赖可能被清洗的 `data-*` 标记。保存草稿后下载真实微信 CDN/封面派生图重新检测。默认只创建草稿；正式发布仍需单独确认。
+视觉定稿且 `article.visual_review_file` 通过后，从同一 article root 冻结 handoff schema v5：完整 root export 同时保存感谢语、`transport_sections`、source-node/style census 与 body assets，`ardot-current-root-layer-export-v1` 必须逐字段成为它的投影；chapter y 从 0 连续覆盖 artboard。编译前经当前 Ardot 宿主再导出一份独立 fresh root，并由宿主从真实工具响应 Ed25519 签发短时效 `ardot-host-live-read-receipt-v1`；用带 `--intended-html` 的 live-root gate 对比后，才能运行 final compiler。生成后还需带原 live export/receipt 复核 compile report 与最终 HTML 路径身份/字节。`article.json --authoring-preview` 只能调试，不产生可投递 `wechat.html`。
+
+适配层只能复制已 registered/local_verified 的 marked derivative，不能首次嵌入或修改水印；不能将 Ardot 截图、QA 联系表或含文字的整段合成图当正文。微信保存后生成 `wechat-saved-draft-readback-v1`，逐章核对 section、文本 node 顺序/SHA、hosted asset 下载 SHA 和 390 px 截图；宿主紧接真实回读签发 `wechat-host-saved-draft-receipt-v1`，绑定账号/草稿、HTML、compile report 与完整 readback 字节。同时重跑感谢语末位校验与真实微信 CDN/封面派生图水印检测。默认只创建草稿；正式发布仍需单独确认。完整契约见 [ardot-transport-fidelity.md](ardot-transport-fidelity.md)。
 
 动态能力不是 organization pack 的视觉变量。工作流固定支持无 JavaScript、无 ID、元素自身 `begin="click"` 的 `<set>` / `<animateTransform>` 与 CSS 横滑生成，但能否在生产正文启用，由目标公众号的投递层能力档案决定：先保存候选并回读结构签名，再用已登记的 iOS/Android 微信版本做真机预览。回读只证明结构未被清洗；能力档案缺失、过期、账号不匹配或任一客户端失败时，必须更新同一草稿为信息等价静态版。
 

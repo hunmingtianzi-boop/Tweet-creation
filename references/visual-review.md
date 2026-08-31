@@ -19,7 +19,7 @@
 schema v3 新增 `micro_component_layout`，不接受手填 `image_width_ratio`、`horizontal_offset_ratio`、`font_size` 或 `enclosure: none`。先从当前 article root 导出两类本地 JSON：
 
 1. `ardot-article-instance-inventory`：列出文章中所有由四类 visual-kit component definitions 产生的实际 `instance_node_id` 与 `source_component_node_id`。相同 role 可以出现多次，但 placements 必须完整覆盖 inventory，不能抽样。
-2. `ardot-node-properties`：每个实例一份，包含 390 px article root、instance bounds，以及所有 image/illustration、text、closed-shape、vector-accent 子节点的 node ID、bounds、font size、fill alpha 与 stroke width。文件必须记录 SHA-256，并与对应 390 px 截图哈希绑定。
+2. `ardot-node-properties`：每个实例一份，包含 390 px article root、instance bounds，以及所有可见 image/illustration、text、closed-shape、vector-accent 子节点的 node ID、bounds、font size、fill alpha 与 stroke width。顶层必须声明 `complete_descendant_census: true`，且 `visible_descendant_count` 必须等于 `nodes` 长度；未知节点类型、漏报节点和 closed-shape 缺少可见性字段均失败。每个 image/illustration node 还必须记录已批准 cutout 的 `asset_id`、`asset_sha256`、`rendered_asset_file` 与 `rendered_asset_sha256`；rendered 文件必须留在该 node-properties 所在 visual-review bundle 内，实际 SHA 必须与已批准 cutout 完全一致。任何可见 closed-shape 单独或合并覆盖 image/illustration 80% 以上均视为禁止 backplate。文件必须记录 SHA-256，并与对应 390 px 截图哈希绑定。
 
 `horizontal_offset_ratio` 由校验器按 `(instance_center_x / 390) - 0.5` 计算；图片与组件宽度也由 bounds 除以 390 得到。`closed-shape` 只用于真实闭合容器；字形轮廓或偏移层使用 `vector-accent`，不得伪报为开放点缀。
 
@@ -72,15 +72,17 @@ Inventory 与逐实例文件的最小规范：
     "source_component_node_id": "20:1",
     "bounds": {"x": 24, "y": 120, "width": 148, "height": 170}
   },
+  "complete_descendant_census": true,
+  "visible_descendant_count": 3,
   "nodes": [
-    {"node_id": "80:2", "kind": "illustration", "bounds": {"x": 24, "y": 120, "width": 116, "height": 96}},
+    {"node_id": "80:2", "kind": "illustration", "asset_id": "spot.opening", "asset_sha256": "<approved cutout sha256>", "rendered_asset_file": "micro-1-rendered.png", "rendered_asset_sha256": "<same approved cutout sha256>", "bounds": {"x": 24, "y": 120, "width": 116, "height": 96}},
     {"node_id": "80:3", "kind": "text", "role": "primary-copy", "font_size_px": 24, "emphasis_techniques": ["scale-contrast", "mixed-weight"], "bounds": {"x": 42, "y": 228, "width": 106, "height": 34}},
-    {"node_id": "80:4", "kind": "vector-accent", "bounds": {"x": 30, "y": 222, "width": 6, "height": 42}}
+    {"node_id": "80:4", "kind": "vector-accent", "is_closed": false, "bounds": {"x": 30, "y": 222, "width": 6, "height": 42}}
   ]
 }
 ```
 
-可见的矩形、圆角矩形、椭圆底板、chip 或 badge 一律归一化为 `kind: closed-shape`，并写入 `fill_alpha` 与 `stroke_width_px`；缺报可见闭合节点等同伪造证据。沿字形的轮廓/偏移层和开放线条归入 `vector-accent`。
+可见的矩形、圆角矩形、椭圆底板、chip 或 badge 一律归一化为 `kind: closed-shape`，并写入数值型 `fill_alpha` 与 `stroke_width_px`；缺报可见闭合节点等同伪造证据。沿字形的轮廓/偏移层和开放线条归入 `vector-accent`，并显式写入 `is_closed: false`。
 
 校验器从这些文件强制得到：图片层宽度 `<= 0.72`、整个实例宽度 `<= 0.82`；四类角色至少分布在三个截图区段，同时有左右偏移、三个不同偏移、三个构图关系和可见尺度变化。含字实例不得有任何可见 `closed-shape` 包围文字；`primary-copy` 必须是原生 text node，至少 22 px、至少为同截图 density 正文的 1.35 倍，并使用 `scale-contrast` 加另一种非框体强调手法。
 
@@ -96,4 +98,4 @@ Inventory 与逐实例文件的最小规范：
 python3 scripts/build_visual_review.py visual-review.json --article article.json
 ```
 
-把 review 文件路径写入 `article.visual_review_file`。`compile_wechat.py --check` 会重新校验文章 ID、组织 ID、5 类节点证据、密度范围与全部视觉项；缺一项就不生成可交付结果。
+把 review 文件路径写入 `article.visual_review_file`。作者层门禁会重新校验文章 ID、组织 ID、5 类节点证据、密度范围与全部视觉项。通过后还必须冻结 handoff v5 完整 current-root/layer export，在编译前重新读取 live root 并取得宿主 Ed25519 签名 receipt，使用带 `--intended-html`、`--live-root-export`、`--live-root-receipt` 的 gate 与 final compiler，并带原 receipt 复核 compile-report HTML artifact binding；缺一项就不生成可投递结果。

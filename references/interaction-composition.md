@@ -64,6 +64,6 @@
 
 ## 生产边界
 
-创作层默认动态候选，生产层默认静态安全。`compile_wechat.py` 的静态输出与 `interaction_authoring.module_count` 可以同时成立；语义模块数量不得写入 `wechat_interaction_policy.py`，因为 transport marker 数量与创作层 module 数量不同。
+创作层默认动态候选，生产层默认静态安全。冻结的 Ardot layer export 中，每个 module 要么绑定 `ardot-state-export-v1` 的 source node/SHA 并原样导出 SVG，要么明确选择信息等价 static fallback；不允许手画新 SVG。语义模块数量不得写入 `wechat_interaction_policy.py`，因为 transport marker 数量与创作层 module 数量不同。
 
 保存草稿后的结构回读只证明标签与属性未被清洗。只有目标账号、策略版本、iOS/Android 微信版本、有效期和真机证据全部匹配，`wechat-svg-smil-self-v1` 才能选择动态 payload；否则更新同一草稿为静态等价版。

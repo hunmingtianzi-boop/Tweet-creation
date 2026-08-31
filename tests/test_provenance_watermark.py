@@ -19,6 +19,12 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
+SECURE_RUNNER = [
+    sys.executable,
+    "-I",
+    "-S",
+    str(ROOT / "scripts" / "secure_runner.py"),
+]
 
 from provenance_watermark import (  # noqa: E402
     ALGORITHM,
@@ -177,7 +183,7 @@ class ProvenanceWatermarkTests(unittest.TestCase):
         environment["PROVENANCE_WATERMARK_PRIVATE_ROOT"] = str(private_root)
         result = subprocess.run(
             [
-                sys.executable,
+                *SECURE_RUNNER,
                 str(ROOT / "scripts" / "provenance_watermark.py"),
                 "detect",
                 str(self.derivative),
@@ -346,7 +352,7 @@ class ProvenanceWatermarkTests(unittest.TestCase):
         existing_report.write_text("public-sentinel", encoding="utf-8")
         result = subprocess.run(
             [
-                sys.executable,
+                *SECURE_RUNNER,
                 str(ROOT / "scripts" / "provenance_watermark.py"),
                 "detect",
                 str(self.derivative),
@@ -367,7 +373,7 @@ class ProvenanceWatermarkTests(unittest.TestCase):
         existing_private.write_text("private-sentinel", encoding="utf-8")
         result = subprocess.run(
             [
-                sys.executable,
+                *SECURE_RUNNER,
                 str(ROOT / "scripts" / "provenance_watermark.py"),
                 "detect",
                 str(self.derivative),
@@ -401,7 +407,7 @@ class ProvenanceWatermarkTests(unittest.TestCase):
         for suffix in cross_cases:
             output = Path(suffix[-1])
             command = [
-                sys.executable,
+                *SECURE_RUNNER,
                 str(ROOT / "scripts" / "provenance_watermark.py"),
                 "embed",
                 str(self.master),
@@ -459,7 +465,7 @@ class ProvenanceWatermarkTests(unittest.TestCase):
         def run(environment: dict[str, str], target: Path) -> subprocess.CompletedProcess[str]:
             return subprocess.run(
                 [
-                    sys.executable,
+                    *SECURE_RUNNER,
                     str(ROOT / "scripts" / "provenance_watermark.py"),
                     "detect",
                     str(self.derivative),
@@ -546,7 +552,7 @@ class ProvenanceWatermarkTests(unittest.TestCase):
         environment["TEST_WATERMARK_KEY"] = "base64:" + __import__("base64").b64encode(TEST_KEY).decode("ascii")
         cli_result = subprocess.run(
             [
-                sys.executable,
+                *SECURE_RUNNER,
                 str(ROOT / "scripts" / "provenance_watermark.py"),
                 "detect",
                 str(oversized),
@@ -563,7 +569,7 @@ class ProvenanceWatermarkTests(unittest.TestCase):
 
         loop_result = subprocess.run(
             [
-                sys.executable,
+                *SECURE_RUNNER,
                 str(ROOT / "scripts" / "provenance_watermark.py"),
                 "detect",
                 str(loop_a),
@@ -585,7 +591,7 @@ class ProvenanceWatermarkTests(unittest.TestCase):
         environment["RAW_WATERMARK_KEY"] = "this-is-a-raw-password-even-though-it-is-long-enough"
         result = subprocess.run(
             [
-                sys.executable,
+                *SECURE_RUNNER,
                 str(ROOT / "scripts" / "provenance_watermark.py"),
                 "detect",
                 str(self.derivative),

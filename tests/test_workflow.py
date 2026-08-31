@@ -5,6 +5,7 @@ import base64
 import json
 import os
 import re
+import shutil
 import struct
 import sys
 import tempfile
@@ -18,7 +19,11 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from asset_quality import file_sha256, validate_micro_asset  # noqa: E402
+from asset_quality import (  # noqa: E402
+    MICRO_CUTOUT_EVIDENCE_FIELDS,
+    file_sha256,
+    validate_micro_asset,
+)
 from build_ardot_manifest import build_manifest  # noqa: E402
 from build_storyboard import build_storyboard_plan  # noqa: E402
 from build_visual_directions import build_directions  # noqa: E402
@@ -247,7 +252,9 @@ def make_pack(root: Path) -> Path:
     for role, asset_id, width, height, *_ in ROLES:
         filename = asset_id.replace(".", "-") + ".png"
         asset_path = generated / filename
-        write_png(asset_path, width, height)
+        # A synthetic micro fixture must contain real subject variation; a flat
+        # colored ellipse is deliberately rejected as a matte/backplate.
+        write_png(asset_path, width, height, pattern_strength=22)
         quality = validate_micro_asset(asset_path, role)
         assert quality["ok"], quality
         inspection = quality["inspection"]
@@ -265,10 +272,14 @@ def make_pack(root: Path) -> Path:
                 "generated_for_articles": ["fresh-article"],
                 "quality": {
                     "alpha_verified": True,
+                    "cutout_verified": True,
                     "sha256": inspection["sha256"],
                     "width_px": width,
                     "height_px": height,
                     "transparent_pixel_ratio": inspection["transparent_pixel_ratio"],
+                    "cutout_evidence": {
+                        key: inspection[key] for key in MICRO_CUTOUT_EVIDENCE_FIELDS
+                    },
                 },
             }
         )
@@ -392,6 +403,10 @@ def enable_explicit_style_reference(pack: Path) -> dict[str, object]:
 
 def make_article(root: Path, pack: Path) -> Path:
     mode = json.loads((pack / "ardot.json").read_text(encoding="utf-8"))["variable_mode"]
+    registered_assets = {
+        item["id"]: item
+        for item in json.loads((pack / "assets.json").read_text(encoding="utf-8"))["assets"]
+    }
     blocks = [
         {"type": "hero", "title": "第一步从一个真实问题开始。", "background": "background.master", "background_alt": "连续氛围底图"},
         {"type": "lead", "paragraphs": ["不同能力沿同一条路径汇合。"]},
@@ -417,6 +432,7 @@ def make_article(root: Path, pack: Path) -> Path:
         visual_assets.append(
             {
                 "id": asset_id,
+                "asset_sha256": registered_assets[asset_id]["quality"]["sha256"],
                 "role": role,
                 "storyboard_chapter": chapter_id,
                 "source_text": source_text,
@@ -580,6 +596,14 @@ def make_article(root: Path, pack: Path) -> Path:
 def add_visual_review(article_path: Path) -> Path:
     article = json.loads(article_path.read_text(encoding="utf-8"))
     qa = article_path.parent / "qa"
+    asset_document = json.loads(
+        (article_path.parent / article["organization_id"] / "assets.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    registered_assets = {
+        item["id"]: item for item in asset_document["assets"] if isinstance(item, dict)
+    }
     screenshots = []
     density_samples = []
     roles = ("hero", "chapter", "evidence", "complex-section", "cta")
@@ -649,9 +673,26 @@ def add_visual_review(article_path: Path) -> Path:
             {
                 "node_id": f"{instance_node_id}:image",
                 "kind": "illustration",
+                "asset_id": next(
+                    item["id"] for item in article["visual_kit"]["assets"] if item["role"] == role
+                ),
+                "asset_sha256": next(
+                    item["asset_sha256"]
+                    for item in article["visual_kit"]["assets"]
+                    if item["role"] == role
+                ),
                 "bounds": {"x": component_x, "y": 80, "width": image_width, "height": 96},
             }
         ]
+        image_node = nodes[0]
+        approved_asset = registered_assets[image_node["asset_id"]]
+        source_asset = (
+            article_path.parent / article["organization_id"] / approved_asset["location"]
+        )
+        rendered_asset = qa / f"micro-{placement_index}-rendered.png"
+        shutil.copyfile(source_asset, rendered_asset)
+        image_node["rendered_asset_file"] = rendered_asset.name
+        image_node["rendered_asset_sha256"] = file_sha256(rendered_asset)
         if primary_font_px is not None:
             nodes.extend(
                 [
@@ -666,6 +707,7 @@ def add_visual_review(article_path: Path) -> Path:
                     {
                         "node_id": f"72:{placement_index}",
                         "kind": "vector-accent",
+                        "is_closed": False,
                         "bounds": {"x": component_x + 4, "y": 182, "width": 8, "height": 44},
                     },
                 ]
@@ -680,6 +722,8 @@ def add_visual_review(article_path: Path) -> Path:
                 "source_component_node_id": source_component_node_id,
                 "bounds": {"x": component_x, "y": 72, "width": component_width, "height": 168},
             },
+            "complete_descendant_census": True,
+            "visible_descendant_count": len(nodes),
             "nodes": nodes,
         }
         properties_path = qa / f"micro-{placement_index}-nodes.json"
@@ -1633,9 +1677,50 @@ class VisualKitTests(FreshWorkflowTestCase):
     def test_replaced_alpha_asset_must_match_registered_hash(self) -> None:
         replacement = self.pack / "assets" / "generated" / "spot-opening.png"
         write_png(replacement, 300, 300)
-        plan = build_visual_kit_plan(self.article, self.pack)
-        self.assertFalse(plan["ready_for_layout"])
-        self.assertTrue(any("quality evidence" in item for item in plan["semantic_errors"]))
+        with self.assertRaisesRegex(ValueError, "stored cutout evidence"):
+            build_visual_kit_plan(self.article, self.pack)
+
+    def test_empty_or_stale_cutout_evidence_is_rejected(self) -> None:
+        assets = json.loads((self.pack / "assets.json").read_text(encoding="utf-8"))
+        micro = next(item for item in assets["assets"] if item.get("visual_role") == "article-micro")
+        micro["quality"]["cutout_evidence"] = {}
+        write_json(self.pack / "assets.json", assets)
+
+        report = validate_pack(self.pack)
+        self.assertFalse(report["ok"])
+        self.assertTrue(
+            any("detailed cutout evidence" in error for error in report["errors"]),
+            report["errors"],
+        )
+
+    def test_article_micro_cutout_gate_runs_regardless_of_origin(self) -> None:
+        assets = json.loads((self.pack / "assets.json").read_text(encoding="utf-8"))
+        micro = next(item for item in assets["assets"] if item.get("visual_role") == "article-micro")
+        micro["origin"] = "user-supplied"
+        asset_path = self.pack / micro["location"]
+        write_png(asset_path, micro["quality"]["width_px"], micro["quality"]["height_px"], alpha=False)
+        micro["quality"]["sha256"] = file_sha256(asset_path)
+        write_json(self.pack / "assets.json", assets)
+
+        report = validate_pack(self.pack)
+        self.assertFalse(report["ok"])
+        self.assertTrue(
+            any("article-micro asset" in error and "cutout gate" in error for error in report["errors"]),
+            report["errors"],
+        )
+
+    def test_article_micro_asset_without_roles_is_rejected(self) -> None:
+        assets = json.loads((self.pack / "assets.json").read_text(encoding="utf-8"))
+        micro = next(item for item in assets["assets"] if item.get("visual_role") == "article-micro")
+        micro.pop("roles")
+        write_json(self.pack / "assets.json", assets)
+
+        report = validate_pack(self.pack)
+        self.assertFalse(report["ok"])
+        self.assertTrue(
+            any("requires at least one visual-kit role" in error for error in report["errors"]),
+            report["errors"],
+        )
 
     def test_visual_directions_have_five_source_zero_calibration_samples(self) -> None:
         plan = build_directions(self.pack, "introduction")
@@ -1953,7 +2038,11 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
                 "WeChat/Footer/WorkflowAttribution/"
             )
         )
-        self.assertEqual(manifest["handoff"]["contract_schema_version"], 4)
+        self.assertEqual(manifest["handoff"]["contract_schema_version"], 5)
+        self.assertEqual(
+            manifest["handoff"]["transport_revision_algorithm"],
+            "ardot-transport-revision-v1",
+        )
         self.assertEqual(
             manifest["handoff"]["revision_algorithm"],
             "ardot-root-revision-v1",
@@ -1972,7 +2061,13 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
         add_visual_review(self.article)
         report = compile_article(self.article, self.pack, self.root / "output", check=True)
         self.assertTrue(report["ok"], report["errors"])
-        self.assertTrue((self.root / "output" / "wechat.html").exists())
+        self.assertFalse(report["delivery_eligible"])
+        self.assertEqual(
+            report["delivery_blocker"]["code"],
+            "transport.source.article_json_renderer_forbidden",
+        )
+        self.assertTrue((self.root / "output" / "authoring-preview.html").exists())
+        self.assertFalse((self.root / "output" / "wechat.html").exists())
         self.assertEqual(
             report["interaction_policy"]["policy_version"],
             "wechat-svg-smil-self-v1",
@@ -1993,7 +2088,7 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
             report["workflow_attribution"]["text_sha256"],
             f"sha256:{WORKFLOW_ATTRIBUTION_TEXT_SHA256}",
         )
-        body = (self.root / "output" / "wechat.html").read_text(encoding="utf-8")
+        body = (self.root / "output" / "authoring-preview.html").read_text(encoding="utf-8")
         self.assertEqual(body.count(WORKFLOW_ATTRIBUTION_TEXT), 1)
         self.assertEqual(
             body.count(f'data-workflow-attribution="{WORKFLOW_ATTRIBUTION_MARKER}"'),
@@ -2015,7 +2110,7 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
             any("workflow attribution" in item for item in report["errors"]),
             report["errors"],
         )
-        self.assertFalse((output / "wechat.html").exists())
+        self.assertFalse((output / "authoring-preview.html").exists())
 
     def test_user_footer_precedes_single_reserved_workflow_attribution(self) -> None:
         article = json.loads(self.article.read_text(encoding="utf-8"))
@@ -2033,7 +2128,7 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
         output = self.root / "output"
         report = compile_article(self.article, self.pack, output, check=True)
         self.assertTrue(report["ok"], report["errors"])
-        body = (output / "wechat.html").read_text(encoding="utf-8")
+        body = (output / "authoring-preview.html").read_text(encoding="utf-8")
         self.assertEqual(body.count(WORKFLOW_ATTRIBUTION_TEXT), 1)
         self.assertLess(body.index("编辑：测试编辑组"), body.index(WORKFLOW_ATTRIBUTION_TEXT))
 
@@ -2049,7 +2144,7 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
         report = compile_article(self.article, self.pack, output, check=True)
         self.assertFalse(report["ok"])
         self.assertFalse(report["workflow_attribution"]["present_once"])
-        self.assertFalse((output / "wechat.html").exists())
+        self.assertFalse((output / "authoring-preview.html").exists())
 
     def test_organization_tokens_cannot_hide_workflow_attribution(self) -> None:
         organization_path = self.pack / "organization.json"
@@ -2066,7 +2161,7 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
         self.assertTrue(attribution["contrast_ready"])
         self.assertGreaterEqual(attribution["contrast_ratio"], 4.5)
         self.assertNotEqual(attribution["text_color"], attribution["surface_color"])
-        body = (output / "wechat.html").read_text(encoding="utf-8")
+        body = (output / "authoring-preview.html").read_text(encoding="utf-8")
         self.assertIn(
             f'data-workflow-attribution-contrast="{attribution["contrast_ratio"]}"',
             body,
@@ -2078,7 +2173,7 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
         report = compile_article(self.article, self.pack, output, check=True)
         self.assertTrue(report["ok"], report["errors"])
         self.assertEqual(report["visual_kit"]["transport_instance_count"], 4)
-        body = (output / "wechat.html").read_text(encoding="utf-8")
+        body = (output / "authoring-preview.html").read_text(encoding="utf-8")
         self.assertEqual(body.count('data-visual-role="article-micro"'), 4)
         for role, *_ in ROLES:
             self.assertIn(f'data-micro-role="{role}"', body)
@@ -2099,6 +2194,12 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
         review = json.loads(review_path.read_text(encoding="utf-8"))
         layout = review["micro_component_layout"]
         source_component_node_id = layout["placements"][0]["source_component_node_id"]
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        floating_asset = next(
+            item for item in article["visual_kit"]["assets"] if item["role"] == "floating-spot"
+        )
+        rendered_asset_path = review_path.parent / "qa/micro-5-rendered.png"
+        shutil.copyfile(review_path.parent / "qa/micro-1-rendered.png", rendered_asset_path)
         properties_path = review_path.parent / "qa/micro-5-nodes.json"
         write_json(
             properties_path,
@@ -2112,10 +2213,16 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
                     "source_component_node_id": source_component_node_id,
                     "bounds": {"x": 151.5, "y": 260, "width": 117, "height": 130},
                 },
+                "complete_descendant_census": True,
+                "visible_descendant_count": 1,
                 "nodes": [
                     {
                         "node_id": "80:5:image",
                         "kind": "illustration",
+                        "asset_id": floating_asset["id"],
+                        "asset_sha256": floating_asset["asset_sha256"],
+                        "rendered_asset_file": rendered_asset_path.name,
+                        "rendered_asset_sha256": file_sha256(rendered_asset_path),
                         "bounds": {"x": 151.5, "y": 270, "width": 101.4, "height": 90},
                     }
                 ],
@@ -2154,7 +2261,7 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
             5,
         )
         self.assertEqual(report["visual_kit"]["transport_instance_count"], 5)
-        body = (output / "wechat.html").read_text(encoding="utf-8")
+        body = (output / "authoring-preview.html").read_text(encoding="utf-8")
         self.assertEqual(body.count('data-visual-role="article-micro"'), 5)
         self.assertIn('data-micro-instance="80:5"', body)
 
@@ -2260,6 +2367,163 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
         self.assertFalse(report["ok"])
         self.assertIn(
             "micro.inventory.coverage_mismatch",
+            report["visual_review"]["micro_component_layout"]["error_codes"],
+        )
+
+    def test_micro_component_instance_must_use_approved_cutout_pixels(self) -> None:
+        review_path = add_visual_review(self.article)
+
+        def swap_asset(properties: dict[str, Any]) -> None:
+            image = next(
+                node for node in properties["nodes"] if node.get("kind") == "illustration"
+            )
+            image["asset_sha256"] = "f" * 64
+
+        self._mutate_micro_node_evidence(review_path, 0, swap_asset)
+        report = compile_article(self.article, self.pack, self.root / "output", check=True)
+        self.assertFalse(report["ok"])
+        self.assertIn(
+            "micro.component.asset_mismatch",
+            report["visual_review"]["micro_component_layout"]["error_codes"],
+        )
+
+    def test_micro_component_requires_complete_descendant_census(self) -> None:
+        review_path = add_visual_review(self.article)
+
+        def omit_census(properties: dict[str, Any]) -> None:
+            properties.pop("complete_descendant_census")
+            properties["visible_descendant_count"] -= 1
+
+        self._mutate_micro_node_evidence(review_path, 0, omit_census)
+        report = compile_article(self.article, self.pack, self.root / "output", check=True)
+        self.assertFalse(report["ok"])
+        self.assertIn(
+            "micro.component.incomplete_descendant_census",
+            report["visual_review"]["micro_component_layout"]["error_codes"],
+        )
+
+    def test_rendered_ardot_layer_pixels_must_match_approved_cutout(self) -> None:
+        review_path = add_visual_review(self.article)
+
+        def replace_rendered_layer(properties: dict[str, Any]) -> None:
+            image = next(
+                node for node in properties["nodes"] if node.get("kind") == "illustration"
+            )
+            replacement = review_path.parent / "qa" / image["rendered_asset_file"]
+            write_png(replacement, 256, 256, pattern_strength=31)
+            image["rendered_asset_sha256"] = file_sha256(replacement)
+
+        self._mutate_micro_node_evidence(review_path, 0, replace_rendered_layer)
+        report = compile_article(self.article, self.pack, self.root / "output", check=True)
+        self.assertFalse(report["ok"])
+        self.assertIn(
+            "micro.component.rendered_asset_mismatch",
+            report["visual_review"]["micro_component_layout"]["error_codes"],
+        )
+
+    def test_micro_component_image_cannot_have_a_visible_backplate(self) -> None:
+        review_path = add_visual_review(self.article)
+
+        def add_backplate(properties: dict[str, Any]) -> None:
+            image = next(
+                node for node in properties["nodes"] if node.get("kind") == "illustration"
+            )
+            properties["nodes"].append(
+                {
+                    "node_id": "80:1:backplate",
+                    "kind": "closed-shape",
+                    "fill_alpha": 1,
+                    "stroke_width_px": 0,
+                    "bounds": dict(image["bounds"]),
+                }
+            )
+
+        self._mutate_micro_node_evidence(review_path, 0, add_backplate)
+        report = compile_article(self.article, self.pack, self.root / "output", check=True)
+        self.assertFalse(report["ok"])
+        self.assertIn(
+            "micro.component.image_backplate",
+            report["visual_review"]["micro_component_layout"]["error_codes"],
+        )
+
+    def test_unknown_visible_ardot_node_kind_fails_closed(self) -> None:
+        review_path = add_visual_review(self.article)
+
+        def add_unknown_backplate(properties: dict[str, Any]) -> None:
+            image = next(
+                node for node in properties["nodes"] if node.get("kind") == "illustration"
+            )
+            properties["nodes"].append(
+                {
+                    "node_id": "80:1:unknown-backplate",
+                    "kind": "rectangle",
+                    "fill_alpha": 1,
+                    "stroke_width_px": 0,
+                    "bounds": dict(image["bounds"]),
+                }
+            )
+
+        self._mutate_micro_node_evidence(review_path, 0, add_unknown_backplate)
+        report = compile_article(self.article, self.pack, self.root / "output", check=True)
+        self.assertFalse(report["ok"])
+        self.assertIn(
+            "micro.component.unknown_node_kind",
+            report["visual_review"]["micro_component_layout"]["error_codes"],
+        )
+
+    def test_closed_shape_with_missing_visibility_fields_fails_closed(self) -> None:
+        review_path = add_visual_review(self.article)
+
+        def add_malformed_backplate(properties: dict[str, Any]) -> None:
+            image = next(
+                node for node in properties["nodes"] if node.get("kind") == "illustration"
+            )
+            properties["nodes"].append(
+                {
+                    "node_id": "80:1:malformed-backplate",
+                    "kind": "closed-shape",
+                    "bounds": dict(image["bounds"]),
+                }
+            )
+
+        self._mutate_micro_node_evidence(review_path, 0, add_malformed_backplate)
+        report = compile_article(self.article, self.pack, self.root / "output", check=True)
+        self.assertFalse(report["ok"])
+        self.assertIn(
+            "micro.component.invalid_closed_shape",
+            report["visual_review"]["micro_component_layout"]["error_codes"],
+        )
+
+    def test_multiple_closed_shapes_cannot_form_a_union_backplate(self) -> None:
+        review_path = add_visual_review(self.article)
+
+        def add_split_backplate(properties: dict[str, Any]) -> None:
+            image = next(
+                node for node in properties["nodes"] if node.get("kind") == "illustration"
+            )
+            bounds = image["bounds"]
+            half_width = bounds["width"] / 2
+            for index, x in enumerate((bounds["x"], bounds["x"] + half_width), 1):
+                properties["nodes"].append(
+                    {
+                        "node_id": f"80:1:split-backplate-{index}",
+                        "kind": "closed-shape",
+                        "fill_alpha": 1,
+                        "stroke_width_px": 0,
+                        "bounds": {
+                            "x": x,
+                            "y": bounds["y"],
+                            "width": half_width,
+                            "height": bounds["height"],
+                        },
+                    }
+                )
+
+        self._mutate_micro_node_evidence(review_path, 0, add_split_backplate)
+        report = compile_article(self.article, self.pack, self.root / "output", check=True)
+        self.assertFalse(report["ok"])
+        self.assertIn(
+            "micro.component.image_backplate",
             report["visual_review"]["micro_component_layout"]["error_codes"],
         )
 

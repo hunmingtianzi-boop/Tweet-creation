@@ -24,8 +24,8 @@ class InteractionMvpTests(unittest.TestCase):
             output = Path(temp)
             comparison = MODULE.build(output_root=output)
             self.assertTrue(comparison["parity_passed"])
-            a = (output / "a-baseline" / "wechat.html").read_text(encoding="utf-8")
-            b = (output / "b-dynamic" / "wechat.html").read_text(encoding="utf-8")
+            a = (output / "a-baseline" / "candidate-fragment.html").read_text(encoding="utf-8")
+            b = (output / "b-dynamic" / "candidate-fragment.html").read_text(encoding="utf-8")
             self.assertNotIn("data-interaction=", a)
             self.assertIn('data-interaction="svg-smil-self"', b)
             self.assertIn('data-interaction="horizontal-swipe"', b)
@@ -63,8 +63,8 @@ class InteractionMvpTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             output = Path(temp)
             MODULE.build(output_root=output)
-            candidate = (output / "b-dynamic" / "wechat.html").read_text(encoding="utf-8")
-            fallback = (output / "b-dynamic" / "wechat-fallback.html").read_text(
+            candidate = (output / "b-dynamic" / "candidate-fragment.html").read_text(encoding="utf-8")
+            fallback = (output / "b-dynamic" / "static-fallback-fragment.html").read_text(
                 encoding="utf-8"
             )
             profile = {
@@ -257,11 +257,11 @@ class InteractionMvpTests(unittest.TestCase):
         self.assertIn("expired", joined)
         self.assertIn("android", joined)
 
-    def test_wechat_outputs_have_no_active_script_or_external_stylesheet(self) -> None:
+    def test_candidate_fragments_have_no_active_script_or_external_stylesheet(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             output = Path(temp)
             MODULE.build(output_root=output)
-            for path in output.glob("*/wechat*.html"):
+            for path in output.glob("*/*fragment.html"):
                 body = path.read_text(encoding="utf-8")
                 self.assertIsNone(re.search(r"<(script|style|iframe|form|link)\b", body, re.I), path)
                 self.assertLess(len(body), 20000, path)
@@ -271,25 +271,41 @@ class InteractionMvpTests(unittest.TestCase):
             output = Path(temp)
             MODULE.build(output_root=output)
             content = json.loads((ROOT / "experiments" / "interaction-mvp" / "content.json").read_text(encoding="utf-8"))
-            fallback = (output / "b-dynamic" / "wechat-fallback.html").read_text(encoding="utf-8")
+            fallback = (output / "b-dynamic" / "static-fallback-fragment.html").read_text(encoding="utf-8")
             for item in content["ecosystem"]:
                 self.assertIn(item["name"], fallback)
                 self.assertIn(item["summary"], fallback)
             for item in content["moments"]:
                 self.assertIn(item["caption"], fallback)
 
-    def test_import_assistant_copies_dynamic_and_fallback_with_images(self) -> None:
+    def test_experiment_cannot_create_a_delivery_or_clipboard_import_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             output = Path(temp)
-            MODULE.build(output_root=output)
-            importer = (output / "import-assistant.html").read_text(encoding="utf-8")
-            self.assertIn("ClipboardItem", importer)
-            self.assertIn("b-dynamic/wechat.html", importer)
-            self.assertIn("b-dynamic/wechat-fallback.html", importer)
-            self.assertIn("复制 B 动态正文（含照片）", importer)
-            for image in ("hackathon-focus.jpg", "hackathon-exchange.jpg", "ai-x-beauty-group.jpg"):
-                self.assertIn(image, importer)
-            self.assertNotIn("token=", importer)
+            (output / "import-assistant.html").write_text(
+                "<button>copy old wechat html</button>", encoding="utf-8"
+            )
+            stale_variant = output / "b-dynamic"
+            stale_variant.mkdir()
+            (stale_variant / "wechat.html").write_text(
+                "<article>obsolete delivery payload</article>", encoding="utf-8"
+            )
+            comparison = MODULE.build(output_root=output)
+            self.assertFalse((output / "import-assistant.html").exists())
+            self.assertEqual(list(output.glob("*/wechat*.html")), [])
+            self.assertEqual(
+                comparison["removed_stale_delivery_artifacts"],
+                ["b-dynamic/wechat.html", "import-assistant.html"],
+            )
+            for record in comparison["variants"].values():
+                self.assertFalse(record["delivery_eligible"])
+                self.assertEqual(
+                    record["delivery_blocker"],
+                    "transport.source.experiment_renderer_forbidden",
+                )
+            dashboard = (output / "compare.html").read_text(encoding="utf-8")
+            self.assertNotIn("ClipboardItem", dashboard)
+            self.assertNotIn("导入微信公众号", dashboard)
+            self.assertIn("实验片段不可投递", dashboard)
 
     def test_both_variants_copy_the_same_photo_set(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

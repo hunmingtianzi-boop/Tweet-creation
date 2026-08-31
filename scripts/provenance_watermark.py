@@ -36,6 +36,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
+if __name__ == "__main__":
+    from secure_runtime import require_secure_runtime
+
+    require_secure_runtime("scripts/provenance_watermark.py")
+
 try:
     from PIL import Image, ImageFilter, ImageStat
 except ImportError as exc:  # pragma: no cover - exercised only on misconfigured hosts

@@ -107,7 +107,7 @@ New packs start as `not-linked`. Set `linked` only after a real Ardot file, vari
 
 ## `assets.json`
 
-Each asset has an ID, kind, title, path or URL, style, uses, origin, and optional source ID. Local paths resolve relative to the organization pack. Real evidence photos declare `visual_role: documentary-evidence` and a `source_id`. Generated backgrounds declare `visual_role: illustrative-atmosphere`, `background_family_id`, and `background_variant` (`master` or `companion`). Generated micro illustrations declare `visual_role: article-micro`, exactly one of the four `roles`, the current slug in `generated_for_articles`, and stored Alpha quality metadata.
+Each asset has an ID, kind, title, path or URL, style, uses, origin, and optional source ID. Local paths resolve relative to the organization pack. Real evidence photos declare `visual_role: documentary-evidence` and a `source_id`. Generated backgrounds declare `visual_role: illustrative-atmosphere`, `background_family_id`, and `background_variant` (`master` or `companion`). Generated micro illustrations declare `visual_role: article-micro`, exactly one of the four `roles`, the current slug in `generated_for_articles`, and stored P0 cutout quality metadata: `alpha_verified`, `cutout_verified`, exact SHA/dimensions, and robust bbox/padding/matte evidence. Confirmed packs re-run the pixel gate and reject stale evidence.
 
 An eligible opaque `generated-illustrative` background or fully generated
 raster cover is registered from its marked final derivative and carries only
@@ -150,7 +150,7 @@ Do not store account secrets, access tokens, watermark keys, raw watermark IDs,
 private watermark registries, or other private credentials in an organization
 pack.
 
-Generate an article-type asset plan with `scripts/orgs.py asset-plan`, then register approved files with `scripts/orgs.py register-asset`. For a newly generated micro illustration, pass `--role ROLE --generated-for ARTICLE_ID --visual-role article-micro`; registration runs the pixel Alpha/aspect check. Every article gets a fresh visual-kit plan and must produce four different assets for all four roles before layout. Logos and QR codes always remain official or user-supplied assets.
+Generate an article-type asset plan with `scripts/orgs.py asset-plan`, then register approved files with `scripts/orgs.py register-asset`. For a newly generated micro illustration, pass `--role ROLE --generated-for ARTICLE_ID --visual-role article-micro`; registration requires deterministically decodable 8-bit RGBA, robust Alpha geometry, a tight subject crop, no clipped substantive pixels, and no rectangular/rounded/near-solid matte. Spacing belongs in Ardot, not in a large transparent PNG canvas. Every article gets a fresh visual-kit plan and must produce four different assets for all four roles before layout. Logos and QR codes always remain official or user-supplied assets.
 
 ## Visual-reference provenance
 

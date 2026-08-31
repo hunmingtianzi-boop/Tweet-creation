@@ -55,7 +55,7 @@ Check the exact local final asset:
 
 ```bash
 audit_dir="$(mktemp -d)"
-python3 scripts/provenance_watermark.py detect \
+python3 -I -S scripts/secure_runner.py scripts/provenance_watermark.py detect \
   "/absolute/path/background-final.png" \
   --report "$audit_dir/local-detect.json"
 ```
@@ -67,7 +67,7 @@ draft and detect that file without screenshotting, cropping, or transcoding it:
 curl --fail --location --silent --show-error \
   -H 'Accept: image/png,image/jpeg' \
   "$WECHAT_CDN_URL" --output "$audit_dir/wechat-hosted-image"
-python3 scripts/provenance_watermark.py detect \
+python3 -I -S scripts/secure_runner.py scripts/provenance_watermark.py detect \
   "$audit_dir/wechat-hosted-image" \
   --report "$audit_dir/cdn-detect.json"
 ```

@@ -11,7 +11,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from asset_quality import validate_background_family_assets, validate_micro_asset
+from asset_quality import (
+    MICRO_CUTOUT_EVIDENCE_FIELDS,
+    validate_background_family_assets,
+    validate_micro_asset,
+)
 from workflow_quality import (
     ALLOWED_VISUAL_REFERENCE_POLICIES,
     ALLOWED_ART_TYPE_TREATMENTS,
@@ -433,10 +437,14 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
         if source_id and source_id not in source_ids:
             errors.append(f"asset {asset_id} references unknown source: {source_id}")
         roles = asset.get("roles")
+        role_items: list[Any] = []
         if roles is not None:
-            for role in require_list(roles, f"asset {asset_id}.roles", errors):
-                if role not in VISUAL_KIT_ROLES:
+            role_values = require_list(roles, f"asset {asset_id}.roles", errors)
+            for role in role_values:
+                if not isinstance(role, str) or role not in VISUAL_KIT_ROLES:
                     errors.append(f"asset {asset_id} has unknown visual-kit role: {role}")
+                else:
+                    role_items.append(role)
         generated_for_articles = asset.get("generated_for_articles")
         if generated_for_articles is not None:
             values = require_list(
@@ -449,10 +457,57 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
         visual_role = asset.get("visual_role")
         if visual_role is not None and visual_role not in VISUAL_ASSET_ROLES:
             errors.append(f"asset {asset_id}.visual_role is invalid")
-        if asset.get("origin") == "generated-illustrative" and roles:
+        is_article_micro = visual_role == "article-micro" or bool(role_items)
+        if visual_role == "article-micro" and not role_items:
+            errors.append(f"article-micro asset {asset_id} requires at least one visual-kit role")
+        if is_article_micro:
             quality = asset.get("quality")
-            if not isinstance(quality, dict) or quality.get("alpha_verified") is not True:
-                warnings.append(f"generated micro asset {asset_id} lacks stored alpha verification")
+            cutout_evidence = quality.get("cutout_evidence") if isinstance(quality, dict) else None
+            if (
+                not isinstance(quality, dict)
+                or quality.get("alpha_verified") is not True
+                or quality.get("cutout_verified") is not True
+                or not isinstance(cutout_evidence, dict)
+            ):
+                errors.append(
+                    f"article-micro asset {asset_id} lacks stored P0 cutout verification"
+                )
+            if (
+                isinstance(location, str)
+                and location
+                and not re.match(r"^(?:https?://|data:)", location)
+            ):
+                candidate = (pack_dir / location).resolve()
+                if candidate.is_file():
+                    for role in role_items:
+                        current = validate_micro_asset(candidate, role)
+                        if not current["ok"]:
+                            errors.extend(
+                                f"article-micro asset {asset_id} cutout gate: {message}"
+                                for message in current["errors"]
+                            )
+                        inspection = current.get("inspection", {})
+                        if (
+                            not isinstance(quality, dict)
+                            or quality.get("sha256") != inspection.get("sha256")
+                            or quality.get("width_px") != inspection.get("width_px")
+                            or quality.get("height_px") != inspection.get("height_px")
+                        ):
+                            errors.append(
+                                f"article-micro asset {asset_id} stored cutout evidence does not match current pixels"
+                            )
+                        if not isinstance(cutout_evidence, dict) or any(
+                            field not in cutout_evidence
+                            or cutout_evidence[field] != inspection.get(field)
+                            for field in MICRO_CUTOUT_EVIDENCE_FIELDS
+                        ):
+                            errors.append(
+                                f"article-micro asset {asset_id} detailed cutout evidence does not match current pixels"
+                            )
+                else:
+                    errors.append(f"article-micro asset {asset_id} requires a readable local PNG")
+            else:
+                errors.append(f"article-micro asset {asset_id} requires a local PNG for cutout verification")
         family_id = asset.get("background_family_id")
         variant = asset.get("background_variant")
         if family_id is not None or variant is not None:
@@ -1331,10 +1386,17 @@ def command_register_asset(args: argparse.Namespace) -> None:
         inspection = quality_reports[0]["inspection"]
         item["quality"] = {
             "alpha_verified": True,
+            "cutout_verified": True,
             "sha256": inspection["sha256"],
             "width_px": inspection["width_px"],
             "height_px": inspection["height_px"],
             "transparent_pixel_ratio": inspection["transparent_pixel_ratio"],
+            # Persist the actual gate evidence.  This makes an approved asset
+            # auditable after it has been placed in an Ardot component, instead of
+            # reducing the decision to an untraceable `alpha_verified` flag.
+            "cutout_evidence": {
+                field: inspection[field] for field in MICRO_CUTOUT_EVIDENCE_FIELDS
+            },
         }
     if getattr(args, "generated_for", None):
         if args.origin != "generated-illustrative":

@@ -18,8 +18,8 @@
 
 ## Mobile layout
 
-- `article.visual_kit` 覆盖四类角色、四枚不同生成图；每枚通过 Alpha/尺寸/宽高比检查，并记录 Ardot 原生组件 file/node/name。
-- 透明图经过 Alpha 文件检查；预览棋盘格不能当作透明证明。
+- `article.visual_kit` 覆盖四类角色、四枚不同生成图；每枚通过 RGBA8/robust Alpha/紧裁切/无 matte/尺寸/宽高比检查，并记录 Ardot 原生组件 file/node/name 与准确 asset SHA。
+- 透明图经过可确定解码的像素检查；预览棋盘格不能当作透明证明。小组件 PNG 只含主体，不含白/黑/色底板或用于留白的巨大透明画布。
 - Inspect the native Ardot article and its high-impact component screenshots at 390 px before creating transport files.
 - Body type remains readable and paragraphs are not dense walls of text.
 - Expressive typography appears only in 2–4 approved high-impact moments, uses grounded article copy, licensed/system fonts, native editable Ardot text nodes, and a standard fallback; no generated or flattened Chinese title image replaces the source text.
@@ -32,7 +32,7 @@
 - Galleries show a visible next-card edge and a swipe cue.
 - Closed boxes are at most 20% of content sections and never occur consecutively.
 - At least three moments visibly break symmetry or enter from the text edge.
-- Every actual visual-kit instance appears in a hashed Ardot instance inventory and node-property export; repeated roles are all covered, not sampled.
+- Every actual visual-kit instance appears in a hashed Ardot instance inventory and node-property export; repeated roles are all covered, not sampled. Every node-properties export declares `complete_descendant_census: true`, its `visible_descendant_count` equals the full `nodes` length, and every image/illustration carries a bundle-local `rendered_asset_file` whose actual/declared SHA-256 both equal the approved cutout SHA.
 - A micro illustration layer occupies at most 72% of the 390 px row and the complete micro component at most 82%. The four roles span at least three reviewed sections, both text edges, three distinct horizontal offsets, three composition relations, and visible scale variation.
 - Copy-bearing micro components contain native text nodes and no enclosing closed shape. Primary copy is at least 22 px and 1.35× its screenshot-bound body text, with scale contrast plus another non-frame technique; glyph outlines never become a rectangular text frame.
 - Long articles vary section rhythm through open text, micro illustrations, continuous paths, image breaks, full-width transitions, and quiet whitespace.
@@ -47,10 +47,16 @@
 
 ## WeChat handoff
 
-- Handoff schema v4 binds `tuozhe-ai-ecosystem-workflow-v1` to the exact text `感谢拓浙 AI 生态提供本篇内容生产工作流支持。`, its SHA-256, current-root Ardot text node, component name, and native/editable/visible/terminal facts. `ardot-root-revision-v1` is independently recomputed from full visible text order, component order, asset hashes, file ID, and root ID; matching self-reported strings do not pass. Legacy v3 must be refrozen rather than grandfathered.
+- Handoff schema v5 binds `tuozhe-ai-ecosystem-workflow-v1` and a complete `ardot-current-root-layer-export-v1`. `ardot-root-revision-v1` includes exact `transport_sections`, `body_asset_ids`, and the complete unique visible `component_order`; its node IDs must equal all transported section/layer source nodes exactly once. `ardot-transport-revision-v1` must be that root's exact projection. Every older bundle must be refrozen rather than grandfathered.
+- Final `wechat.html` can only be compiled from the frozen layer export. Article-JSON template output is `authoring-preview.html`, declares `delivery_eligible: false`, and is forbidden as a draft payload.
+- `compile-report.json.artifact_binding.wechat_html` matches the exact final path-identity hash, device/inode, SHA-256, byte length, handoff SHA and transport revision; `artifact_binding.live_root_receipt` matches the original Ed25519 receipt and its signed intended-path identity. Before every upload/copy/paste, rerun the validator with the original `--live-root-export`, `--live-root-receipt`, `--compile-report` and `--require-compile-report`; copying the whole delivery directory and rewriting local report stats still fails.
+- Every top-level transport section maps one unique Ardot chapter/section node. Chapter `y` values form a continuous non-overlapping cover from 0 to artboard bottom; height sums alone are insufficient. QA/contact/section-composite screenshots are evidence-only and never body assets. Each background is a text-free PNG at exactly `1170 × (chapter_height × 3)`; native text nodes and approved cutouts remain independent source-node layers with exact hashes.
+- A separately captured fresh current-root read from the active Ardot host matches the frozen file/root, text, section geometry, complete layer/style/source-node census and body asset set. It has a timezone-aware `captured_at` strictly later than freeze and different bytes/inode. A real `host.receipt.attest` callable issues a maximum-ten-minute `ardot-host-live-read-receipt-v1`, Ed25519-signed with a host-only private key and bound to the runtime nonce/digest, trusted bundle, actual provider/session/request, exact handoff/frozen/live bytes, revisions and intended HTML path. The repository reads its verifier only from a root-owned, non-symlink, group/other-nonwritable trust-store file; raw environment public keys, a root repository process, missing host integration, a symmetric verifier, reused/copied evidence or a model-written receipt are blockers.
+- Native text style uses one explicit supported WeChat system family (`system-sans-cn` or `system-serif-cn`) and the full allowlisted style record. Unsupported fonts, extra unrendered properties, crop, rotation, blend or mask never silently degrade.
 - `scripts/validate_workflow_attribution.py` derives the node facts from a hash-bound current-root export before delivery. After save, rerun it with `--saved-draft-visible-text FILE --require-readback`; the actual reopened draft contains the credit exactly once as its final normalized visible text. A surviving `data-*` marker alone is not evidence.
-- `wechat.html` uses inline styles, with no `<script>`, `<style>`, form, iframe, or external stylesheet dependency.
-- Static `wechat.html` contains one text-free `data-visual-role="article-micro"` instance for every visual-kit item; each carries its semantic role/asset marker, uses a partial-width wrapper no larger than 72%, and has no border, radius, filled copy frame, or generic full-width image container.
+- `wechat.html` uses one exact transport root and inline styles, with no `<script>`, `<style>`, form, iframe, external stylesheet, unsigned nested DOM, extra layer attributes, repeated known image, or root-external content.
+- Static `wechat.html` contains one independently hash-bound `data-transport-role="article-micro"` image for every frozen cutout instance; each uses its Ardot-derived partial-width geometry no larger than 72%, and has no border, radius, filled copy frame, backplate, or generic full-width image container.
+- Reopened-draft readback is chapter-by-chapter: target account/draft/observation time, section mapping, native text-node order/hash, actual `mmbiz.qpic.cn` hosted asset IDs/URLs plus downloaded SHA-256, and one hash-bound 390 px screenshot per chapter. `--require-readback` also requires the original live export/receipt, successful compile report and `wechat-host-saved-draft-receipt-v1`; the latter signs the complete account/draft, HTML, report and readback byte chain. A detached or locally fabricated readback, whole-article word count or surviving marker cannot replace this evidence.
 - Dynamic candidates use policy `wechat-svg-smil-self-v1`: only no-ID inline SVG `<set>` / `<animateTransform>` with self `begin="click"`, plus inline CSS horizontal swipe. Reject `<details>`, `<summary>`, JavaScript, `on*`, `javascript:`, every transport `id`, `foo.click`, `<use>`, fragment references, `<foreignObject>`, and unprobed SMIL.
 - Every transport instance and its static information-equivalent share a unique `data-fallback-key` and normalized `sha256:<64 hex>` content hash. Missing, duplicated, or mismatched hashes block the candidate.
 - Every semantic module has current-revision native Ardot `closed`, `open`, and `fallback` state evidence. Its group component lists all covered instance IDs and semantic hashes in order; all three states have distinct nodes, local 390 px exports, and matching file hashes, and closed/open cannot be identical.
@@ -60,5 +66,5 @@
 - Every locally verified carrier is downloaded from the saved draft's actual WeChat CDN/cover URL and detected again. Required-mode delivery remains blocked until it is `transport_verified`; HTML readback alone does not satisfy this check.
 - SVG `<image>` references use only target-account WeChat `mmbiz.qpic.cn` URLs after upload.
 - Cover material is handled separately from body images. The current target account's permanent-material `media_id` is used as `thumb_media_id`, and the saved draft visibly contains the expected cover.
-- `compile-report.json` records organization, route, components, copied assets, warnings, and errors.
+- `compile-report.json` records the frozen source/revision, live-root preflight, copied assets, final HTML artifact binding, warnings, and errors.
 - Create a draft first. Do not perform formal publication without explicit confirmation.

@@ -104,7 +104,7 @@ class WorkflowAttributionHandoffTests(unittest.TestCase):
             mutate_export(node_export)
         write_json(export_path, node_export)
         handoff = {
-            "schema_version": 4,
+            "schema_version": 5,
             "ardot": {
                 "file_id": "ardot-file-current",
                 "root_node_id": "30:0",
@@ -212,6 +212,7 @@ class WorkflowAttributionHandoffTests(unittest.TestCase):
 
         handoff_cases = {
             "legacy-v3": lambda value: value.update({"schema_version": 3}),
+            "legacy-v4": lambda value: value.update({"schema_version": 4}),
             "changed-policy": lambda value: value["workflow_attribution"].update(
                 {"policy_id": "other-policy"}
             ),

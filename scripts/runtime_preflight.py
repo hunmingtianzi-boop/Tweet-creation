@@ -19,6 +19,11 @@ from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
+if __name__ == "__main__":
+    from secure_runtime import require_secure_runtime
+
+    require_secure_runtime("scripts/runtime_preflight.py")
+
 
 PROFILE_KIND = "org-wechat-runtime-profile"
 REPORT_KIND = "org-wechat-runtime-preflight-report"
@@ -33,11 +38,30 @@ REQUIRED_PATHS = (
     "requirements.txt",
     "references/使用说明.md",
     "references/organization-pack-migration.md",
+    "references/source-zero-audit.md",
+    "references/style-options.md",
+    "references/onboarding.md",
+    "references/org-pack-schema.md",
+    "references/visual-calibration.md",
+    "references/article-schema.md",
+    "references/storyboard.md",
+    "references/interaction-composition.md",
+    "references/expressive-typography.md",
     "references/ardot-workflow.md",
+    "references/organic-layout.md",
+    "references/visual-review.md",
+    "references/information-density.md",
+    "references/ardot-transport-fidelity.md",
+    "references/qa.md",
+    "references/provenance-watermark.md",
     "references/runtime-preflight.md",
     "runtime/setup-links.json",
     "runtime/adapters/codex-desktop.json",
+    "runtime/python-dependency-lock.json",
+    "style-presets/prismatic-paper-editorial.json",
     "scripts/orgs.py",
+    "scripts/secure_runner.py",
+    "scripts/secure_runtime.py",
     "scripts/asset_quality.py",
     "scripts/workflow_quality.py",
     "scripts/build_visual_directions.py",
@@ -47,6 +71,8 @@ REQUIRED_PATHS = (
     "scripts/build_ardot_manifest.py",
     "scripts/build_visual_review.py",
     "scripts/compile_wechat.py",
+    "scripts/transport_fidelity.py",
+    "scripts/validate_transport_fidelity.py",
     "scripts/provenance_watermark.py",
     "scripts/wechat_interaction_policy.py",
     "scripts/validate_workflow_attribution.py",
@@ -83,6 +109,7 @@ EXPECTED_SEMANTIC_CAPABILITIES = (
     "browser.control",
     "computer.use",
     "wechat.draft",
+    "host.receipt.attest",
     "secret.resolve",
 )
 
@@ -115,6 +142,7 @@ PHASE_CAPABILITIES = {
         "visual_inspection",
         "ardot_authoring",
         "wechat_delivery",
+        "host_receipt_attestation",
         "secret_store",
     ),
     "full": (
@@ -122,6 +150,7 @@ PHASE_CAPABILITIES = {
         "visual_inspection",
         "ardot_authoring",
         "wechat_delivery",
+        "host_receipt_attestation",
         "secret_store",
     ),
 }
@@ -132,6 +161,7 @@ CAPABILITY_MODES = {
     "ardot_bootstrap": {"mcp", "ui"},
     "ardot_authoring": {"mcp", "ui"},
     "wechat_delivery": {"api", "ui"},
+    "host_receipt_attestation": {"host"},
     "secret_store": {"environment", "tool"},
 }
 
@@ -158,13 +188,54 @@ MARKDOWN_LINK = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 
 TRUSTED_BUNDLE_PATHS = (
     "SKILL.md",
+    "requirements.txt",
     "agents/openai.yaml",
+    "references/使用说明.md",
+    "references/organization-pack-migration.md",
+    "references/source-zero-audit.md",
+    "references/style-options.md",
+    "references/onboarding.md",
+    "references/org-pack-schema.md",
+    "references/visual-calibration.md",
+    "references/article-schema.md",
+    "references/storyboard.md",
+    "references/interaction-composition.md",
+    "references/expressive-typography.md",
+    "references/ardot-workflow.md",
+    "references/organic-layout.md",
+    "references/visual-review.md",
+    "references/information-density.md",
+    "references/qa.md",
+    "references/provenance-watermark.md",
     "references/runtime-preflight.md",
+    "references/ardot-transport-fidelity.md",
     "runtime/setup-links.json",
     "runtime/adapters/codex-desktop.json",
+    "runtime/python-dependency-lock.json",
+    "style-presets/prismatic-paper-editorial.json",
     "scripts/runtime_preflight.py",
+    "scripts/secure_runner.py",
+    "scripts/secure_runtime.py",
+    "scripts/asset_quality.py",
+    "scripts/build_visual_directions.py",
+    "scripts/build_storyboard.py",
+    "scripts/build_visual_kit.py",
+    "scripts/inspect_asset.py",
+    "scripts/build_ardot_manifest.py",
+    "scripts/build_visual_review.py",
+    "scripts/compile_wechat.py",
+    "scripts/orgs.py",
+    "scripts/provenance_watermark.py",
+    "scripts/transport_fidelity.py",
+    "scripts/validate_transport_fidelity.py",
+    "scripts/validate_workflow_attribution.py",
+    "scripts/wechat_interaction_policy.py",
+    "scripts/workflow_quality.py",
     "skills/ardot-wechat-publisher/SKILL.md",
     "skills/ardot-wechat-publisher/agents/openai.yaml",
+    "skills/ardot-wechat-publisher/references/handoff-contract.md",
+    "skills/ardot-wechat-publisher/references/wechat-api-delivery.md",
+    "skills/ardot-wechat-publisher/references/wechat-interaction-capability.md",
 )
 
 
@@ -628,6 +699,8 @@ def _validate_local_paths(workspace_root: Path, errors: list[dict[str, str]]) ->
             ("authoring_skill", "SKILL.md"),
             ("publisher_skill", "skills/ardot-wechat-publisher/SKILL.md"),
             ("runtime_contract", "references/runtime-preflight.md"),
+            ("secure_runner", "scripts/secure_runner.py"),
+            ("python_dependency_lock", "runtime/python-dependency-lock.json"),
             ("codex_adapter", "runtime/adapters/codex-desktop.json"),
             ("usage", "references/使用说明.md"),
             ("qa", "references/qa.md"),
@@ -698,7 +771,18 @@ def _validate_local_paths(workspace_root: Path, errors: list[dict[str, str]]) ->
         elif any(
             not isinstance(adapter_capabilities[name], dict)
             or not isinstance(adapter_capabilities[name].get("requires"), list)
-            or not adapter_capabilities[name]["requires"]
+            or (
+                adapter_capabilities[name].get("availability") == "unavailable"
+                and (
+                    adapter_capabilities[name]["requires"]
+                    or not isinstance(adapter_capabilities[name].get("reason"), str)
+                    or not adapter_capabilities[name]["reason"].strip()
+                )
+            )
+            or (
+                adapter_capabilities[name].get("availability") != "unavailable"
+                and not adapter_capabilities[name]["requires"]
+            )
             for name in EXPECTED_SEMANTIC_CAPABILITIES
         ):
             setup_links_status = "failed"
@@ -706,7 +790,7 @@ def _validate_local_paths(workspace_root: Path, errors: list[dict[str, str]]) ->
                 errors,
                 "runtime.local.adapter_route_invalid",
                 "runtime/adapters/codex-desktop.json.capabilities",
-                "every Codex adapter capability must declare a non-empty requires route",
+                "every Codex adapter capability must declare a route, or an explicit unavailable reason with no phantom callable",
             )
 
     agent_error_count = len(errors)
@@ -739,16 +823,35 @@ def _validate_python(workspace_root: Path, errors: list[dict[str, str]]) -> dict
         import PIL  # type: ignore
 
         pillow_version = str(PIL.__version__)
-        major = int(pillow_version.split(".", 1)[0])
-        if major != 11:
+        if pillow_version != "11.3.0":
             _error(
                 errors,
                 "runtime.python.pillow_version_mismatch",
                 "python.pillow",
-                "Pillow major version must be 11",
+                "Pillow must exactly match requirements.txt: 11.3.0",
             )
     except (ImportError, ValueError, AttributeError) as exc:
         _error(errors, "runtime.python.pillow_missing", "python.pillow", f"Pillow is unavailable: {exc}")
+
+    cryptography_version: str | None = None
+    try:
+        import cryptography  # type: ignore
+
+        cryptography_version = str(cryptography.__version__)
+        if cryptography_version != "50.0.0":
+            _error(
+                errors,
+                "runtime.python.cryptography_version_mismatch",
+                "python.cryptography",
+                "cryptography must exactly match requirements.txt: 50.0.0",
+            )
+    except (ImportError, ValueError, AttributeError) as exc:
+        _error(
+            errors,
+            "runtime.python.cryptography_missing",
+            "python.cryptography",
+            f"cryptography is unavailable: {exc}",
+        )
 
     write_probe = "passed"
     try:
@@ -786,6 +889,7 @@ def _validate_python(workspace_root: Path, errors: list[dict[str, str]]) -> dict
     return {
         "python_version": version,
         "pillow_version": pillow_version,
+        "cryptography_version": cryptography_version,
         "workspace_write_read": write_probe,
         "git_revision": git_revision,
     }
@@ -1459,10 +1563,6 @@ def _validate_capabilities(
             _require_adapter_routes(
                 selected_routes, tool_ids, adapter_capabilities, errors, f"{path}.tool_ids"
             )
-            if mode == "ui":
-                _require_adapter_routes(
-                    ("wechat.draft",), tool_ids, adapter_capabilities, errors, f"{path}.tool_ids"
-                )
             link_name = item.get("account_link")
             if not isinstance(link_name, str) or link_name not in links:
                 _error(
@@ -1519,16 +1619,66 @@ def _validate_capabilities(
                         "live WeChat probe must confirm draft read/write access",
                     )
             probe_methods = {"read-only-live"}
+        elif name == "host_receipt_attestation":
+            adapter_route = adapter_capabilities.get("host.receipt.attest")
+            if (
+                not isinstance(adapter_route, dict)
+                or adapter_route.get("availability") == "unavailable"
+            ):
+                _error(
+                    errors,
+                    "runtime.capability.host_receipt_attestation_unavailable",
+                    path,
+                    "selected harness has no real host receipt signer; delivery/full must remain blocked",
+                )
+                tool_ids = []
+                probe_methods = {"host-attested-live"}
+                resolved[name] = {"mode": mode, "tool_ids": tool_ids}
+                continue
+            tool_ids = _require_tool_kinds(
+                item.get("tool_ids"),
+                f"{path}.tool_ids",
+                tool_map,
+                errors,
+                ({"host.receipt.attest"},),
+            )
+            _require_adapter_routes(
+                ("host.receipt.attest",),
+                tool_ids,
+                adapter_capabilities,
+                errors,
+                f"{path}.tool_ids",
+            )
+            trust_boundary = item.get("trust_boundary")
+            if trust_boundary != "host-owned-private-key-and-protected-trust-store":
+                _error(
+                    errors,
+                    "runtime.capability.host_receipt_trust_boundary_invalid",
+                    f"{path}.trust_boundary",
+                    (
+                        "host receipt attestation must use a host-owned private key and a "
+                        "protected read-only trust store; repository or environment-owned keys are forbidden"
+                    ),
+                )
+            if not binding_only and item.get("observed_access") != "sign-live-read-and-saved-draft":
+                _error(
+                    errors,
+                    "runtime.capability.host_receipt_access_incomplete",
+                    f"{path}.observed_access",
+                    "host probe must confirm both live-root and saved-draft receipt signing",
+                )
+            probe_methods = {"host-attested-live"}
         else:
             secret_refs = item.get("secret_refs")
-            if not isinstance(secret_refs, list) or "PROVENANCE_WATERMARK_KEY" not in secret_refs:
+            if not isinstance(secret_refs, list):
+                secret_refs = []
+            if "PROVENANCE_WATERMARK_KEY" not in secret_refs:
                 _error(
                     errors,
                     "runtime.secret.watermark_ref_missing",
                     f"{path}.secret_refs",
                     "PROVENANCE_WATERMARK_KEY reference is required",
                 )
-                secret_refs = []
             path_refs = item.get("path_refs")
             if not isinstance(path_refs, list) or "PROVENANCE_WATERMARK_PRIVATE_ROOT" not in path_refs:
                 _error(
@@ -1567,7 +1717,9 @@ def _validate_capabilities(
                             f"{path}.secret_refs.{secret_ref}",
                             "secret reference is not available in the current environment",
                         )
-                    elif secret_ref == "PROVENANCE_WATERMARK_KEY" and not _valid_watermark_key(secret_value):
+                    elif secret_ref == "PROVENANCE_WATERMARK_KEY" and not _valid_watermark_key(
+                        secret_value
+                    ):
                         _error(
                             errors,
                             "runtime.secret.watermark_key_invalid",
@@ -1766,6 +1918,19 @@ def _build_host_setup_actions(
                     "expected_result": "target-account-and-draft-access-visible",
                 }
             )
+    if "host_receipt_attestation" in PHASE_CAPABILITIES[phase]:
+        actions.append(
+            {
+                "id": "bind-host-receipt-attestation",
+                "action": "bind-host-callable-and-protected-trust-store",
+                "targets": ["host.receipt.attest"],
+                "blocking": True,
+                "expected_result": (
+                    "host-only-private-key-live-root-and-saved-draft-signing-visible;"
+                    "root-owned-read-only-public-trust-store-readable"
+                ),
+            }
+        )
     actions.extend(
         [
             {

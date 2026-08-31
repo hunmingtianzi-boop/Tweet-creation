@@ -48,16 +48,22 @@ def _normalized_asset_hash(value: Any) -> str | None:
 
 
 def current_root_revision_hash(node_export: dict[str, Any]) -> str:
-    """Recompute the current-root revision from content, order, and assets."""
+    """Recompute the current-root revision from content, layers, order, and assets."""
     visible_nodes = node_export.get("visible_text_nodes")
     component_order = node_export.get("component_order")
     assets = node_export.get("assets")
+    transport_sections = node_export.get("transport_sections")
+    body_asset_ids = node_export.get("body_asset_ids")
     if not isinstance(visible_nodes, list):
         visible_nodes = []
     if not isinstance(component_order, list):
         component_order = []
     if not isinstance(assets, list):
         assets = []
+    if not isinstance(transport_sections, list):
+        transport_sections = []
+    if not isinstance(body_asset_ids, list):
+        body_asset_ids = []
     normalized_assets = []
     for item in assets:
         if not isinstance(item, dict):
@@ -95,6 +101,12 @@ def current_root_revision_hash(node_export: dict[str, Any]) -> str:
             for item in component_order
             if isinstance(item, dict)
         ],
+        # This is the complete current-root section/layer census used by the
+        # final transport validator.  Keeping it in the independently
+        # recomputed root revision prevents geometry/style/source-node evidence
+        # from being edited without invalidating the Ardot revision.
+        "transport_sections": transport_sections,
+        "body_asset_ids": body_asset_ids,
         "assets": sorted(normalized_assets, key=lambda item: str(item.get("id"))),
     }
     canonical = json.dumps(
@@ -134,8 +146,10 @@ def validate_workflow_attribution_handoff(
     handoff = read_object(handoff_path, "handoff")
     errors: list[str] = []
 
-    if handoff.get("schema_version") != 4:
-        errors.append("handoff schema_version must be 4; refreeze legacy bundles")
+    if handoff.get("schema_version") != 5:
+        errors.append(
+            "handoff schema_version must be 5; refreeze legacy bundles with transport fidelity"
+        )
     ardot = handoff.get("ardot")
     if not isinstance(ardot, dict):
         ardot = {}
@@ -347,11 +361,11 @@ def validate_workflow_attribution_handoff(
         recomputed_revision_hash = current_root_revision_hash(node_export)
         if node_export.get("revision_hash") != recomputed_revision_hash:
             errors.append(
-                "Ardot root node export revision_hash does not match recomputed current-root content/order/assets"
+                "Ardot root node export revision_hash does not match recomputed current-root content/layers/order/assets"
             )
         if ardot.get("revision_hash") != recomputed_revision_hash:
             errors.append(
-                "handoff ardot.revision_hash does not match recomputed current-root content/order/assets"
+                "handoff ardot.revision_hash does not match recomputed current-root content/layers/order/assets"
             )
 
     ardot_evidence_ready = not errors

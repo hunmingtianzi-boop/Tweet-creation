@@ -10,12 +10,30 @@
 
 > 感谢拓浙 AI 生态提供本篇内容生产工作流支持。
 
-这是工作流使用归属，不是目标组织的品牌元素，因此不得被 organization pack 改写，也不得删除、隐藏、图片化或移到正文中间。Ardot 中应保留末位原生可编辑文本节点；微信适配器会强制生成同文末位区块。发布前使用 `scripts/validate_workflow_attribution.py` 校验 handoff v4 的当前 Ardot root 哈希节点导出，保存并重新打开草稿后再用实际可见文本回读校验“恰好一次且末位”。
+这是工作流使用归属，不是目标组织的品牌元素，因此不得被 organization pack 改写，也不得删除、隐藏、图片化或移到正文中间。Ardot 中应保留末位原生可编辑文本节点。发布前使用 `scripts/validate_workflow_attribution.py` 校验 handoff v5 的当前 Ardot root 节点导出，并使用 `scripts/validate_transport_fidelity.py` 校验同一 root 的逐章图层导出。保存并重新打开草稿后，再同时校验末位感谢语与逐章 section/text/asset/390px 回读。
 
 ```bash
 python3 scripts/validate_workflow_attribution.py handoff.json
+python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py handoff.json \
+  --intended-html delivery/wechat.html \
+  --live-root-export qa/live-current-root.json \
+  --live-root-receipt qa/live-current-root-receipt.json \
+  --require-live-root
+python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py handoff.json \
+  --html delivery/wechat.html \
+  --live-root-export qa/live-current-root.json \
+  --live-root-receipt qa/live-current-root-receipt.json \
+  --compile-report delivery/compile-report.json --require-compile-report
 python3 scripts/validate_workflow_attribution.py handoff.json \
   --saved-draft-visible-text saved-draft-visible-text.txt \
+  --require-readback
+python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py handoff.json \
+  --html delivery/wechat.html \
+  --live-root-export qa/live-current-root.json \
+  --live-root-receipt qa/live-current-root-receipt.json \
+  --compile-report delivery/compile-report.json --require-compile-report \
+  --readback saved-draft-readback.json \
+  --readback-receipt saved-draft-readback-receipt.json \
   --require-readback
 ```
 
@@ -23,7 +41,13 @@ python3 scripts/validate_workflow_attribution.py handoff.json \
 
 新公众号只从本轮明确允许的组织资料、原始文案、品牌文件和真实照片开始视觉校准。工作流不会打开 `examples/`、另一组织的 pack、旧推文截图/PDF 或旧 Ardot 文件来“找风格”。仓库中的历史目录仅用于迁移兼容审计，不是视觉基准，也不参与测试。
 
-机器门槛会检查 source-zero 输入清单、四类旧视觉排除项、同家族底图、四枚文章专属微组件、常规文章 2–3 个 semantic interaction modules 与逐实例 fallback hash、真实且非矩形卡片式 Alpha、Ardot 原生组件 node 证据、表现型字体的原生文本 node/style 证据，以及 schema-v3 的 390 px 截图、完整微组件实例清单与哈希节点属性证据。
+机器门槛会检查 source-zero 输入清单、四类旧视觉排除项、同家族底图、四枚文章专属微组件、常规文章 2–3 个 semantic interaction modules 与逐实例 fallback hash、RGBA8/robust Alpha/紧裁切/无 matte cutout、Ardot 原生组件 node 与 asset SHA 证据、表现型字体的原生文本 node/style 证据，schema-v3 的 390 px 视觉证据，以及 handoff v5 的逐章冻结图层与草稿回读。
+
+最终编译还要求宿主从真实 Ardot 工具响应签发短时效 `ardot-host-live-read-receipt-v1`，并在重新打开微信草稿后签发 `wechat-host-saved-draft-receipt-v1`。宿主私有 Ed25519 私钥；仓库只能从 root-owned、非 symlink、组/其他用户不可写的信任库读取公钥，`ORG_WECHAT_HOST_RECEIPT_TRUST_STORE` 最多选择这个受保护文件的绝对路径，不能直接注入公钥。宿主还必须暴露实际 `host.receipt.attest` callable；缺失时 authoring 仍可运行，但 delivery/full 启动自检与可发布编译必须失败。receipt 会绑定 runtime binding、provider/session/request、目标 HTML 路径、handoff、编译报告、微信账号/草稿与整份 readback 字节，因此普通环境变量、复制 JSON、改时间戳或伪造 mmbiz URL 都不能自证“刚刚读取”。
+
+这四个敏感入口（runtime preflight、transport validator、final compiler、watermark verifier）均拒绝普通 `python3 scripts/...` 直调，必须经 `python3 -I -S scripts/secure_runner.py ...`。runner 会先用跟随 trusted bundle 的平台依赖锁验证 Pillow/cryptography 全部可执行字节，然后从一次性 snapshot 导入；`PYTHONPATH`、`sitecustomize`、未锁定 wheel 或同名模块不能进入最终验证进程。
+
+这个门槛不只在 CLI `__main__` 检查：发布级 compiler/validator API 在函数内也会再验证 secure runtime。普通 import 的测试或外部 harness 只能调用显式的 candidate/diagnostic API；它们不产生 `wechat.html` / `compile-report.json`，也不能返回任何可发布声明。
 
 ## 能力
 
@@ -42,7 +66,7 @@ python3 scripts/validate_workflow_attribution.py handoff.json \
 - 微组件图片不超过 72% 行宽、整体不超过 82%，四类角色左右错落并跨至少三个截图区段；含字组件禁止文字框/底板，主短句至少 22 px、1.35× 正文。静态微信适配也保留所有实际实例，不转成通栏卡片。
 - 默认 `compact-editorial` 信息密度：15–17 px 正文、1.45–1.62 行高、轻微负字距、8–14 px 段距、24–40 px 章内主间隔，并校验内容占用率与最大无意空洞。
 - 每个组织先校准表现型字体策略；单篇只在 2–4 个高影响位置使用可编辑 Ardot 标题字，正文保持紧凑可读，禁止 AI 字图。
-- 16 类语义区块与隐藏的微信内联 HTML 投递适配。
+- 16 类语义区块用于 Ardot 作者组装；最终微信 HTML 只从冻结的 Ardot 章节/图层/文字/几何证据编译，不再按 block 模板二次设计。
 - 事实来源、占位符、图片、Logo、二维码和微信安全格式校验。
 - 固定 `wechat-svg-smil-self-v1` 交互能力：生成无 ID、自触发 SVG/SMIL 与 CSS 横滑候选，强制语义哈希静态回退、草稿结构回读和目标账号 iOS/Android 能力档案；任一门槛失败即降级同一草稿。
 - 封面使用目标账号永久素材 `thumb_media_id` 并在草稿回读中验证，不与正文图片链路混用。
@@ -53,7 +77,7 @@ python3 scripts/validate_workflow_attribution.py handoff.json \
 先运行启动自检。当前 harness 必须把真实 callable 映射为生图、验图、Ardot 创建/读写/导出、微信草稿和 secret resolver。本地脚本只验证 Skill SHA、工具路由合同和无凭据 URL；真正的 Ardot/微信/生图可用性必须来自当前宿主可见的工具调用结果：
 
 ```bash
-python3 scripts/runtime_preflight.py output/runtime/runtime-profile.json \
+python3 -I -S scripts/secure_runner.py scripts/runtime_preflight.py output/runtime/runtime-profile.json \
   --phase full --binding-only \
   --output output/runtime/binding-report-UNIQUE.json
 ```
@@ -108,7 +132,7 @@ python3 scripts/build_storyboard.py article.json \
 AI 生成的不透明底图或纯生成 raster 封面，在登记资产前先保留无水印母版并生成带来源水印的派生图。`PROVENANCE_WATERMARK_KEY` 必须来自仓库外的 secret store，以 `hex:` 或 `base64:` 表示至少 32 个随机字节；裸口令会被拒绝。如需 raw-ID 记录，先将 `PROVENANCE_WATERMARK_PRIVATE_ROOT` 设为一个已存在且位于所有 Git 仓库外的私密目录：
 
 ```bash
-python3 scripts/provenance_watermark.py embed \
+python3 -I -S scripts/secure_runner.py scripts/provenance_watermark.py embed \
   organizations/new-account-id/assets/generated/background-master-raw.png \
   organizations/new-account-id/assets/derived/background-master-final.png \
   --key-epoch 1 \
@@ -139,7 +163,7 @@ python3 scripts/orgs.py register-asset organizations/new-account-id \
 
 ```bash
 audit_dir="$(mktemp -d)"
-python3 scripts/provenance_watermark.py detect \
+python3 -I -S scripts/secure_runner.py scripts/provenance_watermark.py detect \
   "/absolute/path/background-final.png" \
   --report "$audit_dir/local-detect.json"
 ```
@@ -150,7 +174,7 @@ python3 scripts/provenance_watermark.py detect \
 curl --fail --location --silent --show-error \
   -H 'Accept: image/png,image/jpeg' \
   "$WECHAT_CDN_URL" --output "$audit_dir/wechat-hosted-image"
-python3 scripts/provenance_watermark.py detect \
+python3 -I -S scripts/secure_runner.py scripts/provenance_watermark.py detect \
   "$audit_dir/wechat-hosted-image" \
   --report "$audit_dir/cdn-detect.json"
 ```
@@ -187,16 +211,23 @@ python3 scripts/build_ardot_manifest.py article.json \
 python3 scripts/build_visual_review.py visual-review.json --article article.json
 ```
 
-把路径写入 `article.visual_review_file`，通过后才生成微信投递文件：
+把路径写入 `article.visual_review_file`。通过后，从同一 Ardot root 冻结 handoff v5 与逐章图层 export，再生成微信投递文件：
 
 ```bash
-python3 scripts/compile_wechat.py article.json \
-  --org organizations/new-account-id \
+python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py handoff.json \
+  --intended-html output/new-account-id/article-slug/wechat.html \
+  --live-root-export qa/live-current-root.json \
+  --live-root-receipt qa/live-current-root-receipt.json \
+  --require-live-root
+python3 -I -S scripts/secure_runner.py scripts/compile_wechat.py \
+  --transport-fidelity handoff.json \
+  --live-root-export qa/live-current-root.json \
+  --live-root-receipt qa/live-current-root-receipt.json \
   --output output/new-account-id/article-slug \
   --check
 ```
 
-详细流程见[使用说明](references/%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E.md)，跨公众号边界见[organization pack 迁移](references/organization-pack-migration.md)，水印合同见[隐藏来源水印](references/provenance-watermark.md)，改进依据见[source-zero 审计](references/source-zero-audit.md)。
+详细流程见[使用说明](references/%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E.md)，传输契约见[Ardot → 微信高保真传输](references/ardot-transport-fidelity.md)，跨公众号边界见[organization pack 迁移](references/organization-pack-migration.md)，水印合同见[隐藏来源水印](references/provenance-watermark.md)，改进依据见[source-zero 审计](references/source-zero-audit.md)。
 
 ## 目录
 
@@ -217,7 +248,7 @@ python3 scripts/compile_wechat.py article.json \
 
 ## 动态组件 A/B MVP
 
-仓库内提供一个同输入对照实验：A 使用静态基线排版，B 只替换为无 JavaScript、无 ID、元素自身 `begin="click"` 的 SVG 揭开组件与 CSS 横向滑动，并保留语义哈希匹配的静态降级文件。主工作流进一步固定了创作层默认 2–3 个 semantic modules；transport marker 数量不等于 module 数量。入口见 [experiments/interaction-mvp/README.md](experiments/interaction-mvp/README.md)。候选生成成功不等于生产启用；保存回读和目标账号 iOS/Android 能力档案都通过后才可选择动态 payload。
+仓库内提供一个同输入对照实验：A 使用静态基线排版，B 只替换为无 JavaScript、无 ID、元素自身 `begin="click"` 的 SVG 揭开组件与 CSS 横向滑动，并保留语义哈希匹配的静态降级文件。主工作流进一步固定了创作层默认 2–3 个 semantic modules；transport marker 数量不等于 module 数量。入口见 [experiments/interaction-mvp/README.md](experiments/interaction-mvp/README.md)。实验只输出 `delivery_eligible: false` 的候选片段，不提供剪贴板导入或公众号直投入口；采用后的状态必须回到当前 Ardot root，并经 handoff v5 冻结编译、草稿回读和目标账号 iOS/Android 能力验证后才可选择动态 payload。
 
 ## 安全边界
 

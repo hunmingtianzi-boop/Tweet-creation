@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import ast
 import copy
 import json
 import os
@@ -11,13 +12,13 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from runtime_preflight import (  # noqa: E402
     EXPECTED_SEMANTIC_CAPABILITIES,
     REQUIRED_PATHS,
+    TRUSTED_BUNDLE_PATHS,
     _build_host_setup_actions,
     _validate_local_paths,
     validate_runtime_profile,
@@ -26,8 +27,12 @@ from runtime_preflight import (  # noqa: E402
 
 NOW = datetime(2026, 8, 31, 8, 0, tzinfo=timezone.utc)
 VALID_KEY = "base64:" + base64.b64encode(b"runtime-preflight-test-key-material-32b").decode("ascii")
-
-
+SECURE_RUNNER = [
+    sys.executable,
+    "-I",
+    "-S",
+    str(ROOT / "scripts" / "secure_runner.py"),
+]
 def sha256_uri(path: Path) -> str:
     import hashlib
 
@@ -64,9 +69,9 @@ def valid_profile() -> dict:
         "schema_version": 1,
         "kind": "org-wechat-runtime-profile",
         "harness": {
-            "name": "codex-desktop",
-            "adapter_path": "runtime/adapters/codex-desktop.json",
-            "adapter_sha256": sha256_uri(ROOT / "runtime" / "adapters" / "codex-desktop.json"),
+            "name": "test-host",
+            "adapter_path": "tests/fixtures/host-enabled-adapter.json",
+            "adapter_sha256": sha256_uri(ROOT / "tests" / "fixtures" / "host-enabled-adapter.json"),
         },
         "skills": [
             {
@@ -104,6 +109,12 @@ def valid_profile() -> dict:
                 "skill-registry",
             ),
             runtime_tool("mcp__node_repl__js", "browser.control", "codex-browser"),
+            runtime_tool(
+                "host.receipt.attest",
+                "host.receipt.attest",
+                "test-host-attestor",
+                "runtime-registry",
+            ),
         ],
         "links": {
             "ardot_current_workspace": {
@@ -159,10 +170,20 @@ def valid_profile() -> dict:
                 "observed_access": "draft-read-write",
                 "probe": probe("read-only-live", "wechat-editor-account-matched"),
             },
+            "host_receipt_attestation": {
+                "mode": "host",
+                "status": "passed",
+                "tool_ids": ["host.receipt.attest"],
+                "trust_boundary": "host-owned-private-key-and-protected-trust-store",
+                "observed_access": "sign-live-read-and-saved-draft",
+                "probe": probe("host-attested-live", "host-attestor-and-trust-store-bound"),
+            },
             "secret_store": {
                 "mode": "environment",
                 "status": "passed",
-                "secret_refs": ["PROVENANCE_WATERMARK_KEY"],
+                "secret_refs": [
+                    "PROVENANCE_WATERMARK_KEY",
+                ],
                 "path_refs": ["PROVENANCE_WATERMARK_PRIVATE_ROOT"],
                 "probe": probe("environment-reference", "watermark-key-shape-valid"),
             },
@@ -247,6 +268,9 @@ class RuntimePreflightTests(unittest.TestCase):
         self.assertEqual(report["check_level"], "binding")
         self.assertRegex(report["binding_nonce"], r"^[A-Za-z0-9_-]{32,}$")
         self.assertRegex(report["binding_digest"], r"^sha256:[0-9a-f]{64}$")
+        self.assertRegex(
+            report["python"]["cryptography_version"], r"^(?:4[3-9]|50)\."
+        )
         actions = {item["id"]: item for item in report["host_setup_actions"]}
         self.assertEqual(actions["open-wechat-account"]["url"], "https://mp.weixin.qq.com/")
         self.assertIn("/file/123456789", actions["open-ardot-target"]["url"])
@@ -257,6 +281,7 @@ class RuntimePreflightTests(unittest.TestCase):
         self.assertNotIn("token=", json.dumps(actions, ensure_ascii=False))
         self.assertTrue(actions["bind-image-inspection"]["blocking"])
         self.assertTrue(actions["bind-image-generation"]["blocking"])
+        self.assertTrue(actions["bind-host-receipt-attestation"]["blocking"])
 
     def test_host_setup_actions_follow_selected_ardot_and_wechat_routes(self) -> None:
         ui_profile = valid_profile()
@@ -468,6 +493,24 @@ class RuntimePreflightTests(unittest.TestCase):
         self.assertIn("runtime.secret.watermark_key_invalid", error_codes(short))
         self.assertNotIn("base64:YWJj", json.dumps(short, ensure_ascii=False))
 
+    def test_delivery_requires_host_receipt_attestation_tool_and_trust_boundary(self) -> None:
+        missing_tool = valid_profile()
+        missing_tool["tools"] = [
+            item for item in missing_tool["tools"] if item["kind"] != "host.receipt.attest"
+        ]
+        report = self.run_check(missing_tool, binding_only=True, environment={})
+        self.assertIn("runtime.capability.tool_unresolved", error_codes(report))
+
+        repository_key = valid_profile()
+        repository_key["capabilities"]["host_receipt_attestation"]["trust_boundary"] = (
+            "repository-environment-key"
+        )
+        report = self.run_check(repository_key, binding_only=True, environment={})
+        self.assertIn(
+            "runtime.capability.host_receipt_trust_boundary_invalid",
+            error_codes(report),
+        )
+
     def test_private_registry_root_must_be_git_external_and_not_a_symlink(self) -> None:
         inside_git = self.run_check(
             valid_profile(),
@@ -529,8 +572,152 @@ class RuntimePreflightTests(unittest.TestCase):
         self.assertEqual(setup["semantic_capabilities"], list(EXPECTED_SEMANTIC_CAPABILITIES))
         self.assertEqual(set(adapter["capabilities"]), set(EXPECTED_SEMANTIC_CAPABILITIES))
         self.assertIn("routing-only", adapter["truth_boundary"])
+        host_route = adapter["capabilities"]["host.receipt.attest"]
+        self.assertEqual(host_route["availability"], "unavailable")
+        self.assertEqual(host_route["requires"], [])
+        self.assertIn("no callable", host_route["reason"])
         self.assertTrue(setup["startup_policy"]["wait_for_user_login"])
         self.assertFalse(setup["startup_policy"]["persist_session_query"])
+
+    def test_current_codex_adapter_blocks_delivery_but_keeps_authoring_available(self) -> None:
+        delivery = valid_profile()
+        delivery["harness"] = {
+            "name": "codex-desktop",
+            "adapter_path": "runtime/adapters/codex-desktop.json",
+            "adapter_sha256": sha256_uri(
+                ROOT / "runtime" / "adapters" / "codex-desktop.json"
+            ),
+        }
+        delivery["tools"] = [
+            item for item in delivery["tools"] if item["kind"] != "host.receipt.attest"
+        ]
+        report = self.run_check(delivery, binding_only=True, environment={})
+        self.assertFalse(report["binding_ready"])
+        self.assertIn(
+            "runtime.capability.host_receipt_attestation_unavailable",
+            error_codes(report),
+        )
+
+        authoring = copy.deepcopy(delivery)
+        authoring["capabilities"].pop("wechat_delivery")
+        authoring["capabilities"].pop("host_receipt_attestation")
+        authoring["links"].pop("wechat_current_account")
+        authoring["tools"] = [
+            item for item in authoring["tools"] if item["kind"] != "browser.control"
+        ]
+        report = self.run_check(
+            authoring, phase="authoring", binding_only=True, environment={}
+        )
+        self.assertTrue(report["binding_ready"], report["errors"])
+
+    def test_delivery_transport_chain_is_required_and_digest_bound(self) -> None:
+        critical = {
+            "requirements.txt",
+            "runtime/python-dependency-lock.json",
+            "references/使用说明.md",
+            "references/organization-pack-migration.md",
+            "references/source-zero-audit.md",
+            "references/style-options.md",
+            "references/onboarding.md",
+            "references/org-pack-schema.md",
+            "references/visual-calibration.md",
+            "references/article-schema.md",
+            "references/storyboard.md",
+            "references/interaction-composition.md",
+            "references/expressive-typography.md",
+            "references/ardot-workflow.md",
+            "references/organic-layout.md",
+            "references/visual-review.md",
+            "references/information-density.md",
+            "references/qa.md",
+            "references/provenance-watermark.md",
+            "references/ardot-transport-fidelity.md",
+            "scripts/asset_quality.py",
+            "scripts/build_visual_directions.py",
+            "scripts/build_storyboard.py",
+            "scripts/build_visual_kit.py",
+            "scripts/inspect_asset.py",
+            "scripts/build_ardot_manifest.py",
+            "scripts/build_visual_review.py",
+            "scripts/compile_wechat.py",
+            "scripts/orgs.py",
+            "scripts/provenance_watermark.py",
+            "scripts/secure_runner.py",
+            "scripts/secure_runtime.py",
+            "scripts/transport_fidelity.py",
+            "scripts/validate_transport_fidelity.py",
+            "scripts/validate_workflow_attribution.py",
+            "scripts/wechat_interaction_policy.py",
+            "scripts/workflow_quality.py",
+            "style-presets/prismatic-paper-editorial.json",
+            "skills/ardot-wechat-publisher/references/handoff-contract.md",
+            "skills/ardot-wechat-publisher/references/wechat-api-delivery.md",
+            "skills/ardot-wechat-publisher/references/wechat-interaction-capability.md",
+        }
+        self.assertTrue(critical.issubset(set(REQUIRED_PATHS)))
+        self.assertTrue(critical.issubset(set(TRUSTED_BUNDLE_PATHS)))
+
+        pending = ["compile_wechat", "transport_fidelity", "validate_transport_fidelity"]
+        imported_scripts: set[str] = set()
+        while pending:
+            module = pending.pop()
+            relative = f"scripts/{module}.py"
+            if relative in imported_scripts or not (ROOT / relative).is_file():
+                continue
+            imported_scripts.add(relative)
+            tree = ast.parse((ROOT / relative).read_text(encoding="utf-8"))
+            names: set[str] = set()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                    names.add(node.module.split(".", 1)[0])
+                elif isinstance(node, ast.Import):
+                    names.update(alias.name.split(".", 1)[0] for alias in node.names)
+            pending.extend(
+                name for name in names if (ROOT / "scripts" / f"{name}.py").is_file()
+            )
+        self.assertTrue(imported_scripts.issubset(set(TRUSTED_BUNDLE_PATHS)))
+
+    def test_transitive_validator_change_alters_trusted_bundle_digest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory).resolve()
+            self.build_minimal_workspace(workspace)
+            errors: list[dict[str, str]] = []
+            baseline = _validate_local_paths(workspace, errors)["trusted_bundle_sha256"]
+            dependency = workspace / "scripts" / "asset_quality.py"
+            dependency.write_text("# changed validator\n", encoding="utf-8")
+            changed = _validate_local_paths(workspace, [])["trusted_bundle_sha256"]
+            self.assertNotEqual(baseline, changed)
+
+    def test_wechat_ui_can_use_computer_use_without_browser_route(self) -> None:
+        profile = valid_profile()
+        profile["tools"] = [
+            item
+            for item in profile["tools"]
+            if item["id"] != "browser:control-in-app-browser"
+        ]
+        for item in profile["tools"]:
+            if item["id"] == "mcp__node_repl__js":
+                item.update(
+                    {
+                        "kind": "computer.use",
+                        "provider": "codex-computer",
+                        "source": "runtime-registry",
+                    }
+                )
+        profile["tools"].append(
+            runtime_tool(
+                "computer-use:computer-use",
+                "computer.use",
+                "codex-computer",
+                "skill-registry",
+            )
+        )
+        profile["capabilities"]["wechat_delivery"]["tool_ids"] = [
+            "computer-use:computer-use",
+            "mcp__node_repl__js",
+        ]
+        report = self.run_check(profile, binding_only=True, environment={})
+        self.assertTrue(report["binding_ready"], report["errors"])
 
     def test_local_gate_rejects_symlinked_required_files_and_non_object_registries(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -616,11 +803,12 @@ class RuntimePreflightTests(unittest.TestCase):
     def test_authoring_phase_can_omit_wechat_but_reports_full_gap(self) -> None:
         profile = valid_profile()
         profile["capabilities"].pop("wechat_delivery")
+        profile["capabilities"].pop("host_receipt_attestation")
         profile["links"].pop("wechat_current_account")
         profile["tools"] = [
             item
             for item in profile["tools"]
-            if item["kind"] != "browser.control"
+            if item["kind"] not in {"browser.control", "host.receipt.attest"}
         ]
         report = self.run_check(profile, phase="authoring", binding_only=True, environment={})
         self.assertTrue(report["binding_ready"], report["errors"])
@@ -636,10 +824,12 @@ class RuntimePreflightTests(unittest.TestCase):
         profile["links"].pop("wechat_current_account")
         profile["capabilities"].pop("ardot_authoring")
         profile["capabilities"].pop("wechat_delivery")
+        profile["capabilities"].pop("host_receipt_attestation")
         profile["tools"] = [
             item
             for item in profile["tools"]
-            if not item["kind"].startswith("ardot.") and item["kind"] != "browser.control"
+            if not item["kind"].startswith("ardot.")
+            and item["kind"] not in {"browser.control", "host.receipt.attest"}
         ]
         profile["tools"].append(
             runtime_tool(
@@ -689,7 +879,7 @@ class RuntimePreflightTests(unittest.TestCase):
             env["PROVENANCE_WATERMARK_PRIVATE_ROOT"] = str(private_root)
             completed = subprocess.run(
                 [
-                    sys.executable,
+                    *SECURE_RUNNER,
                     str(ROOT / "scripts" / "runtime_preflight.py"),
                     str(profile_path),
                     "--phase",
@@ -729,7 +919,7 @@ class RuntimePreflightTests(unittest.TestCase):
             env["PROVENANCE_WATERMARK_PRIVATE_ROOT"] = str(private_root)
             completed = subprocess.run(
                 [
-                    sys.executable,
+                    *SECURE_RUNNER,
                     str(ROOT / "scripts" / "runtime_preflight.py"),
                     str(profile_path),
                     "--workspace-root",
@@ -757,7 +947,7 @@ class RuntimePreflightTests(unittest.TestCase):
             output_path.write_text("preserve-me\n", encoding="utf-8")
             completed = subprocess.run(
                 [
-                    sys.executable,
+                    *SECURE_RUNNER,
                     str(ROOT / "scripts" / "runtime_preflight.py"),
                     str(profile_path),
                     "--workspace-root",
@@ -783,7 +973,7 @@ class RuntimePreflightTests(unittest.TestCase):
             profile_path.write_text(json.dumps(profile), encoding="utf-8")
             completed = subprocess.run(
                 [
-                    sys.executable,
+                    *SECURE_RUNNER,
                     str(ROOT / "scripts" / "runtime_preflight.py"),
                     str(profile_path),
                     "--workspace-root",

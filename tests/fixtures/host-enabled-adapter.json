@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "kind": "org-wechat-runtime-adapter",
+  "harness": "test-host",
+  "truth_boundary": "test-only routing fixture; never describes a production host",
+  "capabilities": {
+    "image.generate": {"route": "tool", "requires": ["image_gen__imagegen"]},
+    "image.inspect": {"route": "tool", "requires": ["view_image"]},
+    "ardot.create": {"route": "mcp", "requires": ["mcp__ardot_remote__create_design", "mcp__ardot_remote__create_new_page"]},
+    "ardot.read": {"route": "mcp", "requires": ["mcp__ardot_remote__fetch_file_info", "mcp__ardot_remote__fetch_editor_state", "mcp__ardot_remote__batch_read"]},
+    "ardot.write": {"route": "mcp", "requires": ["mcp__ardot_remote__batch_edit"]},
+    "ardot.export": {"route": "mcp", "requires": ["mcp__ardot_remote__capture_screenshot", "mcp__ardot_remote__export_nodes"]},
+    "browser.control": {"route": "skill+tool", "requires": ["browser:control-in-app-browser", "mcp__node_repl__js"]},
+    "computer.use": {"route": "skill+tool", "requires": ["computer-use:computer-use", "mcp__node_repl__js"]},
+    "wechat.draft": {"route": "browser", "requires": ["browser:control-in-app-browser", "mcp__node_repl__js"]},
+    "host.receipt.attest": {"route": "host", "availability": "available", "requires": ["host.receipt.attest"], "trust_boundary": "host-owned-private-key-and-protected-trust-store"},
+    "secret.resolve": {"route": "environment", "requires": ["PROVENANCE_WATERMARK_KEY", "PROVENANCE_WATERMARK_PRIVATE_ROOT"]}
+  }
+}

@@ -34,6 +34,28 @@ PALETTE = {
     "white": "#FFFEFA",
 }
 
+FORBIDDEN_DELIVERY_ARTIFACTS = {"import-assistant.html"}
+
+
+def purge_stale_delivery_artifacts(output_root: Path) -> list[str]:
+    """Remove obsolete clipboard/delivery pages before rebuilding the experiment.
+
+    The experiment is authoring evidence only.  Older revisions emitted an
+    import assistant and ``wechat*.html`` files into this ignored directory;
+    leaving them beside the new dashboard would preserve a real bypass even
+    though a clean temporary-directory test passes.
+    """
+
+    removed: list[str] = []
+    candidates = [output_root / name for name in FORBIDDEN_DELIVERY_ARTIFACTS]
+    if output_root.is_dir():
+        candidates.extend(output_root.rglob("wechat*.html"))
+    for candidate in sorted(set(candidates)):
+        if candidate.is_file() or candidate.is_symlink():
+            candidate.unlink()
+            removed.append(candidate.relative_to(output_root).as_posix())
+    return removed
+
 
 def esc(value: object) -> str:
     return html.escape(str(value), quote=True)
@@ -216,56 +238,23 @@ def preview_document(fragment: str, label: str, digest: str) -> str:
 </style></head><body><div style="max-width:390px;margin:0 auto 10px;font:700 11px/1.4 ui-monospace,monospace;color:#51605e;">{esc(label)} · INPUT {digest[:10]}</div>{fragment}</body></html>'''
 
 
-def importer_document(content: dict, digest: str) -> str:
-    title = f"{content['title']}｜拓浙 AI 生态如何把学习接到真实世界"
-    image_names = [Path(item["image"]).name for item in content["moments"]]
-    return f'''<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>导入微信公众号 · B 动态版</title><style>
-*{{box-sizing:border-box}}body{{margin:0;background:#173A3B;color:#173A3B;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}}main{{width:min(680px,calc(100% - 28px));margin:34px auto 70px;background:#F3F0E7;padding:30px}}h1{{margin:0;font-size:30px;letter-spacing:-.04em}}.lead{{font-size:15px;line-height:1.75;color:#345253}}.step{{padding:20px 0;border-top:1px solid #BFD8C9}}.step b{{display:block;margin-bottom:9px}}button,a.action{{appearance:none;display:inline-block;margin:5px 7px 5px 0;padding:11px 15px;border:0;background:#1F6B66;color:#fff;font-size:14px;font-weight:800;text-decoration:none;cursor:pointer}}button.alt{{background:#EA765C}}button.ghost{{background:#E9E4D8;color:#173A3B}}code{{font-family:ui-monospace,monospace;font-size:11px}}#status{{min-height:25px;margin:17px 0 0;padding:10px 12px;background:#FFFEFA;color:#1F6B66;font-size:13px;font-weight:750}}.warn{{padding:13px;background:#F1C85B;font-size:13px;line-height:1.65}}@media(max-width:520px){{main{{padding:22px 18px}}h1{{font-size:25px}}button,a.action{{width:100%;text-align:center;margin-right:0}}}}</style></head><body><main>
-<p style="font-size:10px;font-weight:850;letter-spacing:.18em;color:#1F6B66;">WECHAT IMPORT HANDOFF · {digest[:10]}</p>
-<h1>把 B 动态版导入公众号</h1>
-<p class="lead">这个页面只负责把已经验收的标题、摘要和富文本放进剪贴板。动态候选只使用无 JavaScript、无 ID 引用的 SVG 自触发动画与 CSS 横滑；公众号账号登录、封面选择、保存草稿和最终群发仍由你在微信后台完成。</p>
-<div class="step"><b>1 · 打开公众号后台，新建一篇图文</b><a class="action" href="https://mp.weixin.qq.com/" target="_blank" rel="noopener">打开微信公众号</a></div>
-<div class="step"><b>2 · 复制标题与摘要</b><button onclick="copyText('title')">复制标题</button><button class="ghost" onclick="copyText('digest')">复制摘要</button></div>
-<div class="step"><b>3 · 光标点进正文，再复制并粘贴 B 版</b><button class="alt" onclick="copyArticle('dynamic')">复制 B 动态正文（含照片）</button><button class="ghost" onclick="copyArticle('fallback')">复制静态降级正文</button></div>
-<div class="step"><b>4 · 微信内预览后保存草稿</b><div class="warn">保存后先回读 SVG、animateTransform、begin=&quot;click&quot; 和横滑标记，再在 iOS/Android 手机预览测试“轻触揭开”和“左右滑动”。任一门槛失败都更新同一草稿为静态降级版；不要在后台逐段手调。</div></div>
-<div id="status" role="status">等待操作。剪贴板内容不会自动发布。</div>
-<p style="font-size:11px;line-height:1.6;color:#587071;">输入哈希：<code>{digest}</code></p>
-</main><script>
-const DATA={json.dumps({'title': title, 'digest': content['digest'], 'plain': content['lead'], 'images': image_names}, ensure_ascii=False)};
-const status=document.getElementById('status');
-async function copyText(kind){{await navigator.clipboard.writeText(DATA[kind]);status.textContent=(kind==='title'?'标题':'摘要')+'已复制，现在粘贴到公众号对应输入框。';}}
-function blobToDataURL(blob){{return new Promise((resolve,reject)=>{{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=reject;reader.readAsDataURL(blob);}});}}
-async function copyArticle(kind){{
-  try{{
-    if(!window.ClipboardItem) throw new Error('当前浏览器不支持富文本剪贴板');
-    const source=kind==='dynamic'?'b-dynamic/wechat.html':'b-dynamic/wechat-fallback.html';
-    let article=await fetch(source).then(r=>{{if(!r.ok) throw new Error('正文读取失败');return r.text();}});
-    for(const name of DATA.images){{
-      const data=await fetch('b-dynamic/assets/'+name).then(r=>{{if(!r.ok) throw new Error('照片读取失败：'+name);return r.blob();}}).then(blobToDataURL);
-      article=article.replaceAll('assets/'+name,data);
-    }}
-    await navigator.clipboard.write([new ClipboardItem({{'text/html':new Blob([article],{{type:'text/html'}}),'text/plain':new Blob([DATA.plain],{{type:'text/plain'}})}})]);
-    status.textContent=(kind==='dynamic'?'B 动态正文':'静态降级正文')+'已复制（含 3 张照片）。请立即到公众号正文区域粘贴。';
-  }}catch(error){{status.textContent='复制失败：'+error.message+'。请确认本页面通过 http://127.0.0.1 打开并允许剪贴板。';}}
-}}
-</script></body></html>'''
-
-
 def build(content_path: Path = DEFAULT_CONTENT, output_root: Path | None = None) -> dict:
     content = json.loads(content_path.read_text(encoding="utf-8"))
     digest = content_digest(content)
     output_root = output_root or EXPERIMENT / "output"
+    output_root.mkdir(parents=True, exist_ok=True)
+    removed_stale_delivery_artifacts = purge_stale_delivery_artifacts(output_root)
     records = {}
-    for variant, label in (("a-baseline", "A · 现有基线 workflow"), ("b-dynamic", "B · 动态组件 workflow")):
+    for variant, label in (("a-baseline", "A · 实验静态基线"), ("b-dynamic", "B · 实验动态候选")):
         variant_dir = output_root / variant
         variant_dir.mkdir(parents=True, exist_ok=True)
         assets = copy_assets(content, variant_dir)
         fragment = article_fragment(content, variant)
-        (variant_dir / "wechat.html").write_text(fragment, encoding="utf-8")
+        (variant_dir / "candidate-fragment.html").write_text(fragment, encoding="utf-8")
         (variant_dir / "index.html").write_text(preview_document(fragment, label, digest), encoding="utf-8")
         if variant == "b-dynamic":
             fallback = article_fragment(content, "a-baseline").replace('data-variant="a-baseline"', 'data-variant="b-dynamic-fallback"')
-            (variant_dir / "wechat-fallback.html").write_text(fallback, encoding="utf-8")
+            (variant_dir / "static-fallback-fragment.html").write_text(fallback, encoding="utf-8")
             interaction_report = audit_transport(fragment, fallback_html=fallback)
             (variant_dir / "interaction-policy-report.json").write_text(
                 json.dumps(interaction_report, ensure_ascii=False, indent=2) + "\n",
@@ -278,7 +267,10 @@ def build(content_path: Path = DEFAULT_CONTENT, output_root: Path | None = None)
         records[variant] = {
             "label": label,
             "input_sha256": digest,
-            "wechat_sha256": hashlib.sha256(fragment.encode("utf-8")).hexdigest(),
+            "candidate_sha256": hashlib.sha256(fragment.encode("utf-8")).hexdigest(),
+            "source": "interaction-mvp-experiment-only-v1",
+            "delivery_eligible": False,
+            "delivery_blocker": "transport.source.experiment_renderer_forbidden",
             "assets": assets,
             "interactions": [] if variant == "a-baseline" else ["svg-smil-self", "horizontal-swipe"],
             "interaction_policy": {
@@ -294,12 +286,12 @@ def build(content_path: Path = DEFAULT_CONTENT, output_root: Path | None = None)
         "interaction_policy_version": POLICY_VERSION,
         "variants": records,
         "parity_passed": records["a-baseline"]["input_sha256"] == records["b-dynamic"]["input_sha256"],
+        "removed_stale_delivery_artifacts": removed_stale_delivery_artifacts,
     }
     (output_root / "comparison.json").write_text(json.dumps(comparison, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    (output_root / "import-assistant.html").write_text(importer_document(content, digest), encoding="utf-8")
     a = "a-baseline/index.html"
     b = "b-dynamic/index.html"
-    dashboard = f'''<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>A/B 公众号工作流实验</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#182f30;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}}header{{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:14px 24px}}h1{{margin:0;font-size:21px}}p{{margin:6px 0 0;font-size:12px;color:#bdd0c8}}a{{flex:none;padding:10px 14px;background:#F1C85B;color:#173A3B;font-size:13px;font-weight:850;text-decoration:none}}main{{display:grid;grid-template-columns:1fr 1fr;gap:2px;height:calc(100vh - 76px)}}section{{min-width:0;background:#d8d5cc}}iframe{{width:100%;height:100%;border:0}}@media(max-width:850px){{header{{align-items:flex-start;flex-direction:column}}main{{grid-template-columns:1fr;height:auto}}iframe{{height:820px}}}}</style></head><body><header><div><h1>同一输入 A/B 对比</h1><p>唯一变量：B 版加入轻触展开与横向滑动；input sha256 {digest[:12]}</p></div><a href="import-assistant.html">导入微信公众号 →</a></header><main><section><iframe src="{a}" title="A 基线版"></iframe></section><section><iframe src="{b}" title="B 动态版"></iframe></section></main></body></html>'''
+    dashboard = f'''<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>A/B 公众号工作流实验</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#182f30;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}}header{{padding:14px 24px}}h1{{margin:0;font-size:21px}}p{{margin:6px 0 0;font-size:12px;color:#bdd0c8}}.gate{{display:inline-block;margin-top:8px;padding:7px 10px;background:#F1C85B;color:#173A3B;font-size:12px;font-weight:850}}main{{display:grid;grid-template-columns:1fr 1fr;gap:2px;height:calc(100vh - 96px)}}section{{min-width:0;background:#d8d5cc}}iframe{{width:100%;height:100%;border:0}}@media(max-width:850px){{main{{grid-template-columns:1fr;height:auto}}iframe{{height:820px}}}}</style></head><body><header><h1>同一输入 A/B 对比</h1><p>唯一变量：B 版加入轻触展开与横向滑动；input sha256 {digest[:12]}</p><span class="gate">实验片段不可投递；采用后必须回到 Ardot 并走 handoff v5 冻结传输</span></header><main><section><iframe src="{a}" title="A 基线版"></iframe></section><section><iframe src="{b}" title="B 动态版"></iframe></section></main></body></html>'''
     (output_root / "compare.html").write_text(dashboard, encoding="utf-8")
     return comparison
 

@@ -65,6 +65,13 @@ MICRO_COMPONENT_WIDTH_RATIO = (0.18, 0.82)
 MICRO_HORIZONTAL_OFFSET_RATIO = (-0.36, 0.36)
 MICRO_COPY_MIN_FONT_PX = 22.0
 MICRO_COPY_MIN_SCALE_RATIO = 1.35
+ALLOWED_ARDOT_MICRO_NODE_KINDS = {
+    "image",
+    "illustration",
+    "text",
+    "closed-shape",
+    "vector-accent",
+}
 ALLOWED_DENSITY_MODES = {"compact-editorial", "standard", "spacious-feature"}
 DENSITY_BANDS = {
     "compact-editorial": {
@@ -2290,7 +2297,36 @@ def validate_micro_component_layout(
             and oy + oh >= iy + ih - tolerance
         )
 
+    def rectangle_union_area(rectangles: list[tuple[float, float, float, float]]) -> float:
+        """Return the exact union area of axis-aligned left/top/right/bottom rectangles."""
+        if not rectangles:
+            return 0.0
+        x_values = sorted({value for rectangle in rectangles for value in (rectangle[0], rectangle[2])})
+        area = 0.0
+        for left, right in zip(x_values, x_values[1:]):
+            if right <= left:
+                continue
+            intervals = sorted(
+                (top, bottom)
+                for rect_left, top, rect_right, bottom in rectangles
+                if rect_left < right and rect_right > left and bottom > top
+            )
+            if not intervals:
+                continue
+            covered = 0.0
+            current_top, current_bottom = intervals[0]
+            for top, bottom in intervals[1:]:
+                if top <= current_bottom:
+                    current_bottom = max(current_bottom, bottom)
+                else:
+                    covered += current_bottom - current_top
+                    current_top, current_bottom = top, bottom
+            covered += current_bottom - current_top
+            area += (right - left) * covered
+        return area
+
     expected_components: dict[str, str] = {}
+    expected_micro_assets: dict[str, tuple[str, str]] = {}
     visual_kit = article.get("visual_kit")
     visual_assets = visual_kit.get("assets") if isinstance(visual_kit, dict) else []
     if isinstance(visual_assets, list):
@@ -2306,6 +2342,18 @@ def validate_micro_component_layout(
                 and component.get("node_id")
             ):
                 expected_components[role] = component["node_id"]
+                asset_id = item.get("id")
+                asset_sha256 = item.get("asset_sha256")
+                if not isinstance(asset_id, str) or not asset_id:
+                    errors.append(f"article.visual_kit role {role} requires an asset id")
+                elif not isinstance(asset_sha256, str) or not re.fullmatch(
+                    r"[0-9a-f]{64}", asset_sha256
+                ):
+                    errors.append(
+                        f"article.visual_kit role {role} requires asset_sha256 from the approved cutout"
+                    )
+                else:
+                    expected_micro_assets[role] = (asset_id, asset_sha256)
     for role in sorted(REQUIRED_MICRO_COMPONENT_ROLES - set(expected_components)):
         errors.append(
             f"article.visual_kit is missing native component evidence for micro role: {role}"
@@ -2422,6 +2470,14 @@ def validate_micro_component_layout(
             placement.get("node_properties_sha256"),
             f"{prefix} node properties",
         )
+        properties_location = placement.get("node_properties_file")
+        properties_bundle_dir: Path | None = None
+        if (
+            isinstance(properties_location, str)
+            and properties_location
+            and not re.match(r"^https?://", properties_location)
+        ):
+            properties_bundle_dir = (article_path.parent / properties_location).resolve().parent
         if properties.get("schema_version") != 1:
             errors.append(f"{prefix} node properties schema_version must be 1")
         if properties.get("source") != "ardot-node-properties":
@@ -2466,7 +2522,23 @@ def validate_micro_component_layout(
         )
         if not isinstance(nodes_raw, list) or len(nodes) != len(nodes_raw):
             errors.append(f"{prefix} node properties nodes must be an array of objects")
+        if properties.get("complete_descendant_census") is not True:
+            error_codes.add("micro.component.incomplete_descendant_census")
+            errors.append(
+                f"{prefix} node properties require complete_descendant_census=true"
+            )
+        visible_descendant_count = properties.get("visible_descendant_count")
+        if (
+            not isinstance(visible_descendant_count, int)
+            or isinstance(visible_descendant_count, bool)
+            or visible_descendant_count != len(nodes)
+        ):
+            error_codes.add("micro.component.incomplete_descendant_census")
+            errors.append(
+                f"{prefix} visible_descendant_count must equal the complete nodes length"
+            )
         image_widths: list[float] = []
+        image_entries: list[tuple[dict[str, Any], tuple[float, float, float, float]]] = []
         text_entries: list[tuple[dict[str, Any], tuple[float, float, float, float]]] = []
         closed_shapes: list[tuple[dict[str, Any], tuple[float, float, float, float]]] = []
         node_ids: set[str] = set()
@@ -2483,21 +2555,94 @@ def validate_micro_component_layout(
             if not bounds:
                 continue
             kind = node.get("kind")
+            if kind not in ALLOWED_ARDOT_MICRO_NODE_KINDS:
+                error_codes.add("micro.component.unknown_node_kind")
+                errors.append(
+                    f"{node_label} has unknown kind {kind!r}; visible Ardot nodes must be normalized fail-closed"
+                )
+                continue
             if kind in {"image", "illustration"}:
                 image_widths.append(bounds[2] / 390.0)
+                image_entries.append((node, bounds))
+                expected_asset = expected_micro_assets.get(role)
+                if expected_asset:
+                    expected_asset_id, expected_asset_sha256 = expected_asset
+                    if node.get("asset_id") != expected_asset_id:
+                        error_codes.add("micro.component.asset_mismatch")
+                        errors.append(
+                            f"{node_label} asset_id must match the approved cutout for role {role}"
+                        )
+                    if node.get("asset_sha256") != expected_asset_sha256:
+                        error_codes.add("micro.component.asset_mismatch")
+                        errors.append(
+                            f"{node_label} asset_sha256 must match the approved cutout pixels"
+                        )
+                    rendered_asset_file = node.get("rendered_asset_file")
+                    rendered_asset_sha256 = node.get("rendered_asset_sha256")
+                    if (
+                        not isinstance(rendered_asset_file, str)
+                        or not rendered_asset_file
+                        or re.match(r"^(?:https?://|data:)", rendered_asset_file)
+                        or properties_bundle_dir is None
+                    ):
+                        error_codes.add("micro.component.rendered_asset_mismatch")
+                        errors.append(
+                            f"{node_label} requires a local rendered_asset_file inside the visual-review bundle"
+                        )
+                    else:
+                        rendered_candidate = (
+                            properties_bundle_dir / rendered_asset_file
+                        ).resolve()
+                        try:
+                            rendered_candidate.relative_to(properties_bundle_dir)
+                        except ValueError:
+                            error_codes.add("micro.component.rendered_asset_mismatch")
+                            errors.append(
+                                f"{node_label} rendered_asset_file escapes the visual-review bundle"
+                            )
+                        else:
+                            if not rendered_candidate.is_file():
+                                error_codes.add("micro.component.rendered_asset_mismatch")
+                                errors.append(
+                                    f"{node_label} rendered_asset_file is missing"
+                                )
+                            else:
+                                actual_rendered_sha256 = file_sha256(rendered_candidate)
+                                if (
+                                    rendered_asset_sha256 != actual_rendered_sha256
+                                    or actual_rendered_sha256 != expected_asset_sha256
+                                ):
+                                    error_codes.add("micro.component.rendered_asset_mismatch")
+                                    errors.append(
+                                        f"{node_label} rendered layer pixels must hash exactly to the approved cutout"
+                                    )
             elif kind == "text":
                 text_entries.append((node, bounds))
             elif kind == "closed-shape":
-                fill_alpha = node.get("fill_alpha", 0)
-                stroke_width = node.get("stroke_width_px", 0)
-                if (
+                fill_alpha = node.get("fill_alpha")
+                stroke_width = node.get("stroke_width_px")
+                valid_fill = (
                     isinstance(fill_alpha, (int, float))
                     and not isinstance(fill_alpha, bool)
-                    and isinstance(stroke_width, (int, float))
+                    and 0 <= float(fill_alpha) <= 1
+                )
+                valid_stroke = (
+                    isinstance(stroke_width, (int, float))
                     and not isinstance(stroke_width, bool)
-                    and (float(fill_alpha) > 0 or float(stroke_width) > 0)
-                ):
+                    and float(stroke_width) >= 0
+                )
+                if not valid_fill or not valid_stroke:
+                    error_codes.add("micro.component.invalid_closed_shape")
+                    errors.append(
+                        f"{node_label} closed-shape requires numeric fill_alpha 0..1 and non-negative stroke_width_px"
+                    )
+                elif float(fill_alpha) > 0 or float(stroke_width) > 0:
                     closed_shapes.append((node, bounds))
+            elif kind == "vector-accent" and node.get("is_closed") is not False:
+                error_codes.add("micro.component.invalid_vector_accent")
+                errors.append(
+                    f"{node_label} vector-accent requires is_closed=false; closed visible vectors are backplate candidates"
+                )
         if not image_widths:
             errors.append(f"{prefix} node properties require an image or illustration layer")
         else:
@@ -2507,6 +2652,30 @@ def validate_micro_component_layout(
                 errors.append(
                     f"{prefix} derived image width ratio must be between {MICRO_IMAGE_WIDTH_RATIO[0]} "
                     f"and {MICRO_IMAGE_WIDTH_RATIO[1]}; a micro image cannot occupy the full row"
+                )
+
+        for image_node, image_bounds in image_entries:
+            ix, iy, iw, ih = image_bounds
+            clipped_shapes: list[tuple[float, float, float, float]] = []
+            carrying_shape_ids: list[str] = []
+            for shape_node, shape_bounds in closed_shapes:
+                sx, sy, sw, sh = shape_bounds
+                left = max(sx, ix)
+                top = max(sy, iy)
+                right = min(sx + sw, ix + iw)
+                bottom = min(sy + sh, iy + ih)
+                if right > left and bottom > top:
+                    clipped_shapes.append((left, top, right, bottom))
+                    carrying_shape_ids.append(str(shape_node.get("node_id")))
+            overlap_ratio = rectangle_union_area(clipped_shapes) / (iw * ih)
+            if overlap_ratio >= 0.8 or any(
+                encloses(shape_bounds, image_bounds) for _, shape_bounds in closed_shapes
+            ):
+                error_codes.add("micro.component.image_backplate")
+                errors.append(
+                    f"{prefix} image node {image_node.get('node_id')} is carried by visible "
+                    f"closed shape coverage {overlap_ratio:.3f} from {', '.join(carrying_shape_ids)}; "
+                    "micro raster layers cannot own a backplate"
                 )
 
         if text_entries:

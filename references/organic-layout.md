@@ -33,6 +33,8 @@ python3 scripts/build_visual_kit.py article.json \
 - 与组织路线、色彩和图像语言一致；
 - 无文字，方便文案继续在 Ardot 中编辑。
 
+“有 Alpha”不等于“已抠图”。通行资产必须是主体专用 8-bit RGBA：留白在 Ardot 中制造，PNG 只保留主体、自然阴影和开放笔触。注册器会用 robust Alpha bbox 忽略微小飞点，拒绝超大透明画布、主体截边、矩形/圆角白片和近实色 matte，并持久化 cutout 证据。
+
 拒绝：
 
 - 矩形海报、完整场景大图、卡片背景或 UI 面板；
@@ -40,6 +42,7 @@ python3 scripts/build_visual_kit.py article.json \
 - 假透明棋盘格，或文件实际没有 Alpha 却声称透明；
 - 烘焙中文、日期、数字、Logo、二维码和水印；
 - 需要再套一个框才能使用的图。
+- 小主体放在巨大透明画布中，或抠图边缘留有白底、黑底、色板与 halo。
 
 检查透明图时必须读取文件 Alpha 信息；不要只看预览中的棋盘格。
 
@@ -54,7 +57,7 @@ WeChat/Ornament/InlineExplainer/<Mode>
 WeChat/Ornament/ClosingMotif/<Mode>
 ```
 
-组件要保留开放边缘和可调尺寸，不加默认底色、描边、阴影或圆角容器。文章里插入组件实例，而不是重复粘贴图片。
+组件要保留开放边缘和可调尺寸，不加默认底色、描边、阴影或圆角容器。Ardot node-properties 必须声明 `complete_descendant_census: true`，且 `visible_descendant_count` 与 `nodes` 数量完全一致。每个 image/illustration node 除记录已验收 cutout 的 `asset_id` 和 `asset_sha256` 外，还必须在 visual-review bundle 内保存 `rendered_asset_file` 及其 `rendered_asset_sha256`，实际像素哈希与已批准 cutout 不同即阻断。任何可见 closed-shape 单独或并集覆盖 raster layer 80% 以上，视为禁止的图片底板。文章里插入组件实例，而不是重复粘贴图片。
 
 ## 微组件不能变成横幅卡片
 

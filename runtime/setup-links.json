@@ -39,6 +39,14 @@
       "path": "references/runtime-preflight.md",
       "purpose": "startup capability and probe contract"
     },
+    "secure_runner": {
+      "path": "scripts/secure_runner.py",
+      "purpose": "isolated no-site launcher for every security-sensitive Python CLI"
+    },
+    "python_dependency_lock": {
+      "path": "runtime/python-dependency-lock.json",
+      "purpose": "platform-specific aggregate hashes for verified dependency snapshots"
+    },
     "codex_adapter": {
       "path": "runtime/adapters/codex-desktop.json",
       "purpose": "Codex Desktop semantic capability routing; presence is not live proof"
@@ -62,6 +70,7 @@
     "browser.control",
     "computer.use",
     "wechat.draft",
+    "host.receipt.attest",
     "secret.resolve"
   ]
 }

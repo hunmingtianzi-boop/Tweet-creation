@@ -61,6 +61,13 @@
       ],
       "api_provider": "not-bound"
     },
+    "host.receipt.attest": {
+      "route": "unavailable",
+      "availability": "unavailable",
+      "requires": [],
+      "reason": "Codex Desktop has no callable host receipt signer in this runtime; delivery/full must fail closed until the host integrates one",
+      "trust_boundary": "host-owned-private-key-and-protected-trust-store"
+    },
     "secret.resolve": {
       "route": "environment",
       "requires": [
