@@ -2,6 +2,13 @@ interface:
   display_name: "Ardot WeChat Publisher"
   short_description: "Send reviewed Ardot articles to WeChat"
   brand_color: "#07C160"
-  default_prompt: "Use $ardot-wechat-publisher to deliver my reviewed Ardot article to a WeChat Official Account draft, verify the imported result, and publish only after I explicitly confirm."
+  default_prompt: "Use $ardot-wechat-publisher, pass the delivery binding gate and fresh host probes for the current Ardot root and visible target account, then create and verify the draft; publish only after I explicitly confirm."
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "ardot-remote"
+      description: "Freeze and export the current reviewed Ardot root before WeChat delivery"
+      transport: "streamable_http"
+      url: "https://ardot.tencent.com/mcp"
 policy:
   allow_implicit_invocation: true

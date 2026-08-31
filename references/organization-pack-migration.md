@@ -2,6 +2,10 @@
 
 迁移目标是复用流程语义，不复制另一个公众号的外观。新公众号始终建立新目录、新 organization ID、新 Ardot variable mode 和新视觉校准。
 
+迁移开始时先运行[运行环境启动自检](runtime-preflight.md)。目标 harness 必须加载当前项目根 Skill 和仓库内 publisher Skill 的相同 SHA，并把自己的工具映射到 `image.generate`、`image.inspect`、`ardot.create/read/write/export`、`wechat.draft`、UI fallback 与 `secret.resolve`。先用 binding-only 检查无凭据链接与 provider/session 路由，随后对新组织的 Ardot file/root 和目标公众号做本次会话宿主工具探针。本地 profile 不能自证 live ready；另一环境的登录态、工具清单、probe 报告和 `ok: true` JSON 都不能迁移为当前证据。每个新 harness 都要建立等价 adapter 路由；Codex 示例只读取 `runtime/adapters/codex-desktop.json`，不带走它的登录态。
+
+若新 harness/新组织尚无 Ardot file/root，先用 `bootstrap` 阶段绑定 adapter 中的 `ardot.create`，创建空白目标后再改用目标阶段（默认 `full`，明确只创作时为 `authoring`）。`bootstrap` 不要求微信登录，只解决自举，不允许读取或复用旧推文设计。
+
 ## 可以迁移
 
 - semantic component IDs 与文章 block 职责；

@@ -9,6 +9,28 @@ Create organization-specific WeChat articles without reducing the organization t
 
 For commands and file locations, read [references/使用说明.md](references/使用说明.md). For a new account, also read [references/organization-pack-migration.md](references/organization-pack-migration.md). The current hardening rationale is recorded in [references/source-zero-audit.md](references/source-zero-audit.md). Read [references/style-options.md](references/style-options.md) only when the user explicitly supplies a style reference or selects a reviewed style preset. Read [references/provenance-watermark.md](references/provenance-watermark.md) before registering a generated opaque background or fully generated raster cover.
 
+## Mandatory runtime preflight
+
+Before opening source material, creating an organization pack, generating an image, or touching Ardot/WeChat, read [references/runtime-preflight.md](references/runtime-preflight.md) and bind the current harness to the project skill hashes and semantic capabilities. Use `full` when an exact current Ardot file/root already exists. For a new organization with no Ardot workspace, use `bootstrap`, verify `ardot.create`, create only the blank design/page, then immediately rerun the requested terminal phase (`full` by default, or `authoring` when explicitly scoped) with its canonical file/root. `bootstrap` does not require a WeChat target or login. Use `delivery` only for an existing reviewed Ardot article.
+
+1. Enumerate the current runtime registry and map real callables to `image.generate`, `image.inspect`, `ardot.create`, `ardot.read`, `ardot.write`, `ardot.export`, `browser.control` / `computer.use`, `wechat.draft`, and `secret.resolve`. A generic shell or JavaScript executor does not prove any of these capabilities.
+2. Write a temporary, Git-ignored runtime profile with the current project `SKILL.md` and publisher Skill hashes, the current host session/provider IDs, credential-free Ardot/WeChat links, and intended tool bindings. The profile expresses intent, not truth. Never put tokens, cookies, AppSecret, watermark keys, raw watermark IDs, secret values, or self-authored `passed` evidence in it.
+3. Run the binding check before sending either URL to an external tool:
+
+   ```bash
+   python3 scripts/runtime_preflight.py output/runtime/runtime-profile.json \
+     --phase full --binding-only \
+     --output output/runtime/binding-report-UNIQUE.json
+   ```
+
+   For the no-workspace bootstrap case, substitute `--phase bootstrap`; its profile omits the Ardot workspace link and uses `ardot_bootstrap` bound to `ardot.create`.
+
+4. Continue only when the binding report has `ok: true` and `binding_ready: true`. Its `phase_ready` is intentionally always false: a workspace process cannot authenticate its own tool claims. Do not rerun the script without `--binding-only` and mistake profile fields for live evidence.
+5. Immediately execute the report's ordered `host_setup_actions` before reading source material. For the selected Ardot route, either connect/authenticate MCP or load the declared Browser/Computer Use fallback, then open/read the exact current target (only the neutral entry during `bootstrap`). For a delivery-capable phase, authorize the declared WeChat API provider or, only for a UI route, open the credential-free WeChat base and prepare for QR login. Resolve the watermark key/private-root references without displaying values; bind image inspection as blocking in every phase and bind generation in non-delivery phases. Ardot MCP OAuth and Ardot web login are separate checks. If a required route shows a login/authorization page, tell the user exactly which login is needed, keep the safe page open, wait, then re-probe in the same session. Never persist a token-bearing redirect/editor URL.
+6. After preparation, perform the actual current-session probes through host-owned calls that are visible in the host tool trace: inspect a neutral local image; for `full`/`authoring`/`delivery`, read the exact Ardot file **and root** without editing and confirm write/export callables in the same provider/session; for `bootstrap`, confirm the selected create-design/page callable and use it only to establish the blank target before rerunning the requested terminal phase; only for phases that include delivery, resolve the target WeChat account through the selected API or visible logged-in page without creating a draft; resolve required secret references without returning values; and verify that the private watermark registry root is existing, writable, non-symlink, and outside every Git repository without reporting its path. For Codex Desktop, use the exact routing registry in `runtime/adapters/codex-desktop.json`; load `browser:control-in-app-browser` before its Browser probe and `computer-use:computer-use` only for the final fallback. ImageGen has no free live probe, so the first real generated asset and its inspected SHA-256 are the blocking live proof for the visual stage.
+7. Do not continue unless every selected-route probe succeeded in the current host trace. `needs_user_login`, an account/file/root identity mismatch, a stale trace, an unsafe URL, a missing callable, an unresolved key, a different Skill SHA, or an installed stale publisher copy is blocking. Never accept a user/LLM-authored profile, prior report, or rewritten timestamp as evidence.
+8. Repeat the Ardot file/root probe before full assembly. The last-mile publisher independently performs the `delivery` binding gate and fresh host probes; startup readiness never authorizes a write or formal publication.
+
 ## Route the request
 
 1. Identify the organization and article type.
@@ -153,6 +175,7 @@ For commands and file locations, read [references/使用说明.md](references/�
 
 Treat any of the following as blocking for final delivery:
 
+- missing, stale, unsafe, self-reported-only, or failing runtime preflight for the active phase; a binding-only report presented as phase readiness; a different project Skill SHA; a generic executor presented as ImageGen/Browser/Computer Use; an untrusted Ardot/WeChat URL; or a target file/account mismatch;
 - failed organization-pack validation;
 - missing valid visual-reference provenance: for source-zero, allowed visual input source IDs, all excluded legacy-visual categories, and isolation review time; for `explicit-style-grammar`, registered style source IDs, abstract-only scope, review time, all six non-copy constraints, at least one selected route, or a matching canonical grammar SHA-256;
 - reference text, photographs, logos, specific layout, component geometry, artwork, or unsupported reference-shaped fields entering a route grammar, prompt, visual kit, or Ardot manifest;

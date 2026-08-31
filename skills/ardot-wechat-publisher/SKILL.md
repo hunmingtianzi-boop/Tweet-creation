@@ -7,6 +7,18 @@ description: Deliver a user-reviewed, already-designed Ardot WeChat article into
 
 Treat the current reviewed Ardot article as the visual and editorial source of truth. This skill begins after the user has finished editing in Ardot and ends with a verified WeChat draft or, when separately authorized, a published article.
 
+## Mandatory delivery preflight
+
+Use this repository copy of the publisher Skill, not a stale installed copy. Resolve the repository root that contains both `scripts/runtime_preflight.py` and [the runtime contract](../../references/runtime-preflight.md); if that root is unavailable, stop instead of guessing relative paths. Build a fresh current-session profile, run the credential-free binding gate from that root before opening either external link, then make real host-owned read-only calls against the exact current Ardot root and visible target WeChat account/API identity:
+
+```bash
+python3 scripts/runtime_preflight.py output/runtime/runtime-profile.json \
+  --phase delivery --binding-only \
+  --output output/runtime/delivery-preflight-report-UNIQUE.json
+```
+
+Stop unless `ok` and `binding_ready` are both true. `phase_ready: false` is expected because the local validator cannot authenticate its own profile. Execute `host_setup_actions` immediately: prepare the selected Ardot route (MCP connect/OAuth or the declared UI fallback), open/read the exact reviewed Ardot root, keep image inspection blocking, and prepare the selected WeChat route before compiling or uploading anything. The API route authorizes its publisher provider; only the UI route opens the credential-free WeChat base and requests QR login. Ardot MCP OAuth and web login are separate; if a login/authorization page appears, leave the safe page open, tell the user which login is needed, wait, and then re-probe without persisting the token-bearing redirect URL. Continue only after the current host tool trace shows: repository publisher Skill path/hash loaded; current Ardot file and exact article root read successfully; write/export callables present in the same provider/session; target WeChat account matched with draft read/write access. Do not reuse an authoring/startup report, trust a self-reported profile, or treat a Browser/Computer Use listing as a successful login probe. This preflight is read-only and does not authorize draft creation or publication.
+
 ## Hard scope boundary
 
 - Do not open or create a shared document.

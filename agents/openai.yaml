@@ -2,6 +2,13 @@ interface:
   display_name: "Organization WeChat Studio"
   short_description: "Build source-zero Ardot WeChat articles with safe interaction"
   brand_color: "#1648C8"
-  default_prompt: "Use $org-wechat-studio to build a source-zero organization pack, calibrate visuals from current materials, create article-specific assets, plan 2–3 semantic interaction modules by default, and assemble an Ardot-native WeChat article with static-safe delivery."
+  default_prompt: "Use $org-wechat-studio, pass the binding-only startup gate and current host tool probes first, then build a source-zero organization pack, article-specific visuals, 2–3 semantic interaction modules, and an Ardot-native WeChat article with verified-draft delivery."
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "ardot-remote"
+      description: "Read, edit, and export the current Ardot-native article and component nodes"
+      transport: "streamable_http"
+      url: "https://ardot.tencent.com/mcp"
 policy:
   allow_implicit_invocation: true

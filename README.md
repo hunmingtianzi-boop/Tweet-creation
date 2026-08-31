@@ -50,6 +50,20 @@ python3 scripts/validate_workflow_attribution.py handoff.json \
 
 ## 快速开始
 
+先运行启动自检。当前 harness 必须把真实 callable 映射为生图、验图、Ardot 创建/读写/导出、微信草稿和 secret resolver。本地脚本只验证 Skill SHA、工具路由合同和无凭据 URL；真正的 Ardot/微信/生图可用性必须来自当前宿主可见的工具调用结果：
+
+```bash
+python3 scripts/runtime_preflight.py output/runtime/runtime-profile.json \
+  --phase full --binding-only \
+  --output output/runtime/binding-report-UNIQUE.json
+```
+
+只有 binding report 同时为 `ok: true` 和 `binding_ready: true`，且当前宿主工具轨迹已通过所选路线的真实只读探针，才进入材料读取与视觉校准。报告的 `phase_ready` 故意保持 `false`，避免将自填 profile 误当宿主证据。ImageGen 的首张正式资产与验图 SHA 承担 live proof；Ardot 与微信必须真实读取当前 file/root/可见账号。缺登录时停在登录步骤。profile 与报告只放在 Git 忽略的 `output/runtime/`，不得包含 token、Cookie、AppSecret 或水印密钥。Codex 的精确工具路由见 [runtime/adapters/codex-desktop.json](runtime/adapters/codex-desktop.json)，完整合同见[运行环境启动自检](references/runtime-preflight.md)。
+
+绑定通过后立即执行报告的 `host_setup_actions`：Ardot 选 MCP 时连接/OAuth，选 UI 时只加载已声明的 Browser/Computer Use 路线，然后打开当前目标；微信选 API 时授权 provider，只有 UI 路线才打开无 token 公众平台入口等待扫码。若要 OAuth、provider 授权或扫码登录，在开始制作前就停下等用户完成，然后于同一 session 重新探针，不把带 token 的跳转链接落盘。
+
+新组织还没有 Ardot file/root 时，先将上述命令改为 `--phase bootstrap`，验证 `ardot.create` 后只创建空白设计/页，再使用新 file/root 重跑目标阶段（默认 `full`，用户明确只做 Ardot 时为 `authoring`）。`bootstrap` 不要求微信目标或登录，也不需要伪造 Ardot 链接。
+
 安装确定性图片处理依赖：
 
 ```bash

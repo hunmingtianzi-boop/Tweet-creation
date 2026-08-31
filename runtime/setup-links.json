@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "kind": "org-wechat-setup-links",
+  "startup_policy": {
+    "open_after_binding": true,
+    "prepare_before_source_material": true,
+    "wait_for_user_login": true,
+    "reprobe_after_login": true,
+    "persist_session_query": false
+  },
+  "external": {
+    "ardot_mcp": {
+      "url": "https://ardot.tencent.com/mcp",
+      "purpose": "preferred Ardot read/write/export provider; authenticate through the harness"
+    },
+    "ardot_web": {
+      "url": "https://ardot.tencent.com/",
+      "purpose": "credential-free Ardot web entry for UI fallback"
+    },
+    "wechat_web": {
+      "url": "https://mp.weixin.qq.com/",
+      "purpose": "credential-free WeChat Official Account entry for visible-account probing"
+    },
+    "wechat_api": {
+      "url": "https://api.weixin.qq.com/",
+      "purpose": "official API base; this repository still requires an actual publisher provider"
+    }
+  },
+  "local": {
+    "authoring_skill": {
+      "path": "SKILL.md",
+      "purpose": "canonical generalized authoring skill"
+    },
+    "publisher_skill": {
+      "path": "skills/ardot-wechat-publisher/SKILL.md",
+      "purpose": "canonical last-mile publisher skill"
+    },
+    "runtime_contract": {
+      "path": "references/runtime-preflight.md",
+      "purpose": "startup capability and probe contract"
+    },
+    "codex_adapter": {
+      "path": "runtime/adapters/codex-desktop.json",
+      "purpose": "Codex Desktop semantic capability routing; presence is not live proof"
+    },
+    "usage": {
+      "path": "references/使用说明.md",
+      "purpose": "operator workflow"
+    },
+    "qa": {
+      "path": "references/qa.md",
+      "purpose": "final workflow gates"
+    }
+  },
+  "semantic_capabilities": [
+    "image.generate",
+    "image.inspect",
+    "ardot.create",
+    "ardot.read",
+    "ardot.write",
+    "ardot.export",
+    "browser.control",
+    "computer.use",
+    "wechat.draft",
+    "secret.resolve"
+  ]
+}
