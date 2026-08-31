@@ -12,7 +12,10 @@ if __name__ == "__main__":
 
     require_secure_runtime("scripts/validate_transport_fidelity.py")
 
-from transport_fidelity import validate_transport_fidelity
+from transport_fidelity import (
+    validate_transport_fidelity,
+    validate_transport_fidelity_diagnostic,
+)
 
 
 def main() -> int:
@@ -28,10 +31,24 @@ def main() -> int:
     parser.add_argument("--readback", type=Path, help="optional saved-draft readback JSON")
     parser.add_argument("--readback-receipt", type=Path, help="host-signed saved-draft readback receipt")
     parser.add_argument("--require-readback", action="store_true")
+    parser.add_argument(
+        "--expected-target-account",
+        help="exact target account reference resolved by the active delivery preflight",
+    )
+    parser.add_argument(
+        "--session-draft",
+        action="store_true",
+        help="validate current-session structure without claiming portable signed audit",
+    )
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
     try:
-        report = validate_transport_fidelity(
+        validator = (
+            validate_transport_fidelity_diagnostic
+            if args.session_draft
+            else validate_transport_fidelity
+        )
+        report = validator(
             args.handoff,
             html_path=args.html,
             intended_html_path=args.intended_html,
@@ -43,6 +60,7 @@ def main() -> int:
             readback_path=args.readback,
             readback_receipt_path=args.readback_receipt,
             require_readback=args.require_readback,
+            expected_target_account_ref=args.expected_target_account,
         )
     except ValueError as exc:
         report = {"ok": False, "errors": [{"code": "transport.mapping", "message": str(exc)}]}

@@ -42,6 +42,7 @@ from runtime_preflight import _trusted_bundle_digest
 
 
 TRANSPORT_SOURCE = "ardot-current-root-layer-export-v1"
+CURRENT_ROOT_SOURCE = "ardot-current-root-export"
 TRANSPORT_REVISION_ALGORITHM = "ardot-transport-revision-v1"
 READBACK_SOURCE = "wechat-saved-draft-readback-v1"
 LIVE_RECEIPT_SOURCE = "ardot-host-live-read-receipt-v1"
@@ -53,6 +54,9 @@ HOST_RECEIPT_TRUST_STORE_DEFAULT = Path(
 HOST_RECEIPT_TRUST_STORE_KIND = "org-wechat-host-receipt-trust-store"
 WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
 LIVE_RECEIPT_MAX_TTL_SECONDS = 600
+LIVE_ROOT_MAX_AGE_SECONDS = 3600
+COMPILE_REPORT_MAX_AGE_SECONDS = 3600
+READBACK_MAX_AGE_SECONDS = 3600
 SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 COMPOSITE_NAME = re.compile(
     r"(?:^|[/_.-])(evidence|qa|review|screenshot|contact|section[-_ ]?composite|composite)(?:$|[/_.-])",
@@ -1122,6 +1126,9 @@ class _Validator:
         self.export_root_node_id = ""
         self.frozen_current_root_export: dict[str, Any] | None = None
         self.frozen_current_root_export_path: Path | None = None
+        self.bound_session_candidate = False
+        self.bound_compile_assurance_scope: str | None = None
+        self.bound_compile_observed_at: datetime | None = None
 
     def fail(self, code: str, message: str) -> None:
         self.errors.append({"code": code, "message": message})
@@ -2056,7 +2063,7 @@ class _Validator:
         self.frozen_current_root_export = node_export
         self.frozen_current_root_export_path = node_export_path
         if (
-            node_export.get("source") != "ardot-current-root-export"
+            node_export.get("source") != CURRENT_ROOT_SOURCE
             or node_export.get("file_id") != export.get("file_id")
             or node_export.get("root_node_id") != export.get("root_node_id")
         ):
@@ -2220,6 +2227,17 @@ class _Validator:
             )
         except ValueError as exc:
             self.fail("transport.current_root_live", str(exc))
+            return False
+        now = datetime.now(timezone.utc)
+        if (
+            live_captured_at > now + timedelta(seconds=30)
+            or (now - live_captured_at).total_seconds()
+            > LIVE_ROOT_MAX_AGE_SECONDS
+        ):
+            self.fail(
+                "transport.current_root_live",
+                "live current-root export is future-dated or too old for the active delivery session",
+            )
             return False
         if (
             live_captured_at <= frozen_captured_at
@@ -2447,14 +2465,17 @@ class _Validator:
         export: dict[str, Any],
         *,
         explicit_html_path: Path | None = None,
+        live_root_path: Path | None = None,
         live_receipt_path: Path | None = None,
         diagnostic: bool = False,
     ) -> Path | None:
         """Recompute a compiled-HTML binding.
 
-        ``diagnostic=True`` accepts only the explicitly non-delivery candidate
-        schema.  It is used by tests and local structural inspection and can
-        never be mistaken for the final ``wechat.html`` compile report.
+        ``diagnostic=True`` accepts only the explicitly non-portable,
+        current-session draft-candidate schema. It can bind a structurally
+        verified live export without pretending that local JSON authenticates
+        its external origin, and can never be mistaken for the final signed
+        ``wechat.html`` compile report.
         """
         if path.is_symlink():
             self.fail(
@@ -2468,6 +2489,24 @@ class _Validator:
         except (OSError, ValueError) as exc:
             self.fail("transport.compile_artifact", str(exc))
             return None
+        try:
+            compiled_at = _parse_rfc3339(
+                payload.get("compiled_at"), label="compile report"
+            )
+        except ValueError as exc:
+            self.fail("transport.compile_artifact", str(exc))
+            return None
+        now = datetime.now(timezone.utc)
+        if (
+            compiled_at > now + timedelta(seconds=30)
+            or (now - compiled_at).total_seconds()
+            > COMPILE_REPORT_MAX_AGE_SECONDS
+        ):
+            self.fail(
+                "transport.compile_artifact",
+                "compile report is future-dated or too old for the active delivery session",
+            )
+            return None
         binding_container = payload.get("artifact_binding")
         binding_key = "candidate_html" if diagnostic else "wechat_html"
         binding = (
@@ -2480,6 +2519,11 @@ class _Validator:
             if isinstance(binding_container, dict)
             else None
         )
+        live_root_binding = (
+            binding_container.get("live_root_export")
+            if isinstance(binding_container, dict)
+            else None
+        )
         outputs = payload.get("outputs")
         try:
             handoff = _read_object(self.manifest_path, "handoff manifest")
@@ -2489,18 +2533,33 @@ class _Validator:
         article = handoff.get("article")
         postflight_ok_field = "diagnostic_ok" if diagnostic else "ok"
         preflight_root_field = (
-            "diagnostic_current_root_receipt_valid"
+            "session_live_root_structural_match"
             if diagnostic
             else "current_root_live_verified"
         )
-        report_mode_valid = (
-            payload.get("delivery_eligible") is False
-            and payload.get("candidate_valid") is True
-            and payload.get("assurance_scope") == "diagnostic-candidate"
-            if diagnostic
-            else payload.get("delivery_eligible") is True
-            and payload.get("assurance_scope") == "secure-finalization"
+        compile_assurance_scope = payload.get("assurance_scope")
+        common_unfinished_state = (
+            payload.get("portable_audit_verified") is False
+            and payload.get("publication_preflight_eligible") is False
+            and payload.get("publication_authorized") is False
+            and payload.get("finalization_verified") is False
         )
+        if diagnostic:
+            report_mode_valid = (
+                payload.get("delivery_eligible") is False
+                and payload.get("candidate_valid") is True
+                and payload.get("draft_write_eligible") is False
+                and common_unfinished_state
+                and compile_assurance_scope
+                in {"current-session-draft", "diagnostic-candidate"}
+            )
+        else:
+            report_mode_valid = (
+                payload.get("delivery_eligible") is False
+                and payload.get("draft_write_eligible") is True
+                and compile_assurance_scope == "portable-signed-draft-candidate"
+                and common_unfinished_state
+            )
         if (
             payload.get("ok") is not True
             or not report_mode_valid
@@ -2513,12 +2572,62 @@ class _Validator:
             or payload["preflight"].get(preflight_root_field) is not True
             or not isinstance(outputs, dict)
             or not isinstance(binding, dict)
-            or not isinstance(receipt_binding, dict)
+            or not isinstance(live_root_binding, dict)
+            or (not diagnostic and not isinstance(receipt_binding, dict))
+            or (
+                diagnostic
+                and live_receipt_path is not None
+                and not isinstance(receipt_binding, dict)
+            )
+            or (
+                diagnostic
+                and live_receipt_path is None
+                and receipt_binding is not None
+            )
             or not isinstance(article, dict)
         ):
             self.fail(
                 "transport.compile_artifact",
                 "compile report does not bind one successful postflight to this handoff revision",
+            )
+            return None
+        required_live_root_binding = {
+            "source",
+            "path",
+            "path_identity_sha256",
+            "sha256",
+            "byte_length",
+            "device",
+            "inode",
+        }
+        if live_root_path is None or live_root_path.is_symlink():
+            self.fail(
+                "transport.compile_artifact",
+                "compile report requires the original non-symlink fresh live-root export",
+            )
+            return None
+        try:
+            resolved_live_root = live_root_path.resolve(strict=True)
+            live_root_stat = resolved_live_root.stat()
+        except OSError as exc:
+            self.fail("transport.compile_artifact", str(exc))
+            return None
+        expected_live_root_binding = {
+            "source": CURRENT_ROOT_SOURCE,
+            "path": str(resolved_live_root),
+            "path_identity_sha256": path_identity_sha256(resolved_live_root),
+            "sha256": _asset_digest(resolved_live_root),
+            "byte_length": live_root_stat.st_size,
+            "device": live_root_stat.st_dev,
+            "inode": live_root_stat.st_ino,
+        }
+        if (
+            set(live_root_binding) != required_live_root_binding
+            or live_root_binding != expected_live_root_binding
+        ):
+            self.fail(
+                "transport.compile_artifact",
+                "compile report fresh live-root binding is missing, rewritten, or stale",
             )
             return None
         required_receipt_binding = {
@@ -2533,43 +2642,52 @@ class _Validator:
             "output_html_path_identity_sha256",
             "expires_at",
         }
-        if live_receipt_path is None or live_receipt_path.is_symlink():
-            self.fail(
-                "transport.compile_artifact",
-                "compile report requires the original non-symlink live-root receipt",
-            )
-            return None
-        try:
-            resolved_receipt = live_receipt_path.resolve(strict=True)
-            receipt_payload = _read_object(
-                resolved_receipt, "Ardot host live-read receipt"
-            )
-        except (OSError, ValueError) as exc:
-            self.fail("transport.compile_artifact", str(exc))
-            return None
-        expected_receipt_binding = {
-            "source": LIVE_RECEIPT_SOURCE,
-            "path_identity_sha256": path_identity_sha256(resolved_receipt),
-            "sha256": _asset_digest(resolved_receipt),
-            "key_id": receipt_payload.get("key_id"),
-            "signature_algorithm": receipt_payload.get("signature_algorithm"),
-            "runtime_binding_nonce": receipt_payload.get("runtime_binding_nonce"),
-            "runtime_binding_digest": receipt_payload.get("runtime_binding_digest"),
-            "trusted_bundle_sha256": receipt_payload.get("trusted_bundle_sha256"),
-            "output_html_path_identity_sha256": receipt_payload.get(
-                "output_html_path_identity_sha256"
-            ),
-            "expires_at": receipt_payload.get("expires_at"),
-        }
-        if (
-            set(receipt_binding) != required_receipt_binding
-            or receipt_binding != expected_receipt_binding
-        ):
-            self.fail(
-                "transport.compile_artifact",
-                "compile report live-root receipt binding is missing, rewritten, or stale",
-            )
-            return None
+        if live_receipt_path is None:
+            if not diagnostic:
+                self.fail(
+                    "transport.compile_artifact",
+                    "compile report requires the original non-symlink live-root receipt",
+                )
+                return None
+        else:
+            if live_receipt_path.is_symlink():
+                self.fail(
+                    "transport.compile_artifact",
+                    "compile report requires the original non-symlink live-root receipt",
+                )
+                return None
+            try:
+                resolved_receipt = live_receipt_path.resolve(strict=True)
+                receipt_payload = _read_object(
+                    resolved_receipt, "Ardot host live-read receipt"
+                )
+            except (OSError, ValueError) as exc:
+                self.fail("transport.compile_artifact", str(exc))
+                return None
+            expected_receipt_binding = {
+                "source": LIVE_RECEIPT_SOURCE,
+                "path_identity_sha256": path_identity_sha256(resolved_receipt),
+                "sha256": _asset_digest(resolved_receipt),
+                "key_id": receipt_payload.get("key_id"),
+                "signature_algorithm": receipt_payload.get("signature_algorithm"),
+                "runtime_binding_nonce": receipt_payload.get("runtime_binding_nonce"),
+                "runtime_binding_digest": receipt_payload.get("runtime_binding_digest"),
+                "trusted_bundle_sha256": receipt_payload.get("trusted_bundle_sha256"),
+                "output_html_path_identity_sha256": receipt_payload.get(
+                    "output_html_path_identity_sha256"
+                ),
+                "expires_at": receipt_payload.get("expires_at"),
+            }
+            if (
+                not isinstance(receipt_binding, dict)
+                or set(receipt_binding) != required_receipt_binding
+                or receipt_binding != expected_receipt_binding
+            ):
+                self.fail(
+                    "transport.compile_artifact",
+                    "compile report live-root receipt binding is missing, rewritten, or stale",
+                )
+                return None
         required_binding = {
             "source",
             "path",
@@ -2581,7 +2699,9 @@ class _Validator:
             "inode",
         }
         expected_binding_source = (
-            "wechat-diagnostic-candidate-v1"
+            "wechat-session-draft-candidate-v1"
+            if compile_assurance_scope == "current-session-draft"
+            else "wechat-diagnostic-candidate-v1"
             if diagnostic
             else "wechat-compiled-artifact-v1"
         )
@@ -2623,8 +2743,11 @@ class _Validator:
             or bound_stat.st_size != binding.get("byte_length")
             or path_identity_sha256(bound_path)
             != binding.get("path_identity_sha256")
-            or path_identity_sha256(bound_path)
-            != receipt_binding.get("output_html_path_identity_sha256")
+            or (
+                isinstance(receipt_binding, dict)
+                and path_identity_sha256(bound_path)
+                != receipt_binding.get("output_html_path_identity_sha256")
+            )
             or bound_stat.st_dev != binding.get("device")
             or bound_stat.st_ino != binding.get("inode")
         ):
@@ -2649,6 +2772,15 @@ class _Validator:
                             "transport.compile_artifact",
                             "explicit WeChat HTML is not the exact file bound by the compile report",
                         )
+        self.bound_session_candidate = (
+            compile_assurance_scope == "current-session-draft"
+        )
+        self.bound_compile_assurance_scope = (
+            compile_assurance_scope
+            if isinstance(compile_assurance_scope, str)
+            else None
+        )
+        self.bound_compile_observed_at = compiled_at
         return bound_path
 
     def html(self, path: Path, export: dict[str, Any]) -> None:
@@ -2842,7 +2974,21 @@ class _Validator:
                 "compiled inline SVG structure signatures differ from the actual frozen SVG files",
             )
 
-    def readback(self, path: Path, export: dict[str, Any]) -> None:
+    def readback(
+        self,
+        path: Path,
+        export: dict[str, Any],
+        *,
+        expected_target_account_ref: str | None = None,
+        not_before: datetime | None = None,
+        now: datetime | None = None,
+    ) -> None:
+        if path.is_symlink():
+            self.fail(
+                "transport.readback",
+                "saved-draft readback must be a local non-symlink host export",
+            )
+            return
         try:
             payload = _read_object(path, "saved-draft readback")
         except ValueError as exc:
@@ -2853,6 +2999,11 @@ class _Validator:
             "source",
             "target_account_ref",
             "draft_id",
+            "title",
+            "digest",
+            "cover_asset_id",
+            "thumb_media_id",
+            "cover_hosted_derivative",
             "transport_revision_hash",
             "observed_at",
             "chapters",
@@ -2880,9 +3031,139 @@ class _Validator:
                     f"readback.{field} must be one bounded visible identifier",
                 )
         try:
-            _parse_rfc3339(payload.get("observed_at"), label="saved-draft readback")
+            handoff = _read_object(self.manifest_path, "handoff manifest")
         except ValueError as exc:
             self.fail("transport.readback", str(exc))
+            handoff = {}
+        article = handoff.get("article")
+        assets = handoff.get("assets")
+        expected_cover_asset_id = (
+            article.get("cover_asset_id") if isinstance(article, dict) else None
+        )
+        cover_assets = [
+            item
+            for item in assets
+            if isinstance(item, dict)
+            and item.get("id") == expected_cover_asset_id
+            and item.get("role") == "cover"
+        ] if isinstance(assets, list) else []
+        if (
+            not isinstance(article, dict)
+            or not isinstance(article.get("title"), str)
+            or not article["title"].strip()
+            or not isinstance(article.get("digest"), str)
+            or not isinstance(expected_cover_asset_id, str)
+            or not expected_cover_asset_id
+            or len(cover_assets) != 1
+        ):
+            self.fail(
+                "transport.readback_cover",
+                "handoff article title, digest, and one matching role=cover asset are required for saved-draft verification",
+            )
+            cover_asset: dict[str, Any] = {}
+        else:
+            cover_asset = cover_assets[0]
+        if isinstance(article, dict) and (
+            payload.get("title") != article.get("title")
+            or payload.get("digest") != article.get("digest")
+        ):
+            self.fail(
+                "transport.readback_article",
+                "saved-draft title and digest must exactly match the frozen handoff article",
+            )
+        if payload.get("cover_asset_id") != expected_cover_asset_id:
+            self.fail(
+                "transport.readback_cover",
+                "saved-draft cover_asset_id must match the frozen handoff article and role=cover asset",
+            )
+        thumb_media_id = payload.get("thumb_media_id")
+        if (
+            not isinstance(thumb_media_id, str)
+            or not thumb_media_id.strip()
+            or len(thumb_media_id) > 512
+            or any(ord(char) < 32 for char in thumb_media_id)
+        ):
+            self.fail(
+                "transport.readback_cover",
+                "saved-draft thumb_media_id must be one bounded visible identifier",
+            )
+        expected_thumb_media_id = cover_asset.get("wechat_thumb_media_id")
+        if (
+            not isinstance(expected_thumb_media_id, str)
+            or not expected_thumb_media_id.strip()
+            or len(expected_thumb_media_id) > 512
+            or any(ord(char) < 32 for char in expected_thumb_media_id)
+        ):
+            self.fail(
+                "transport.readback_cover",
+                "the frozen role=cover asset must bind a non-empty target-account wechat_thumb_media_id before final compilation",
+            )
+        elif thumb_media_id != expected_thumb_media_id:
+            self.fail(
+                "transport.readback_cover",
+                "saved-draft thumb_media_id differs from the target-account cover material bound to the cover asset",
+            )
+        cover_derivative = payload.get("cover_hosted_derivative")
+        required_cover_derivative_fields = {
+            "url",
+            "downloaded_path",
+            "downloaded_sha256",
+            "downloaded_byte_length",
+        }
+        if (
+            not isinstance(cover_derivative, dict)
+            or set(cover_derivative) != required_cover_derivative_fields
+            or not _is_wechat_cdn_url(cover_derivative.get("url"))
+            or not _is_sha256(cover_derivative.get("downloaded_sha256"))
+            or not isinstance(cover_derivative.get("downloaded_byte_length"), int)
+            or isinstance(cover_derivative.get("downloaded_byte_length"), bool)
+            or cover_derivative.get("downloaded_byte_length", 0) <= 0
+        ):
+            self.fail(
+                "transport.readback_cover",
+                "saved-draft cover requires the actual https://mmbiz.qpic.cn derivative and downloaded SHA-256/byte length",
+            )
+        else:
+            downloaded_cover = resolve_local_asset(
+                path, cover_derivative.get("downloaded_path")
+            )
+            if (
+                downloaded_cover is None
+                or _asset_digest(downloaded_cover)
+                != cover_derivative.get("downloaded_sha256")
+                or downloaded_cover.stat().st_size
+                != cover_derivative.get("downloaded_byte_length")
+            ):
+                self.fail(
+                    "transport.readback_cover",
+                    "saved-draft cover derivative bytes are missing or differ from the bound download hash/length",
+                )
+        if (
+            expected_target_account_ref is not None
+            and payload.get("target_account_ref") != expected_target_account_ref
+        ):
+            self.fail(
+                "transport.readback_target",
+                "saved-draft readback target account differs from the account bound by the active delivery session",
+            )
+        try:
+            observed_at = _parse_rfc3339(
+                payload.get("observed_at"), label="saved-draft readback"
+            )
+        except ValueError as exc:
+            self.fail("transport.readback", str(exc))
+        else:
+            current_time = now or datetime.now(timezone.utc)
+            if (
+                observed_at > current_time + timedelta(seconds=30)
+                or (current_time - observed_at).total_seconds()
+                > READBACK_MAX_AGE_SECONDS
+                or (not_before is not None and observed_at <= not_before)
+            ):
+                self.fail(
+                    "transport.readback_time",
+                    "saved-draft readback must be fresh, after this exact compilation, and not future-dated",
+                )
         if payload.get("transport_revision_hash") != export.get("revision_hash"):
             self.fail(
                 "transport.readback",
@@ -3062,6 +3343,13 @@ class _Validator:
             "trusted_bundle_sha256",
             "target_account_ref",
             "draft_id",
+            "title",
+            "digest",
+            "cover_asset_id",
+            "thumb_media_id",
+            "cover_hosted_url",
+            "cover_downloaded_sha256",
+            "cover_downloaded_byte_length",
             "handoff_sha256",
             "transport_revision_hash",
             "output_html_path_identity_sha256",
@@ -3129,6 +3417,29 @@ class _Validator:
             "trusted_bundle_sha256": _trusted_bundle_digest(WORKSPACE_ROOT),
             "target_account_ref": readback.get("target_account_ref"),
             "draft_id": readback.get("draft_id"),
+            "title": readback.get("title"),
+            "digest": readback.get("digest"),
+            "cover_asset_id": readback.get("cover_asset_id"),
+            "thumb_media_id": readback.get("thumb_media_id"),
+            "cover_hosted_url": (
+                readback.get("cover_hosted_derivative", {}).get("url")
+                if isinstance(readback.get("cover_hosted_derivative"), dict)
+                else None
+            ),
+            "cover_downloaded_sha256": (
+                readback.get("cover_hosted_derivative", {}).get(
+                    "downloaded_sha256"
+                )
+                if isinstance(readback.get("cover_hosted_derivative"), dict)
+                else None
+            ),
+            "cover_downloaded_byte_length": (
+                readback.get("cover_hosted_derivative", {}).get(
+                    "downloaded_byte_length"
+                )
+                if isinstance(readback.get("cover_hosted_derivative"), dict)
+                else None
+            ),
             "handoff_sha256": _asset_digest(self.manifest_path),
             "transport_revision_hash": export.get("revision_hash"),
             "output_html_path_identity_sha256": path_identity_sha256(
@@ -3199,6 +3510,7 @@ def _validate_transport_fidelity_contract(
     readback_path: Path | None = None,
     readback_receipt_path: Path | None = None,
     require_readback: bool = False,
+    expected_target_account_ref: str | None = None,
     diagnostic: bool,
 ) -> dict[str, Any]:
     """Validate a frozen handoff manifest plus optional compiled/readback evidence.
@@ -3259,7 +3571,7 @@ def _validate_transport_fidelity_contract(
                 export=export,
                 expected_html_path=receipt_html_path,
             )
-    elif require_live_root and live_receipt_path is None:
+    elif require_live_root and live_receipt_path is None and not diagnostic:
         validator.fail(
             "transport.current_root_receipt",
             "a short-lived host-signed receipt for the actual Ardot live read is required",
@@ -3269,15 +3581,20 @@ def _validate_transport_fidelity_contract(
     )
     bound_html_path: Path | None = None
     if export is not None and compile_report_path is not None:
-        if not current_root_live_verified:
+        compile_root_ready = (
+            live_root_structural_match if diagnostic else current_root_live_verified
+        )
+        if not compile_root_ready:
             validator.fail(
                 "transport.compile_artifact",
-                "compile-report verification requires the original live export and authenticated host receipt",
+                "compile-report verification requires a matching fresh live export"
+                + ("" if diagnostic else " and authenticated host receipt"),
             )
         bound_html_path = validator.compile_report(
             compile_report_path,
             export,
             explicit_html_path=html_path,
+            live_root_path=live_root_path,
             live_receipt_path=live_receipt_path,
             diagnostic=diagnostic,
         )
@@ -3294,8 +3611,23 @@ def _validate_transport_fidelity_contract(
             "transport.compile_artifact",
             "saved-draft readback requires the hash-bound successful compile report",
         )
+    if require_readback and (
+        not isinstance(expected_target_account_ref, str)
+        or not expected_target_account_ref.strip()
+        or len(expected_target_account_ref) > 256
+        or any(ord(char) < 32 for char in expected_target_account_ref)
+    ):
+        validator.fail(
+            "transport.readback_target",
+            "saved-draft verification requires the exact target account from the active delivery preflight",
+        )
     if export is not None and readback_path is not None:
-        validator.readback(readback_path.resolve(), export)
+        validator.readback(
+            readback_path.resolve(),
+            export,
+            expected_target_account_ref=expected_target_account_ref,
+            not_before=validator.bound_compile_observed_at,
+        )
     elif require_readback:
         validator.fail("transport.readback", "saved-draft readback is required")
     readback_receipt_verified = False
@@ -3315,7 +3647,12 @@ def _validate_transport_fidelity_contract(
             live_receipt_path=live_receipt_path,
             export=export,
         )
-    elif require_readback:
+    elif readback_receipt_path is not None:
+        validator.fail(
+            "transport.readback_receipt",
+            "provided saved-draft receipt cannot be verified without the complete live/compile artifact chain",
+        )
+    elif require_readback and not diagnostic:
         validator.fail(
             "transport.readback_receipt",
             "saved-draft completion requires the host-signed readback receipt and complete live/compile artifact chain",
@@ -3339,11 +3676,28 @@ def _validate_transport_fidelity_contract(
         "errors": validator.errors,
     }
     if diagnostic:
+        session_readback_structural_match = bool(
+            require_readback and readback_path is not None and report["ok"]
+        )
         report.update(
             {
-                "assurance_scope": "diagnostic-only",
+                "assurance_scope": (
+                    "current-session-draft"
+                    if validator.bound_session_candidate
+                    else "diagnostic-only"
+                ),
                 "diagnostic_ok": report["ok"],
                 "delivery_eligible": False,
+                # The unsigned candidate/report can establish structural
+                # correspondence, never authority to write.  A current host
+                # may perform the reversible draft action only from its own
+                # live tool trace and must not serialize that authority here.
+                "draft_write_eligible": False,
+                "portable_audit_verified": False,
+                "publication_preflight_eligible": False,
+                "publication_authorized": False,
+                "session_live_root_structural_match": live_root_structural_match,
+                "session_readback_structural_match": session_readback_structural_match,
                 "finalization_verified": False,
                 "diagnostic_current_root_receipt_valid": current_root_live_verified,
                 "diagnostic_readback_receipt_valid": readback_receipt_verified,
@@ -3354,10 +3708,29 @@ def _validate_transport_fidelity_contract(
             }
         )
     else:
+        portable_audit_verified = (
+            report["ok"]
+            and require_readback
+            and current_root_live_verified
+            and compile_report_path is not None
+            and effective_html_path is not None
+            and readback_path is not None
+            and readback_receipt_verified
+        )
         report.update(
             {
-                "assurance_scope": "secure-finalization",
-                "finalization_verified": not validator.errors,
+                "assurance_scope": (
+                    "portable-signed-audit"
+                    if portable_audit_verified
+                    else "portable-signed-draft-preflight"
+                ),
+                "draft_write_eligible": report["ok"]
+                and current_root_live_verified,
+                "delivery_eligible": portable_audit_verified,
+                "portable_audit_verified": portable_audit_verified,
+                "publication_preflight_eligible": portable_audit_verified,
+                "publication_authorized": False,
+                "finalization_verified": portable_audit_verified,
                 "current_root_live_verified": current_root_live_verified,
                 "readback_receipt_verified": readback_receipt_verified,
             }
@@ -3378,13 +3751,16 @@ def validate_transport_fidelity_diagnostic(
     readback_path: Path | None = None,
     readback_receipt_path: Path | None = None,
     require_readback: bool = False,
+    expected_target_account_ref: str | None = None,
 ) -> dict[str, Any]:
-    """Run structural/cryptographic diagnostics without final assurance.
+    """Run current-session structural checks without portable final assurance.
 
-    This helper is safe for ordinary imports: it always reports
-    ``delivery_eligible=false``, never emits a finalization receipt, and keeps
-    the final live/readback assurance fields false.  Matching receipt details
-    are exposed only under explicitly diagnostic field names.
+    A matching fresh live root can establish current-session structural
+    correspondence, but this unsigned helper always reports
+    ``draft_write_eligible=false``, ``delivery_eligible=false`` and
+    ``portable_audit_verified=false``; it never turns local JSON into external
+    provenance or publication proof. Matching signed receipt details, when
+    present, remain diagnostic only.
     """
     return _validate_transport_fidelity_contract(
         manifest_path,
@@ -3398,6 +3774,7 @@ def validate_transport_fidelity_diagnostic(
         readback_path=readback_path,
         readback_receipt_path=readback_receipt_path,
         require_readback=require_readback,
+        expected_target_account_ref=expected_target_account_ref,
         diagnostic=True,
     )
 
@@ -3415,6 +3792,7 @@ def validate_transport_fidelity(
     readback_path: Path | None = None,
     readback_receipt_path: Path | None = None,
     require_readback: bool = False,
+    expected_target_account_ref: str | None = None,
 ) -> dict[str, Any]:
     """Return final transport assurance only inside the isolated runner."""
     from secure_runtime import require_secure_runtime
@@ -3432,5 +3810,6 @@ def validate_transport_fidelity(
         readback_path=readback_path,
         readback_receipt_path=readback_receipt_path,
         require_readback=require_readback,
+        expected_target_account_ref=expected_target_account_ref,
         diagnostic=False,
     )

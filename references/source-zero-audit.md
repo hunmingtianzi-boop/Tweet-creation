@@ -38,8 +38,8 @@
 - [x] 每章使用唯一 section node 和 article-root 390 px 坐标，逐章 y/bottom 连续无 gap/overlap 并精确覆盖 artboard；背景必须是完整 `1170 × (chapter_height × 3)` 无字层并绑定 background-only node export；可见文字必须保持 Ardot 原生可编辑节点。
 - [x] 真实照片保持 `documentary-evidence` 独立图层；微组件重新执行 RGBA8、最大连通主体紧裁切、无白/黑/彩色 matte、无半透明 halo、无背板、完整可见后代清单与实际 rendered-layer asset SHA 门禁。
 - [x] SVG 只能使用哈希绑定的 Ardot state export；`closed/open/fallback` 各自绑定不同的 node ID 与 tree SHA，否则明确使用语义等价静态降级，禁止凭内容另画一份。
-- [x] 当前 root export 额外绑定完整 section/layer/source-node/style/body-asset census，`component_order` 与全部可见运输节点 exact-once 覆盖；最终编译前必须通过 Ardot 宿主生成一份独立 fresh root reread，并由 harness 用宿主私有 Ed25519 私钥从真实工具响应签发最长十分钟的 receipt；仓库只拿公钥，冻结文件、复制件、改时间戳 JSON 都不能自充 live 证据。
-- [x] 编译后的 HTML 逐章重算 section/layer render signature，精确校验 tag、role、source SHA、字体/渲染 style、geometry、z-index、严格 DOM 子树、重复属性和实际图片字节；`compile-report.json` 绑定宿主签名的 intended HTML path 以及最终 HTML device/inode/SHA/bytes/handoff/revision；微信保存并重新打开后，harness 再签发 `wechat-host-saved-draft-receipt-v1`，绑定账号/草稿、compile report、HTML、live receipt、真实 `mmbiz.qpic.cn` 下载文件、互动签名、等高 390 px 截图与整份 readback 字节。
+- [x] 当前 root export 额外绑定完整 section/layer/source-node/style/body-asset census，`component_order` 与全部可见运输节点 exact-once 覆盖；任一草稿编译前必须通过当前 Ardot 宿主生成一份独立 fresh root reread。无 signer 时，`current-session-draft` 将该 reread 与 candidate HTML/report 结构绑定，并依赖本次宿主轨迹完成草稿写入和 readback；有 signer 时，`portable-signed-audit` 再用宿主私有 Ed25519 私钥对 Ardot reread 签发短时效 receipt。冻结文件、复制件、改时间戳 JSON 不能自充任一模式的 live 证据。
+- [x] 编译后的 HTML 逐章重算 section/layer render signature，精确校验 tag、role、source SHA、字体/渲染 style、geometry、z-index、严格 DOM 子树、重复属性和实际图片字节。`current-session-draft` 生成 `wechat-candidate.html` / `candidate-report.json`，固定 `portable_audit_verified: false`，微信保存并重开后使用同一宿主轨迹加逐章 readback 验收。`portable-signed-audit` 生成终态 `wechat.html` / `compile-report.json`，并由 harness 再签发 `wechat-host-saved-draft-receipt-v1`，绑定账号/草稿、终态产物、live receipt、真实 `mmbiz.qpic.cn` 下载文件、互动签名、等高 390 px 截图与整份 readback 字节。两档都不授权正式发表/群发。
 - [x] 互动 A/B 实验固定为 `delivery_eligible: false`，只输出 candidate/fallback fragment；删除剪贴板导入器和公众号直投入口，采用结果必须回到 handoff v5。
 
 ## 已实现的改进
@@ -51,7 +51,9 @@
 - [x] 四类微组件：四个角色必须由四枚当前文章专属资产分别承担，并绑定正文原句、章节、主体、动作、构图职责和 Ardot 原生组件。
 - [x] Alpha/抠图验收：解码 RGBA8，使用最大连通主体忽略飞点并检查紧裁切、截边、白/黑/彩色 matte、半透明白黑 halo、尺寸、角色宽高比与 SHA-256；登记后每次 ready 门禁都从当前像素重算。
 - [x] ChatGPT 默认生图路由：Codex Desktop 加载仓库内 `chatgpt-web-image-route` 与已安装 `codex-with-chatgpt`，只用内置 Browser 生成和下载原始 PNG；不把 C2C doctor、文字回复、页面预览、截图、Canvas、剪贴板或远程 URL 当成图像证据。
-- [x] 确定性 RGBA 生产链：默认生成单一主体 + 受控单色 key 背景，由 `prepare_micro_cutout.py` 只对真 Alpha 或安全可分离背景生成 create-once RGBA8 derivative，并绑定 raw/prompt/provider/处理器/配置/报告/输出 SHA。背景不均、主体碰边或复杂透明材质时 fail-and-regenerate，不强抠任意照片。
+- [x] 迁移起始 RGBA 实测：新 harness/机器/adapter/provider route 或新组织迁移在读材料前运行 `migration` 阶段；中性 prompt 保持无 nonce/digest 污染，宿主以 canonical request metadata SHA 绑定当前 nonce/digest、route、attempt、mode 和 prompt SHA。宿主 request/generation/original-download 轨迹与本地 secure RGBA8 像素链缺一均失败。探针只在 Git 忽略 runtime 目录，不得注册、上传、加水印、成为风格参考或代替正式资产 lineage。
+- [x] 生图上下文防污染：ChatGPT-web migration 遵守 C2C 单对话规则，不另开 throwaway chat；探针限定为无对象、无品牌、单一中灰的非语义校准轮廓，不携带组织、材质、配色或艺术风格。正式微组件 prompt 明确排除该轮廓与灰度测试处理，探针不能登记或充当视觉参考。
+- [x] 确定性 RGBA 生产链：默认先要求 provider-original 真透明 PNG，以 `prepare_micro_cutout.py --require-native-alpha` 验真、规范化、紧裁切并生成 create-once RGBA8 derivative；RGB、全不透明 RGBA 或伪透明直接失败且不暗中去背景。仅在该严格门禁失败后允许一次受控单色 key 重生成并以 `--key-color` 分离。两条路线都绑定 raw/prompt/provider/处理器/配置/报告/输出 SHA；背景不均、主体碰边或复杂透明材质时 fail-and-stop，不强抠任意照片。
 - [x] Alpha 对抗样本：新像素门禁拒绝彩色/key halo、全画布 low-Alpha 残留、未声明脱离碎片和纹理化底板，且只允许 Ardot/transport 引用已验证 derivative SHA。
 - [x] compact-editorial：除字号、行高、字距、段距外，新增 24–40 px `major_gap_px` 门槛，并继续约束内容占用率和最大无意空洞。
 - [x] Ardot 证据：visual review v3 要求本地 390 px node export、文件哈希、真实像素尺寸、导出时间、article root 绑定和 density-to-screenshot 哈希绑定；并用完整 instance inventory 与哈希化 node-property exports 计算微组件宽度、错落、文字包框和字号层级。

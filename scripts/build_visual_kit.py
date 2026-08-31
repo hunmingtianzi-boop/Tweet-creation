@@ -194,8 +194,7 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
     native_component_node_ids: set[str] = set()
     for slot_index, definition in enumerate(KIT_ROLES):
         role = definition["role"]
-        key_color = key_backgrounds[slot_index % len(key_backgrounds)]
-        fallback_key_color = key_backgrounds[(slot_index + 1) % len(key_backgrounds)]
+        fallback_key_color = key_backgrounds[slot_index % len(key_backgrounds)]
         approved = by_role.get(role)
         asset_id = approved.get("id") if approved else None
         chapter_id = approved.get("storyboard_chapter") if approved else None
@@ -301,7 +300,7 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
             registered_generated_ids.add(asset_id)
         if not ready:
             missing_roles.append(role)
-        prompt = (
+        prompt_prefix = (
             f"Create one text-free {definition['purpose']} for {organization['identity']['name']}. "
             f"Concrete subject: {concrete_subject or '[choose from the named chapter]'}. "
             f"Depict this action: {action or '[define a visible action]'}. "
@@ -310,16 +309,29 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
             f"Its composition job is {composition_role or '[anchor/motion/connector/punctuation]'} at {placement}. "
             f"Follow the calibrated {route['dominant_style']} direction with motifs "
             f"{motifs} and palette {palette}. {grammar_instruction}"
-            f"Aspect ratio {definition['aspect_ratio']}. Generate one isolated subject on a perfectly "
-            f"flat {key_color} key background, keeping a clean 6–12% key-colored border around every "
-            f"substantive pixel. The key color must not appear in the subject. Do not draw a "
-            f"checkerboard or claim transparency in the preview; Codex will download the original PNG "
-            f"and derive or verify the real Alpha channel locally. All editorial spacing will be "
+            f"Aspect ratio {definition['aspect_ratio']}. Generate one isolated subject. All editorial spacing will be "
             f"created later in Ardot, never baked into the source canvas. Show only the subject and an "
             f"open effect that does not cast onto a ground plane. "
             f"Do not create a rectangle, card, UI panel, border, poster, generic blob, letters, "
             f"numbers, watermark, signature, logo, or QR code. Transparent article micros are not "
-            f"watermark carriers. Avoid: {avoid}."
+            f"watermark carriers. Never reuse a neutral migration calibration mark or its "
+            f"grayscale test treatment. Avoid: {avoid}."
+        )
+        prompt = (
+            prompt_prefix
+            + " Return the provider-original PNG with a genuinely transparent background and real "
+            "pixel alpha. Background pixels must have alpha 0. Keep a clean 6–12% transparent safety "
+            "margin around every substantive pixel. Do not simulate transparency with white, black, "
+            "a colored plane, checkerboard pixels, haze, or a rectangular matte. Codex will download "
+            "the original PNG and verify its actual Alpha channel locally."
+        )
+        fallback_prompt = (
+            prompt_prefix
+            + f" Return the provider-original PNG on a perfectly flat {fallback_key_color} key "
+            "background, keeping a clean 6–12% key-colored border around every substantive pixel. "
+            "The key color must not appear in the subject. Do not add a shadow or semi-transparent "
+            "effect onto the background. This controlled-key request is allowed only after the "
+            "native-alpha original failed the strict Alpha or pixel gate."
         )
         slots.append(
             {
@@ -334,13 +346,19 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
                 "composition_role": composition_role,
                 "placement": placement,
                 "prompt": prompt,
+                "fallback_prompt": fallback_prompt,
                 "source_generation": {
                     "route": "chatgpt-web-image-route-v1",
                     "provider_skill": "chatgpt-web-image-route",
                     "raw_output_contract": "original-png-v1",
                     "alpha_claim_trusted": False,
-                    "key_color": key_color,
+                    "acquisition_preference": "native-alpha-first-controlled-key-fallback-only",
+                    "preferred_mode": "native-alpha",
+                    "preferred_processor_args": ["--require-native-alpha"],
+                    "maximum_source_attempts": 2,
+                    "fallback_mode": "controlled-key",
                     "fallback_key_color": fallback_key_color,
+                    "fallback_processor_args": ["--key-color", fallback_key_color],
                     "processor": "scripts/prepare_micro_cutout.py",
                     "output_contract": "subject-cutout-rgba8-v1",
                 },
@@ -409,6 +427,7 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
             "computer_use_allowed": False,
             "raw_download_required": True,
             "alpha_claim_trusted": False,
+            "acquisition_preference": "native-alpha-first-controlled-key-fallback-only",
             "processor": "scripts/prepare_micro_cutout.py",
             "output_contract": "subject-cutout-rgba8-v1",
         },
@@ -423,7 +442,8 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
             "STOP if the narrative storyboard is not approved and complete",
             "load chatgpt-web-image-route and codex-with-chatgpt, then generate every missing slot through one visible built-in-browser ChatGPT session before any article layout",
             "download each original PNG; screenshots, preview canvases, clipboard pixels, and copied remote URLs are forbidden substitutes",
-            "run prepare_micro_cutout.py and inspect_asset.py for each role; reject unsafe key backgrounds, missing/opaque Alpha, wrong aspect, matte, halo, debris, framing, generic subjects, or text",
+            "request provider-original native transparency first and run prepare_micro_cutout.py with --require-native-alpha; only a strict Alpha/pixel failure permits one controlled-key fallback",
+            "run inspect_asset.py for each role; reject unsafe fallback backgrounds, missing/opaque Alpha, wrong aspect, matte, halo, debris, framing, generic subjects, or text",
             f"save raw sources under assets/generated and register only approved derived RGBA cutouts with generated_for_articles={article_id}",
             "record the registered IDs under article.visual_kit.assets",
             "create four distinct native Ardot ornament components and record file_url, node_id, and exact name on each article.visual_kit asset",

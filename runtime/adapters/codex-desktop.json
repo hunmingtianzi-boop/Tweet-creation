@@ -22,7 +22,12 @@
       },
       "output_contract": "subject-cutout-rgba8-v1",
       "processor": "scripts/prepare_micro_cutout.py",
-      "live_proof": "first-generated-original-download-plus-processor-and-image-inspection"
+      "acquisition_preference": "native-alpha-first-controlled-key-fallback-only",
+      "preferred_processor_arg": "--require-native-alpha",
+      "fallback_processor_arg": "--key-color",
+      "migration_probe_contract": "neutral-rgba-route-probe-v1",
+      "generation_route_id": "chatgpt-web-image-route-v1",
+      "live_proof": "migration-neutral-probe-plus-independent-first-official-asset-lineage"
     },
     "image.inspect": {
       "route": "tool",
@@ -86,7 +91,7 @@
       "route": "unavailable",
       "availability": "unavailable",
       "requires": [],
-      "reason": "Codex Desktop has no callable host receipt signer in this runtime; delivery/full must fail closed until the host integrates one",
+      "reason": "Codex Desktop has no callable host receipt signer in this runtime; current-session-draft remains available, while portable-signed-audit and formal publish/group-send remain blocked",
       "trust_boundary": "host-owned-private-key-and-protected-trust-store"
     },
     "secret.resolve": {

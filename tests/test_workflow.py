@@ -1659,17 +1659,29 @@ class VisualKitTests(FreshWorkflowTestCase):
         self.assertEqual(route["session_skill"], "codex-with-chatgpt")
         self.assertFalse(route["computer_use_allowed"])
         self.assertFalse(route["alpha_claim_trusted"])
+        self.assertEqual(
+            route["acquisition_preference"],
+            "native-alpha-first-controlled-key-fallback-only",
+        )
         self.assertEqual(route["processor"], "scripts/prepare_micro_cutout.py")
         self.assertEqual(route["output_contract"], "subject-cutout-rgba8-v1")
-        self.assertEqual(len({slot["source_generation"]["key_color"] for slot in plan["slots"]}), 4)
+        self.assertEqual(
+            len({slot["source_generation"]["fallback_key_color"] for slot in plan["slots"]}),
+            4,
+        )
         for slot in plan["slots"]:
             source = slot["source_generation"]
             self.assertEqual(slot["asset_slot_id"], f"kit.{slot['role']}")
             self.assertEqual(source["route"], "chatgpt-web-image-route-v1")
-            self.assertNotEqual(source["key_color"], source["fallback_key_color"])
-            self.assertIn(source["key_color"], slot["prompt"])
+            self.assertEqual(source["preferred_mode"], "native-alpha")
+            self.assertEqual(source["preferred_processor_args"], ["--require-native-alpha"])
+            self.assertEqual(source["maximum_source_attempts"], 2)
+            self.assertNotIn(source["fallback_key_color"], slot["prompt"])
+            self.assertIn(source["fallback_key_color"], slot["fallback_prompt"])
+            self.assertIn("genuinely transparent background", slot["prompt"])
             self.assertIn("download the original PNG", slot["prompt"])
-            self.assertNotIn("real 8-bit RGBA PNG", slot["prompt"])
+            self.assertIn("Never reuse a neutral migration calibration mark", slot["prompt"])
+            self.assertIn("native-alpha original failed", slot["fallback_prompt"])
 
     def test_four_distinct_grounded_alpha_components_unlock_layout(self) -> None:
         plan = build_visual_kit_plan(self.article, self.pack)
@@ -1748,13 +1760,52 @@ class VisualKitTests(FreshWorkflowTestCase):
         family_trial = plan["directions"][0]["background_family_trial"]
         self.assertEqual(family_trial["approval_contract"]["minimum_contrast_ratio"], 4.5)
         self.assertIn("one of light or dark", family_trial["approval_contract"]["surface_mode"])
+        self.assertIn("neutral migration calibration mark", family_trial["master"])
+        self.assertIn("neutral migration calibration mark", family_trial["companions"])
         typography_trial = plan["directions"][0]["typography_trial"]
         self.assertTrue(typography_trial["approve_as_recipes"])
         self.assertIn("A font swap alone", typography_trial["forbidden"])
         serialized = json.dumps(plan, ensure_ascii=False)
         self.assertIn("prior article layouts", serialized)
+        self.assertIn("neutral migration calibration mark", serialized)
         self.assertIn("background_family_trial", serialized)
         self.assertIn("typography_trial", serialized)
+
+        asset_plan = build_asset_plan(self.pack, "introduction")
+        for slot in asset_plan["slots"]:
+            if "prompt_blueprint" in slot:
+                self.assertIn(
+                    "neutral migration calibration mark", slot["prompt_blueprint"]
+                )
+        generated_slots = [
+            item for item in asset_plan["slots"] if item.get("micro_component")
+        ]
+        self.assertEqual(len(generated_slots), 4)
+        for slot in generated_slots:
+            self.assertIn("genuine pixel Alpha", slot["prompt_blueprint"])
+            self.assertNotIn(
+                "{SLOT_FALLBACK_KEY_COLOR}", slot["prompt_blueprint"]
+            )
+            self.assertIn(
+                "neutral migration calibration mark", slot["prompt_blueprint"]
+            )
+            self.assertIn(
+                "{SLOT_FALLBACK_KEY_COLOR}", slot["fallback_prompt_blueprint"]
+            )
+            self.assertNotIn(
+                "genuine pixel Alpha", slot["fallback_prompt_blueprint"]
+            )
+            self.assertEqual(
+                slot["source_generation"]["acquisition_preference"],
+                "native-alpha-first-controlled-key-fallback-only",
+            )
+            self.assertEqual(
+                slot["source_generation"]["maximum_source_attempts"], 2
+            )
+            self.assertEqual(
+                slot["source_generation"]["fallback_key_color_source"],
+                "visual-kit-plan.slot.source_generation.fallback_key_color",
+            )
 
     def test_explicit_style_grammar_hash_propagates_to_all_build_plans(self) -> None:
         grammar = enable_explicit_style_reference(self.pack)

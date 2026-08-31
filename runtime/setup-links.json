@@ -4,6 +4,7 @@
   "startup_policy": {
     "open_after_binding": true,
     "prepare_before_source_material": true,
+    "migration_rgba_probe_before_source_material": true,
     "wait_for_user_login": true,
     "reprobe_after_login": true,
     "persist_session_query": false
@@ -66,6 +67,10 @@
     "cutout_processor": {
       "path": "scripts/prepare_micro_cutout.py",
       "purpose": "deterministic micro-asset background removal and RGBA validation processor"
+    },
+    "cutout_inspector": {
+      "path": "scripts/inspect_asset.py",
+      "purpose": "locked final RGBA8 pixel and role inspection"
     },
     "usage": {
       "path": "references/使用说明.md",

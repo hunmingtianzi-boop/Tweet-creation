@@ -10,7 +10,7 @@ source pixels; Codex owns the prompt scope, original download, deterministic
 processing, evidence, visual inspection, and registration decision.
 
 Read [references/image-generation-contract.md](references/image-generation-contract.md)
-before generating the first asset in a session.
+before running a migration probe or generating the first asset in a session.
 
 ## Required dependencies
 
@@ -26,15 +26,30 @@ before generating the first asset in a session.
 
 ## Generate
 
+- At the start of workflow/organization migration, execute the runtime report's
+  `neutral-rgba-route-probe-v1` before reading source material. Use its exact
+  prompt, host-side nonce/digest request metadata, provider route ID,
+  create-once paths, and native-alpha-first acquisition order. At most one
+  controlled-key fallback is allowed. Login/CAPTCHA/download repair does not
+  consume that fallback. Keep this neutral probe out of every organization registry,
+  Ardot file, article prompt, and visual reference set.
+- Follow C2C's one-chat rule; do not open a throwaway verification chat. The
+  migration probe is deliberately a nonsemantic, single-gray open-stroke
+  calibration mark with deep negative space and no organization, recognizable object, palette, material, or
+  artistic cues. Keep using the one C2C-managed conversation, and explicitly
+  exclude that calibration mark and grayscale test treatment from every
+  official micro-asset prompt.
 - Work from one approved visual-kit slot or background-family brief at a time.
   Do not paste the whole article, repository files, old visual references, or
   another organization pack into ChatGPT.
 - Keep a single article's background family and micro assets in the same image
   conversation so palette and material language remain coherent.
-- For an article micro asset, request one isolated, text-free subject on the
-  controlled key background named by the visual-kit plan. Do not trust a
-  generated claim of transparency. For an opaque background or cover, request
-  an opaque raster and keep copy-safe areas text-free.
+- For an article micro asset, first request one isolated, text-free subject as
+  a provider-original PNG with genuine transparent pixels. Do not trust a
+  generated claim of transparency. Only if the downloaded original fails the
+  native-Alpha or pixel gate may the same slot use its one controlled-key
+  fallback. For an opaque background or cover, request an opaque raster and
+  keep copy-safe areas text-free.
 - Download the provider's original PNG through the page's real download action
   into a predetermined Git-ignored staging path. The filename, page preview,
   Canvas pixels, screenshots, clipboard data, and remote URL are untrusted.
@@ -44,19 +59,29 @@ before generating the first asset in a session.
 - Preserve the raw download and its SHA-256. Never overwrite a prior raw,
   derivative, or report path.
 - For a micro asset, run the repository's secure
-  `scripts/prepare_micro_cutout.py` route. A native-alpha PNG still passes
-  through normalization and the exact pixel gate; an opaque file is accepted
-  only when the controlled key background is safely removable.
+  `scripts/prepare_micro_cutout.py` route. Attempt 1 must use
+  `--require-native-alpha`: a genuine native-alpha PNG passes normalization and
+  the exact pixel gate, while an RGB or all-opaque file fails without background
+  removal. Only attempt 2 may use `--key-color`, and it is accepted only when
+  that controlled background is safely removable.
 - Then inspect the derivative visually and run `scripts/inspect_asset.py` for
   its exact role. Only a tightly cropped RGBA8 subject with real transparent
   pixels, no matte/halo/debris, and a complete derivation report satisfies
   `subject-cutout-rgba8-v1`.
-- A failed source is regenerated with a different approved key color. Do not
-  force-cut a complex scene, a real photograph, glass/hair against a noisy
-  background, or an output that touches the canvas edge. After two failed
-  source attempts for one slot, stop and report the blocker instead of silently
-  weakening the gate.
+- If the direct transparent original fails, regenerate once with the approved
+  fallback key color. Do not force-cut a complex scene, a real photograph,
+  glass/hair against a noisy background, or an output that touches the canvas
+  edge. After the native-alpha attempt and its single controlled-key fallback
+  both fail, stop and report the blocker instead of silently weakening the gate.
 
-The first official download plus local SHA, derivation report, and final pixel
-inspection is the live route proof. A successful C2C doctor check, ChatGPT text
-reply, prompt submission, or page preview alone is never proof.
+A migration probe passes only when the current host trace shows the provider
+request, completed generation, real original-download event, local PNG
+MIME/bytes/SHA, secure derivation, and inspection of the exact RGBA8 derivative
+on transparent/light/dark surfaces. The local pixel chain and host route trace
+are separate mandatory truths. A profile, old report, or model-authored receipt
+cannot self-attest either one. The probe is not an official asset.
+
+Regular article startup does not repeat this quota-consuming probe. The first
+official download still needs its own local SHA, derivation report, and final
+pixel inspection as article-specific lineage. A successful C2C doctor check,
+ChatGPT text reply, prompt submission, or page preview alone is never proof.

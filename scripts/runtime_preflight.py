@@ -28,8 +28,13 @@ if __name__ == "__main__":
 PROFILE_KIND = "org-wechat-runtime-profile"
 REPORT_KIND = "org-wechat-runtime-preflight-report"
 SCHEMA_VERSION = 2
-PHASES = {"bootstrap", "authoring", "delivery", "full"}
+PHASES = {"migration", "bootstrap", "authoring", "delivery", "full"}
 DEFAULT_PROBE_MAX_AGE_MINUTES = 60
+MIGRATION_RGBA_PROBE_CONTRACT = "neutral-rgba-route-probe-v1"
+MIGRATION_RGBA_PROBE_ARTIFACT_ROOT = (
+    "output/runtime/migration-probes/{binding_nonce}/"
+)
+MIGRATION_RGBA_PROBE_FALLBACK_KEY = "#00FF3C"
 
 REQUIRED_PATHS = (
     "README.md",
@@ -59,6 +64,7 @@ REQUIRED_PATHS = (
     "runtime/adapters/codex-desktop.json",
     "runtime/python-dependency-lock.json",
     "skills/chatgpt-web-image-route/SKILL.md",
+    "skills/chatgpt-web-image-route/agents/openai.yaml",
     "skills/chatgpt-web-image-route/references/image-generation-contract.md",
     "style-presets/prismatic-paper-editorial.json",
     "scripts/orgs.py",
@@ -93,6 +99,7 @@ LINK_SCAN_FILES = (
     "references/organization-pack-migration.md",
     "references/ardot-workflow.md",
     "skills/chatgpt-web-image-route/SKILL.md",
+    "skills/chatgpt-web-image-route/agents/openai.yaml",
     "skills/chatgpt-web-image-route/references/image-generation-contract.md",
     "skills/ardot-wechat-publisher/SKILL.md",
 )
@@ -127,6 +134,7 @@ REQUIRED_SKILLS = {
 }
 
 PHASE_LOADED_SKILL = {
+    "migration": "org-wechat-studio",
     "bootstrap": "org-wechat-studio",
     "authoring": "org-wechat-studio",
     "delivery": "ardot-wechat-publisher",
@@ -134,6 +142,11 @@ PHASE_LOADED_SKILL = {
 }
 
 PHASE_CAPABILITIES = {
+    "migration": (
+        "opaque_image_generation",
+        "rgba_cutout_generation",
+        "visual_inspection",
+    ),
     "bootstrap": ("ardot_bootstrap",),
     "authoring": (
         "opaque_image_generation",
@@ -146,7 +159,6 @@ PHASE_CAPABILITIES = {
         "visual_inspection",
         "ardot_authoring",
         "wechat_delivery",
-        "host_receipt_attestation",
         "secret_store",
     ),
     "full": (
@@ -155,9 +167,16 @@ PHASE_CAPABILITIES = {
         "visual_inspection",
         "ardot_authoring",
         "wechat_delivery",
-        "host_receipt_attestation",
         "secret_store",
     ),
+}
+
+OPTIONAL_PHASE_CAPABILITIES = {
+    "migration": (),
+    "bootstrap": (),
+    "authoring": (),
+    "delivery": ("host_receipt_attestation",),
+    "full": ("host_receipt_attestation",),
 }
 
 CAPABILITY_MODES = {
@@ -191,6 +210,8 @@ TOOL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{1,159}$")
 ENV_REF = re.compile(r"^[A-Z][A-Z0-9_]{2,127}$")
 ARDOT_NODE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:_;.-]{0,255}$")
 MARKDOWN_LINK = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+GENERATION_ROUTE_ID = re.compile(r"^[a-z0-9][a-z0-9._:/-]{1,127}$")
+BINDING_NONCE = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
 
 TRUSTED_BUNDLE_PATHS = (
     "SKILL.md",
@@ -219,6 +240,7 @@ TRUSTED_BUNDLE_PATHS = (
     "runtime/adapters/codex-desktop.json",
     "runtime/python-dependency-lock.json",
     "skills/chatgpt-web-image-route/SKILL.md",
+    "skills/chatgpt-web-image-route/agents/openai.yaml",
     "skills/chatgpt-web-image-route/references/image-generation-contract.md",
     "style-presets/prismatic-paper-editorial.json",
     "scripts/runtime_preflight.py",
@@ -679,6 +701,7 @@ def _validate_local_paths(workspace_root: Path, errors: list[dict[str, str]]) ->
         if setup_links.get("startup_policy") != {
             "open_after_binding": True,
             "prepare_before_source_material": True,
+            "migration_rgba_probe_before_source_material": True,
             "wait_for_user_login": True,
             "reprobe_after_login": True,
             "persist_session_query": False,
@@ -720,6 +743,7 @@ def _validate_local_paths(workspace_root: Path, errors: list[dict[str, str]]) ->
                 "skills/chatgpt-web-image-route/references/image-generation-contract.md",
             ),
             ("cutout_processor", "scripts/prepare_micro_cutout.py"),
+            ("cutout_inspector", "scripts/inspect_asset.py"),
             ("usage", "references/使用说明.md"),
             ("qa", "references/qa.md"),
         ):
@@ -1452,7 +1476,13 @@ def _validate_capabilities(
         return {}
     resolved: dict[str, Any] = {}
     required = PHASE_CAPABILITIES[phase]
-    for name in required:
+    selected = list(required)
+    selected.extend(
+        name
+        for name in OPTIONAL_PHASE_CAPABILITIES[phase]
+        if isinstance(capabilities.get(name), dict)
+    )
+    for name in selected:
         path = f"profile.capabilities.{name}"
         item = capabilities.get(name)
         if not isinstance(item, dict):
@@ -1487,16 +1517,27 @@ def _validate_capabilities(
                     f"capability status must be one of {sorted(accepted_statuses)}",
                 )
             elif status == "bound_unprobed":
-                warning_code = (
-                    "runtime.capability.rgba_live_probe_deferred"
-                    if name == "rgba_cutout_generation"
-                    else "runtime.capability.opaque_live_probe_deferred"
-                )
+                if phase == "migration" and name == "rgba_cutout_generation":
+                    warning_code = "runtime.capability.rgba_migration_probe_required"
+                    warning_message = (
+                        "RGBA generation is bound but the nonce/digest-bound neutral migration "
+                        "probe must still run in the current host trace before source material"
+                    )
+                else:
+                    warning_code = (
+                        "runtime.capability.rgba_live_probe_deferred"
+                        if name == "rgba_cutout_generation"
+                        else "runtime.capability.opaque_live_probe_deferred"
+                    )
+                    warning_message = (
+                        "image generation is bound but unprobed; the first real generation is a "
+                        "blocking live probe"
+                    )
                 _warning(
                     warnings,
                     warning_code,
                     f"{path}.status",
-                    "image generation is bound but unprobed; the first real generation is a blocking live probe",
+                    warning_message,
                 )
 
         if name == "opaque_image_generation":
@@ -1564,6 +1605,50 @@ def _validate_capabilities(
                     path,
                     "selected adapter must preserve the RGBA output contract and cutout processor",
                 )
+            generation_route_id = item.get("generation_route_id")
+            if (
+                not isinstance(generation_route_id, str)
+                or not GENERATION_ROUTE_ID.fullmatch(generation_route_id)
+            ):
+                _error(
+                    errors,
+                    "runtime.capability.rgba_generation_route_id_invalid",
+                    f"{path}.generation_route_id",
+                    "RGBA generation must bind the selected provider's stable route ID",
+                )
+            if (
+                not isinstance(adapter_route, dict)
+                or adapter_route.get("generation_route_id") != generation_route_id
+            ):
+                _error(
+                    errors,
+                    "runtime.capability.rgba_adapter_generation_route_mismatch",
+                    path,
+                    "profile generation route ID must match the selected adapter route",
+                )
+            if phase == "migration":
+                migration_probe_contract = item.get("migration_probe_contract")
+                if migration_probe_contract != MIGRATION_RGBA_PROBE_CONTRACT:
+                    _error(
+                        errors,
+                        "runtime.capability.rgba_migration_probe_contract_missing",
+                        f"{path}.migration_probe_contract",
+                        (
+                            "migration must bind the neutral RGBA route probe contract before "
+                            "source material is read"
+                        ),
+                    )
+                if (
+                    not isinstance(adapter_route, dict)
+                    or adapter_route.get("migration_probe_contract")
+                    != MIGRATION_RGBA_PROBE_CONTRACT
+                ):
+                    _error(
+                        errors,
+                        "runtime.capability.rgba_adapter_migration_probe_mismatch",
+                        path,
+                        "selected adapter must declare the neutral RGBA migration probe contract",
+                    )
             if mode == "tool":
                 tool_ids = _require_tool_kinds(
                     item.get("tool_ids"),
@@ -1863,7 +1948,7 @@ def _validate_capabilities(
                     errors,
                     "runtime.capability.host_receipt_attestation_unavailable",
                     path,
-                    "selected harness has no real host receipt signer; delivery/full must remain blocked",
+                    "selected harness has no real host receipt signer; portable signed audit is unavailable",
                 )
                 tool_ids = []
                 probe_methods = {"host-attested-live"}
@@ -1991,14 +2076,26 @@ def _validate_capabilities(
             )
         resolved_item: dict[str, Any] = {"mode": mode, "tool_ids": tool_ids}
         if name in {"opaque_image_generation", "rgba_cutout_generation"}:
-            resolved_item["live_proof"] = (
-                "deferred-until-first-generated-asset"
-                if binding_only or status == "bound_unprobed"
-                else "profile-claim-unattested"
-            )
+            if phase == "migration" and name == "rgba_cutout_generation":
+                resolved_item["live_proof"] = (
+                    "required-neutral-migration-probe-in-current-host-trace"
+                )
+            else:
+                resolved_item["live_proof"] = (
+                    "deferred-until-first-generated-asset"
+                    if binding_only or status == "bound_unprobed"
+                    else "profile-claim-unattested"
+                )
         if name == "rgba_cutout_generation":
             resolved_item["output_contract"] = item.get("output_contract")
             resolved_item["processor"] = item.get("processor")
+            if phase == "migration":
+                resolved_item["migration_probe_contract"] = item.get(
+                    "migration_probe_contract"
+                )
+                resolved_item["generation_route_id"] = item.get(
+                    "generation_route_id"
+                )
             if mode == "chatgpt-web":
                 resolved_item["provider_skill"] = item.get("provider_skill")
                 resolved_item["session_readiness_is_image_proof"] = False
@@ -2047,6 +2144,8 @@ def _binding_digest(
         "provider_skill",
         "output_contract",
         "processor",
+        "migration_probe_contract",
+        "generation_route_id",
         "workspace_link",
         "expected_file_id",
         "expected_root_id",
@@ -2078,10 +2177,237 @@ def _binding_digest(
     return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
+def _migration_rgba_probe_cases(
+    *,
+    binding_nonce: str,
+    binding_digest: str,
+    generation_route_id: str,
+) -> list[dict[str, Any]]:
+    """Return a native-alpha probe followed by one controlled-key fallback."""
+
+    common = (
+        "Create one plain, nonsemantic calibration mark: a single connected open test "
+        "stroke in uniform neutral mid-gray #777777. Make the stroke about 8 percent of "
+        "the canvas width and trace an asymmetric near-square path with at least three deep "
+        "inward turns and large open negative spaces; do not close or fill a large region. "
+        "It must not resemble any real object, icon, logo, letter, leaf, flower, animal, "
+        "robot, device, or brand motif. Use no artistic style, material language, palette, "
+        "lighting, or decoration. No text, letters, digits, logo, QR code, signature, "
+        "frame, card, panel, pedestal, ground plane, scenery, texture, gradient, "
+        "checkerboard, or backdrop shadow. Keep the silhouette fully inside the canvas "
+        "with a clear 12 percent safety margin on every edge. "
+    )
+    specifications = (
+        {
+            "attempt": 1,
+            "acquisition_mode": "native-alpha",
+            "key_color": None,
+            "prompt": (
+                common
+                + "Return the provider-original PNG with a genuinely transparent background "
+                "and real pixel alpha. Background pixels must have alpha 0. Do not simulate "
+                "transparency with white, black, a colored plane, checkerboard pixels, haze, "
+                "or a rectangular matte."
+            ),
+            "processor_extra_args": ["--require-native-alpha"],
+        },
+        {
+            "attempt": 2,
+            "acquisition_mode": "controlled-key-fallback",
+            "key_color": MIGRATION_RGBA_PROBE_FALLBACK_KEY,
+            "prompt": (
+                common
+                + f"Return the provider-original PNG on a perfectly uniform "
+                f"{MIGRATION_RGBA_PROBE_FALLBACK_KEY} background. Keep that key color out "
+                "of the subject, keep it connected across the full canvas border, and do "
+                "not add any shadow or semi-transparent effect onto the background."
+            ),
+            "processor_extra_args": [
+                "--key-color",
+                MIGRATION_RGBA_PROBE_FALLBACK_KEY,
+            ],
+        },
+    )
+
+    cases: list[dict[str, Any]] = []
+    for specification in specifications:
+        attempt = int(specification["attempt"])
+        prompt = str(specification["prompt"])
+        prompt_sha256 = "sha256:" + hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+        request_metadata = {
+            "schema": "org-wechat-migration-rgba-request-v1",
+            "contract": MIGRATION_RGBA_PROBE_CONTRACT,
+            "binding_nonce": binding_nonce,
+            "binding_digest": binding_digest,
+            "attempt": attempt,
+            "acquisition_mode": specification["acquisition_mode"],
+            "generation_route": generation_route_id,
+            "prompt_sha256": prompt_sha256,
+        }
+        request_metadata_sha256 = "sha256:" + hashlib.sha256(
+            json.dumps(
+                request_metadata,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        raw_path = f"{{artifact_root}}provider-original-attempt-{attempt}.png"
+        derived_path = f"{{artifact_root}}cutout-rgba-attempt-{attempt}.png"
+        report_path = f"{{artifact_root}}cutout-report-attempt-{attempt}.json"
+        processor_command = [
+            "python3",
+            "-I",
+            "-S",
+            "scripts/secure_runner.py",
+            "scripts/prepare_micro_cutout.py",
+            raw_path,
+            derived_path,
+            "--role",
+            "floating-spot",
+            "--article-id",
+            "migration-route-probe",
+            "--asset-slot-id",
+            "migration.rgba-route-probe",
+            "--prompt-sha256",
+            prompt_sha256,
+            "--generation-route",
+            generation_route_id,
+            *list(specification["processor_extra_args"]),
+            "--report",
+            report_path,
+        ]
+        cases.append(
+            {
+                "attempt": attempt,
+                "acquisition_mode": specification["acquisition_mode"],
+                "key_color": specification["key_color"],
+                "prompt": prompt,
+                "prompt_sha256": prompt_sha256,
+                "generation_route": generation_route_id,
+                "host_request_metadata": request_metadata,
+                "host_request_metadata_sha256": request_metadata_sha256,
+                "raw_path": raw_path,
+                "derived_path": derived_path,
+                "derivation_report_path": report_path,
+                "processor_command": processor_command,
+            }
+        )
+    return cases
+
+
+def _migration_rgba_probe_action(
+    *,
+    binding_nonce: str,
+    binding_digest: str,
+    generation_route_id: str,
+) -> dict[str, Any]:
+    cases = _migration_rgba_probe_cases(
+        binding_nonce=binding_nonce,
+        binding_digest=binding_digest,
+        generation_route_id=generation_route_id,
+    )
+    return {
+        "id": "run-migration-rgba-route-probe",
+        "action": "generate-download-derive-and-inspect-neutral-rgba-probe",
+        "contract": MIGRATION_RGBA_PROBE_CONTRACT,
+        "blocking": True,
+        "must_complete_before": [
+            "read-source-material",
+            "create-organization-pack",
+            "open-ardot-target",
+            "open-wechat-account",
+        ],
+        "binding_nonce_ref": "report.binding_nonce",
+        "binding_digest_ref": "report.binding_digest",
+        "artifact_root_template": MIGRATION_RGBA_PROBE_ARTIFACT_ROOT,
+        "artifact_root": MIGRATION_RGBA_PROBE_ARTIFACT_ROOT.format(
+            binding_nonce=binding_nonce
+        ),
+        "artifact_policy": (
+            "create-once-current-binding-only;git-ignored;never-register;"
+            "never-copy-to-organization-assets;never-upload-to-ardot"
+        ),
+        "path_preconditions": [
+            "artifact-root-resolves-under-workspace-output-runtime",
+            "git-check-ignore-confirms-artifact-root",
+            "raw-derived-and-report-paths-do-not-exist",
+            "artifact-root-and-path-components-are-not-symlinks",
+            "no-artifact-from-another-binding-nonce-is-reused",
+        ],
+        "attempt_policy": {
+            "preference": "native-alpha-first-controlled-key-fallback-only",
+            "maximum_attempts": 2,
+            "run_attempt_2_only_after_attempt_1_processing_failure": True,
+            "attempt_2_trigger": (
+                "attempt-1-provider-original-lacks-valid-native-alpha-or-fails-pixel-gate-only"
+            ),
+            "login_captcha_download_repair_consumes_attempt": False,
+            "never_lower_cutout_thresholds": True,
+        },
+        "visual_context_policy": {
+            "probe_is_style_reference": False,
+            "official_prompt_may_reference_probe": False,
+            "probe_semantics": "nonsemantic-monochrome-open-stroke-calibration-only",
+            "probe_contains_organization_or_article_style_cues": False,
+            "official_generation_must_exclude_calibration_mark": True,
+            "follow_active_provider_session_rules": True,
+            "same_c2c_managed_conversation_required": True,
+            "throwaway_chat_inside_current_c2c_task_allowed": False,
+        },
+        "probe_cases": cases,
+        "pixel_inspection_command_template": [
+            "python3",
+            "-I",
+            "-S",
+            "scripts/secure_runner.py",
+            "scripts/inspect_asset.py",
+            "{derived_path}",
+            "--role",
+            "floating-spot",
+        ],
+        "host_evidence_required": [
+            "current-provider-request-and-completed-generation",
+            "same-current-provider-session-for-request-generation-and-download",
+            "browser-observed-provider-original-download-event",
+            "local-original-png-magic-mime-byte-length-download-time-and-sha256",
+            "secure-processor-zero-exit-and-create-once-derivation-report",
+            "current-derived-rgba8-pixel-gate-pass",
+            "host-image-inspection-of-the-exact-derived-file-on-transparent-light-and-dark-surfaces",
+            "binding-nonce-and-binding-digest-associated-with-the-host-trace",
+            "host-request-metadata-sha256-associated-with-provider-request-generation-and-download",
+        ],
+        "proof_boundary": {
+            "local_pixel_chain": "processor-and-pixel-inspection-required-but-insufficient",
+            "host_route": "current-host-request-generation-and-original-download-trace-required",
+            "profile_or_model_authored_receipt_can_pass": False,
+            "completion_requires_both": [
+                "local_pixel_chain_verified",
+                "host_route_verified",
+            ],
+        },
+        "forbidden_acquisition": [
+            "screenshot",
+            "preview-canvas",
+            "clipboard",
+            "copied-remote-url",
+            "model-authored-download-receipt",
+        ],
+        "expected_result": (
+            "neutral-rgba-route-probe-passed-in-current-host-trace;"
+            "probe-is-not-an-article-asset-and-does-not-replace-first-official-asset-lineage"
+        ),
+    }
+
+
 def _build_host_setup_actions(
     profile: dict[str, Any],
     phase: str,
     safe_links: dict[str, str],
+    *,
+    binding_nonce: str | None = None,
+    binding_digest: str | None = None,
+    trusted_bundle_sha256: str | None = None,
 ) -> list[dict[str, Any]]:
     """Return credential-free actions the host must prepare before authoring."""
 
@@ -2099,6 +2425,28 @@ def _build_host_setup_actions(
         capabilities = {}
     rgba_capability = capabilities.get("rgba_cutout_generation")
     rgba_mode = rgba_capability.get("mode") if isinstance(rgba_capability, dict) else None
+    if phase in {"authoring", "full"} and isinstance(rgba_capability, dict):
+        harness = profile.get("harness")
+        if not isinstance(harness, dict):
+            harness = {}
+        actions.append(
+            {
+                "id": "enforce-migration-rgba-route-gate",
+                "action": "require-host-owned-migration-route-gate",
+                "blocking": True,
+                "must_complete_before": "read-source-material",
+                "scope": {
+                    "trusted_bundle_sha256": trusted_bundle_sha256,
+                    "adapter_sha256": harness.get("adapter_sha256"),
+                    "generation_route_id": rgba_capability.get("generation_route_id"),
+                    "migration_probe_contract": MIGRATION_RGBA_PROBE_CONTRACT,
+                },
+                "accepted_evidence": "current-host-owned-migration-trace-gate",
+                "local-profile-report-or-model-claim-can-satisfy": False,
+                "on_missing": "stop-and-run-phase-migration-before-reading-source-material",
+                "expected_result": "same-bundle-adapter-and-rgba-route-migration-gate-present",
+            }
+        )
     if "rgba_cutout_generation" in PHASE_CAPABILITIES[phase] and rgba_mode == "chatgpt-web":
         actions.extend(
             [
@@ -2147,7 +2495,11 @@ def _build_host_setup_actions(
                     "blocking": True,
                     "expected_result": (
                         "download-route-and-cutout-processor-visible;"
-                        "first-real-generated-file-remains-the-live-proof"
+                        + (
+                            "neutral-migration-probe-is-required-before-source-material"
+                            if phase == "migration"
+                            else "first-real-generated-file-remains-the-live-proof"
+                        )
                     ),
                 },
             ]
@@ -2223,7 +2575,7 @@ def _build_host_setup_actions(
                     "expected_result": "target-account-and-draft-access-visible",
                 }
             )
-    if "host_receipt_attestation" in PHASE_CAPABILITIES[phase]:
+    if isinstance(capabilities.get("host_receipt_attestation"), dict):
         actions.append(
             {
                 "id": "bind-host-receipt-attestation",
@@ -2280,8 +2632,31 @@ def _build_host_setup_actions(
                     "image.inspect",
                 ],
                 "blocking": True,
-                "expected_result": "rgba-callable-and-processor-visible-first-real-asset-is-live-proof",
+                "expected_result": (
+                    "rgba-callable-and-processor-visible-migration-probe-required"
+                    if phase == "migration"
+                    else "rgba-callable-and-processor-visible-first-real-asset-is-live-proof"
+                ),
             }
+        )
+    if phase == "migration":
+        if binding_nonce is None or binding_digest is None:
+            raise ValueError(
+                "migration host actions require the current binding nonce and digest"
+            )
+        generation_route_id = (
+            rgba_capability.get("generation_route_id")
+            if isinstance(rgba_capability, dict)
+            else None
+        )
+        if not isinstance(generation_route_id, str):
+            generation_route_id = "unresolved-generation-route"
+        actions.append(
+            _migration_rgba_probe_action(
+                binding_nonce=binding_nonce,
+                binding_digest=binding_digest,
+                generation_route_id=generation_route_id,
+            )
         )
     return actions
 
@@ -2378,6 +2753,16 @@ def validate_runtime_profile(
             ),
         )
     nonce = challenge_nonce or secrets.token_urlsafe(32)
+    if not BINDING_NONCE.fullmatch(nonce):
+        raise ValueError(
+            "binding challenge nonce must contain 32-128 URL-safe letters, digits, underscore, or hyphen"
+        )
+    binding_digest = _binding_digest(
+        profile,
+        phase,
+        safe_links,
+        str(local.get("trusted_bundle_sha256", "missing")),
+    )
 
     report = {
         "schema_version": SCHEMA_VERSION,
@@ -2388,15 +2773,63 @@ def validate_runtime_profile(
         "binding_ready": binding_ready,
         "phase_ready": False,
         "binding_nonce": nonce if binding_only else None,
-        "binding_digest": _binding_digest(
+        "binding_digest": binding_digest,
+        "host_attestation": (
+            "selected-for-portable-signed-audit"
+            if phase in {"delivery", "full"}
+            and "host_receipt_attestation" in capabilities
+            else "optional-portable-audit-upgrade"
+            if phase in {"delivery", "full"}
+            else "not_requested"
+            if binding_only
+            else "host-trace-required"
+        ),
+        "external_probe_required": list(PHASE_CAPABILITIES[phase])
+        + [
+            name
+            for name in OPTIONAL_PHASE_CAPABILITIES[phase]
+            if name in capabilities
+        ],
+        "host_setup_actions": _build_host_setup_actions(
             profile,
             phase,
             safe_links,
-            str(local.get("trusted_bundle_sha256", "missing")),
+            binding_nonce=nonce,
+            binding_digest=binding_digest,
+            trusted_bundle_sha256=str(local.get("trusted_bundle_sha256", "missing")),
         ),
-        "host_attestation": "not_requested" if binding_only else "required",
-        "external_probe_required": list(PHASE_CAPABILITIES[phase]),
-        "host_setup_actions": _build_host_setup_actions(profile, phase, safe_links),
+        "migration_selftest": (
+            {
+                "required": True,
+                "contract": MIGRATION_RGBA_PROBE_CONTRACT,
+                "status": "host-trace-required",
+                "action_id": "run-migration-rgba-route-probe",
+                "before_source_material": True,
+                "truth_columns": {
+                    "local_pixel_chain_verified": "host-trace-required",
+                    "host_route_verified": "host-trace-required",
+                },
+                "article_asset_registration_allowed": False,
+                "reusable_as_official_asset_proof": False,
+            }
+            if phase == "migration"
+            else {"required": False, "reason": "selected-phase-is-not-migration"}
+        ),
+        "delivery_assurance": (
+            {
+                "mode": (
+                    "portable-signed-audit"
+                    if "host_receipt_attestation" in capabilities
+                    else "current-session-draft"
+                ),
+                "draft_write_may_proceed_after_current_host_read_write_probes": True,
+                "portable_receipt_verified": False,
+                "host_receipt_absence_blocks_draft_write": False,
+                "claim_portable_signed_audit_without_receipts": False,
+            }
+            if phase in {"delivery", "full"}
+            else None
+        ),
         "checked_at": current_time.isoformat(),
         "workspace_root_sha256": hashlib.sha256(str(workspace_root).encode("utf-8")).hexdigest(),
         "local": local,

@@ -307,6 +307,20 @@ def validate_cutout_derivation_report(
     config = processor.get("config")
     if not isinstance(config, dict) or processor.get("config_sha256") != _canonical_sha256(config):
         errors.append("cutout processor config SHA-256 does not match")
+    elif processor.get("method") == "native-rgba-normalize-v1":
+        if config.get("require_native_alpha") is not True or config.get("key_color") is not None:
+            errors.append(
+                "native RGBA cutout report requires the explicit native-alpha route"
+            )
+    elif processor.get("method") == "border-connected-chroma-matting-v1":
+        if (
+            config.get("require_native_alpha") is not False
+            or not isinstance(config.get("key_color"), str)
+            or not HEX_COLOR.fullmatch(config["key_color"])
+        ):
+            errors.append(
+                "chroma-matted cutout report requires one explicit controlled key color"
+            )
 
     background = (
         report.get("background_assessment")
@@ -1403,6 +1417,7 @@ def prompt_blueprint(
         f"{style_grammar_instruction}"
         f"keep a deliberate empty overlay zone and make the subject readable on a phone. "
         f"Avoid: {avoid}. No visible letters, numbers, watermark, signature, logo, or QR code. "
+        "Never reuse the neutral migration calibration mark or its grayscale test treatment. "
         "A hidden provenance watermark is applied by the workflow after generation."
     )
 
@@ -1426,7 +1441,7 @@ def style_grammar_prompt(org: dict[str, Any], route: dict[str, Any]) -> str:
     )
 
 
-def micro_prompt_blueprint(
+def _micro_prompt_base(
     org: dict[str, Any],
     route: dict[str, Any],
     article_type: str,
@@ -1447,11 +1462,42 @@ def micro_prompt_blueprint(
         f"objects, actions, or process rather than generic decoration. Follow the "
         f"{route['dominant_style']} route; motifs: {motifs}; palette: {palette}; aspect "
         f"ratio {aspect_ratio}. {style_grammar_instruction}"
-        f"Use a transparent background or an open, soft-edged "
-        f"composition with no rectangular panel, border, card, poster, UI frame, letters, "
+        "Keep an open, soft-edged composition with no rectangular panel, border, card, poster, UI frame, letters, "
         f"visible numbers, watermark, signature, logo, or QR code. Avoid: {avoid}. "
+        "Never reuse the neutral migration calibration mark or its grayscale test treatment. "
         "Hidden provenance marking, if any, is handled separately by workflow policy; "
         "this transparent micro asset remains unmarked in V1."
+    )
+
+
+def micro_prompt_blueprint(
+    org: dict[str, Any],
+    route: dict[str, Any],
+    article_type: str,
+    purpose: str,
+    aspect_ratio: str,
+) -> str:
+    return (
+        _micro_prompt_base(org, route, article_type, purpose, aspect_ratio)
+        + " Return a provider-original PNG with genuine pixel Alpha: background pixels must "
+        "be alpha 0, with no white/black/colored matte, checkerboard pixels, haze, or "
+        "simulated transparency."
+    )
+
+
+def micro_fallback_prompt_blueprint(
+    org: dict[str, Any],
+    route: dict[str, Any],
+    article_type: str,
+    purpose: str,
+    aspect_ratio: str,
+) -> str:
+    return (
+        _micro_prompt_base(org, route, article_type, purpose, aspect_ratio)
+        + " This is the single controlled-key fallback after the native-alpha source failed "
+        "the strict Alpha/pixel gate. Use one perfectly flat "
+        "{SLOT_FALLBACK_KEY_COLOR} background, keep 6-12% key-colored border, and do not use "
+        "that key color inside the subject."
     )
 
 
@@ -1516,6 +1562,20 @@ def build_asset_plan(pack_dir: Path, article_type: str) -> dict[str, Any]:
         if generate_allowed:
             prompt_builder = micro_prompt_blueprint if micro_component else prompt_blueprint
             slot["prompt_blueprint"] = prompt_builder(org, route, article_type, purpose, aspect_ratio)
+            if micro_component:
+                slot["fallback_prompt_blueprint"] = micro_fallback_prompt_blueprint(
+                    org, route, article_type, purpose, aspect_ratio
+                )
+                slot["source_generation"] = {
+                    "acquisition_preference": "native-alpha-first-controlled-key-fallback-only",
+                    "preferred_processor_args": ["--require-native-alpha"],
+                    "fallback_key_color_source": "visual-kit-plan.slot.source_generation.fallback_key_color",
+                    "fallback_processor_args_template": [
+                        "--key-color",
+                        "{SLOT_FALLBACK_KEY_COLOR}",
+                    ],
+                    "maximum_source_attempts": 2,
+                }
         slots.append(slot)
 
     for slot_id, purpose, aspect_ratio in (

@@ -5,7 +5,7 @@
   "truth_boundary": "test-only routing fixture; never describes a production host",
   "capabilities": {
     "image.generate.opaque": {"route": "tool", "requires": ["image_gen__imagegen"]},
-    "image.generate.rgba": {"route": "tool", "requires": ["test__rgba_generate"], "output_contract": "subject-cutout-rgba8-v1", "processor": "scripts/prepare_micro_cutout.py"},
+    "image.generate.rgba": {"route": "tool", "requires": ["test__rgba_generate"], "output_contract": "subject-cutout-rgba8-v1", "processor": "scripts/prepare_micro_cutout.py", "migration_probe_contract": "neutral-rgba-route-probe-v1", "generation_route_id": "test-rgba-provider-v1"},
     "image.inspect": {"route": "tool", "requires": ["view_image"]},
     "chatgpt.session": {"route": "unavailable", "availability": "unavailable", "requires": [], "reason": "test host uses an equivalent native RGBA provider and does not require ChatGPT"},
     "ardot.create": {"route": "mcp", "requires": ["mcp__ardot_remote__create_design", "mcp__ardot_remote__create_new_page"]},

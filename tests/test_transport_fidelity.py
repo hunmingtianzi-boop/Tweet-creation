@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -40,6 +41,7 @@ from transport_fidelity import (  # noqa: E402
 from runtime_preflight import _trusted_bundle_digest  # noqa: E402
 from compile_wechat import (  # noqa: E402
     _compile_frozen_transport_contract,
+    compile_frozen_session_draft,
     compile_frozen_transport,
     compile_frozen_transport_candidate,
 )
@@ -169,6 +171,7 @@ class TransportFidelityTests(unittest.TestCase):
         write_png(root / "background.png", 1170, 360, alpha=False)
         write_organic_cutout(root / "motif.png", 300, 180)
         write_png(root / "fallback.png", 120, 40, alpha=False)
+        write_png(root / "cover.png", 900, 383, alpha=False)
         write_png(root / "ardot-chapter-1.png", 390, 120, alpha=False)
         fallback_semantic_sha256 = "sha256:" + "7" * 64
         svg_text = (
@@ -248,6 +251,7 @@ class TransportFidelityTests(unittest.TestCase):
         )
         svg = asset("chapter-1-toggle-svg", "interaction.svg")
         fallback = asset("chapter-1-toggle-fallback", "fallback.png")
+        cover = asset("cover", "cover.png")
         svg_structure_sha256 = canonical_svg_structure_sha256(svg_text)
         state_export_path = root / "qa" / "interaction-15-3.json"
         state_export = {
@@ -357,7 +361,7 @@ class TransportFidelityTests(unittest.TestCase):
         }
         captured_at = (datetime.now(timezone.utc) - timedelta(seconds=5)).isoformat()
         root_export_path = root / "qa" / "ardot-root-nodes.json"
-        root_assets = [background, decoration, svg, fallback]
+        root_assets = [background, decoration, svg, fallback, cover]
         root_export = {
             "schema_version": 1,
             "source": "ardot-current-root-export",
@@ -417,6 +421,7 @@ class TransportFidelityTests(unittest.TestCase):
                 "title": "Current article",
                 "digest": "Current digest",
                 "content_html": "wechat.html",
+                "cover_asset_id": "cover",
             },
             "ardot": {
                 "file_id": "file-1",
@@ -447,7 +452,12 @@ class TransportFidelityTests(unittest.TestCase):
                     "id": item["asset_id"],
                     "path": item["path"],
                     "sha256": item["sha256"],
-                    "role": "body-image",
+                    "role": "cover" if item["asset_id"] == "cover" else "body-image",
+                    **(
+                        {"wechat_thumb_media_id": "thumb-test-100001"}
+                        if item["asset_id"] == "cover"
+                        else {}
+                    ),
                 }
                 for item in root_assets
             ],
@@ -458,6 +468,8 @@ class TransportFidelityTests(unittest.TestCase):
         return temporary, manifest_path, manifest
 
     def report(self, manifest_path: Path, **kwargs: object) -> dict:
+        if kwargs.get("require_readback") and "expected_target_account_ref" not in kwargs:
+            kwargs["expected_target_account_ref"] = "test-visible-account"
         return validate_transport_fidelity_diagnostic(manifest_path, **kwargs)
 
     def rewrite(self, path: Path, manifest: dict) -> None:
@@ -546,6 +558,8 @@ class TransportFidelityTests(unittest.TestCase):
         observed_at = datetime.now(timezone.utc)
         screenshot = path.parent / "readback-chapter-1.png"
         write_png(screenshot, 390, 120, alpha=False)
+        cover_download = path.parent / "saved-cover.png"
+        cover_download.write_bytes((path.parent / "cover.png").read_bytes())
         interaction = manifest["transport_fidelity"]["export"]["chapters"][0][
             "interaction"
         ]
@@ -557,6 +571,17 @@ class TransportFidelityTests(unittest.TestCase):
                     "source": READBACK_SOURCE,
                     "target_account_ref": "test-visible-account",
                     "draft_id": "test-draft-100001",
+                    "title": manifest["article"]["title"],
+                    "digest": manifest["article"]["digest"],
+                    "cover_asset_id": manifest["article"]["cover_asset_id"],
+                    "thumb_media_id": "thumb-test-100001",
+                    "cover_hosted_derivative": {
+                        "url": "https://mmbiz.qpic.cn/saved-cover",
+                        "downloaded_path": cover_download.name,
+                        "downloaded_sha256": "sha256:"
+                        + file_sha256(cover_download),
+                        "downloaded_byte_length": cover_download.stat().st_size,
+                    },
                     "transport_revision_hash": revision,
                     "observed_at": observed_at.isoformat(),
                     "chapters": [
@@ -638,6 +663,19 @@ class TransportFidelityTests(unittest.TestCase):
             "trusted_bundle_sha256": _trusted_bundle_digest(ROOT),
             "target_account_ref": readback_payload["target_account_ref"],
             "draft_id": readback_payload["draft_id"],
+            "title": readback_payload["title"],
+            "digest": readback_payload["digest"],
+            "cover_asset_id": readback_payload["cover_asset_id"],
+            "thumb_media_id": readback_payload["thumb_media_id"],
+            "cover_hosted_url": readback_payload["cover_hosted_derivative"][
+                "url"
+            ],
+            "cover_downloaded_sha256": readback_payload[
+                "cover_hosted_derivative"
+            ]["downloaded_sha256"],
+            "cover_downloaded_byte_length": readback_payload[
+                "cover_hosted_derivative"
+            ]["downloaded_byte_length"],
             "handoff_sha256": "sha256:" + file_sha256(path),
             "transport_revision_hash": export["revision_hash"],
             "output_html_path_identity_sha256": path_identity_sha256(
@@ -718,7 +756,93 @@ class TransportFidelityTests(unittest.TestCase):
         )
         self.assertIn("transport.readback_receipt", forged["error_codes"])
 
-    def test_imported_compiler_only_emits_an_explicit_non_delivery_candidate(self) -> None:
+    def test_readback_binds_article_cover_and_wechat_hosted_urls(self) -> None:
+        temporary, path, manifest = self.make_bundle()
+        self.addCleanup(temporary.cleanup)
+        output = path.parent / "readback-binding-output"
+        live_root = self.live_root(path, output / "wechat-candidate.html")
+        compiled = compile_frozen_transport_candidate(
+            path,
+            output,
+            live_root_path=live_root,
+            check=True,
+        )
+        self.assertTrue(compiled["ok"], compiled)
+        readback = self.write_valid_readback(path, manifest)
+        original = json.loads(readback.read_text(encoding="utf-8"))
+
+        variants: list[tuple[str, dict, str]] = []
+        wrong_title = json.loads(json.dumps(original))
+        wrong_title["title"] = "Other article"
+        variants.append(("title", wrong_title, "transport.readback_article"))
+        wrong_digest = json.loads(json.dumps(original))
+        wrong_digest["digest"] = "Other digest"
+        variants.append(("digest", wrong_digest, "transport.readback_article"))
+        wrong_cover_id = json.loads(json.dumps(original))
+        wrong_cover_id["cover_asset_id"] = "chapter-1-background"
+        variants.append(("cover-asset", wrong_cover_id, "transport.readback_cover"))
+        wrong_thumb = json.loads(json.dumps(original))
+        wrong_thumb["thumb_media_id"] = "thumb-from-another-account"
+        variants.append(("thumb-media", wrong_thumb, "transport.readback_cover"))
+        evil_cover_host = json.loads(json.dumps(original))
+        evil_cover_host["cover_hosted_derivative"]["url"] = (
+            "https://evil.example/saved-cover"
+        )
+        variants.append(("cover-host", evil_cover_host, "transport.readback_cover"))
+        wrong_cover_hash = json.loads(json.dumps(original))
+        wrong_cover_hash["cover_hosted_derivative"]["downloaded_sha256"] = (
+            "sha256:" + "0" * 64
+        )
+        variants.append(("cover-hash", wrong_cover_hash, "transport.readback_cover"))
+        wrong_cover_length = json.loads(json.dumps(original))
+        wrong_cover_length["cover_hosted_derivative"][
+            "downloaded_byte_length"
+        ] += 1
+        variants.append(("cover-length", wrong_cover_length, "transport.readback_cover"))
+        evil_body_host = json.loads(json.dumps(original))
+        evil_body_host["chapters"][0]["hosted_assets"][0]["url"] = (
+            "https://evil.example/forged-body"
+        )
+        variants.append(("body-host", evil_body_host, "transport.readback"))
+
+        for label, payload, expected_code in variants:
+            with self.subTest(label=label):
+                readback.write_text(
+                    json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+                )
+                report = self.report(
+                    path,
+                    html_path=output / "wechat-candidate.html",
+                    live_root_path=live_root,
+                    compile_report_path=output / "candidate-report.json",
+                    require_compile_report=True,
+                    readback_path=readback,
+                    require_readback=True,
+                )
+                self.assertIn(expected_code, report["error_codes"], report)
+
+        readback.write_text(
+            json.dumps(original, ensure_ascii=False), encoding="utf-8"
+        )
+        unbound_cover_manifest = json.loads(path.read_text(encoding="utf-8"))
+        cover_record = next(
+            item
+            for item in unbound_cover_manifest["assets"]
+            if item["id"] == "cover"
+        )
+        cover_record["wechat_thumb_media_id"] = None
+        path.write_text(
+            json.dumps(unbound_cover_manifest, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        unbound_cover = validate_transport_fidelity_diagnostic(
+            path,
+            readback_path=readback,
+            expected_target_account_ref="test-visible-account",
+        )
+        self.assertIn("transport.readback_cover", unbound_cover["error_codes"])
+
+    def test_imported_compiler_emits_diagnostic_only_candidate(self) -> None:
         temporary, path, _ = self.make_bundle()
         self.addCleanup(temporary.cleanup)
         output = path.parent / "output"
@@ -731,24 +855,245 @@ class TransportFidelityTests(unittest.TestCase):
         )
         self.assertTrue(report["ok"], report)
         self.assertTrue(report["candidate_valid"])
+        self.assertFalse(report["draft_write_eligible"])
         self.assertFalse(report["delivery_eligible"])
-        self.assertFalse(report["finalization_verified"])
+        self.assertFalse(report["portable_audit_verified"])
+        self.assertFalse(report["publication_preflight_eligible"])
+        self.assertFalse(report["publication_authorized"])
         self.assertEqual(report["assurance_scope"], "diagnostic-candidate")
+        self.assertFalse(report["finalization_verified"])
         self.assertEqual(report["source"], TRANSPORT_SOURCE)
         html = output / "wechat-candidate.html"
         self.assertTrue(html.is_file())
         self.assertFalse((output / "wechat.html").exists())
         self.assertFalse((output / "compile-report.json").exists())
+
+    def test_unsigned_candidate_report_cannot_claim_draft_write_eligibility(self) -> None:
+        temporary, path, _ = self.make_bundle()
+        self.addCleanup(temporary.cleanup)
+        output = path.parent / "tampered-session-output"
+        live_root = self.live_root(path, output / "wechat-candidate.html")
+        original = compile_frozen_transport_candidate(
+            path,
+            output,
+            live_root_path=live_root,
+            check=True,
+        )
+        self.assertTrue(original["ok"], original)
+        report_path = output / "candidate-report.json"
+        forged = json.loads(report_path.read_text(encoding="utf-8"))
+        forged["assurance_scope"] = "current-session-draft"
+        forged["draft_write_eligible"] = True
+        forged["artifact_binding"]["candidate_html"]["source"] = (
+            "wechat-session-draft-candidate-v1"
+        )
+        report_path.write_text(
+            json.dumps(forged, ensure_ascii=False), encoding="utf-8"
+        )
+
+        validated = validate_transport_fidelity_diagnostic(
+            path,
+            html_path=output / "wechat-candidate.html",
+            live_root_path=live_root,
+            compile_report_path=report_path,
+            require_compile_report=True,
+        )
+        self.assertFalse(validated["ok"], validated)
+        self.assertFalse(validated["draft_write_eligible"])
+        self.assertIn("transport.compile_artifact", validated["error_codes"])
+
+    def test_session_draft_candidate_does_not_require_host_signature(self) -> None:
+        temporary, path, manifest = self.make_bundle()
+        self.addCleanup(temporary.cleanup)
+        output = path.parent / "session-draft-output"
+        live_root = self.live_root(path, output / "wechat-candidate.html")
+        with patch("secure_runtime.require_secure_runtime"):
+            report = compile_frozen_session_draft(
+                path,
+                output,
+                live_root_path=live_root,
+                check=True,
+            )
+
+        self.assertTrue(report["ok"], report)
+        self.assertFalse(report["draft_write_eligible"])
+        self.assertFalse(report["delivery_eligible"])
+        self.assertFalse(report["portable_audit_verified"])
+        self.assertFalse(report["publication_preflight_eligible"])
+        self.assertFalse(report["publication_authorized"])
+        self.assertIsNone(report["artifact_binding"]["live_root_receipt"])
+        self.assertEqual(
+            report["artifact_binding"]["live_root_export"]["path"],
+            str(live_root.resolve()),
+        )
+        self.assertTrue((output / "wechat-candidate.html").is_file())
+        html = output / "wechat-candidate.html"
         payload = html.read_text(encoding="utf-8")
         self.assertIn('data-ardot-section-node="9:1"', payload)
         self.assertIn('data-transport-text-node-id="11:9"', payload)
         self.assertIn('data-transport-asset-id="chapter-1-motif"', payload)
         self.assertIn('data-transport-layer-id="12:3"', payload)
 
+        readback = self.write_valid_readback(path, manifest)
+        verified = self.report(
+            path,
+            html_path=html,
+            live_root_path=live_root,
+            compile_report_path=output / "candidate-report.json",
+            require_compile_report=True,
+            readback_path=readback,
+            require_readback=True,
+        )
+        self.assertTrue(verified["ok"], verified)
+        self.assertFalse(verified["draft_write_eligible"])
+        self.assertTrue(verified["session_readback_structural_match"])
+        self.assertFalse(verified["portable_audit_verified"])
+        self.assertFalse(verified["readback_receipt_verified"])
+
+    def test_secure_cli_supports_current_session_draft_chain(self) -> None:
+        temporary, path, _ = self.make_bundle()
+        self.addCleanup(temporary.cleanup)
+        output = path.parent / "secure-session-output"
+        live_root = self.live_root(path, output / "wechat-candidate.html")
+        runner = [
+            sys.executable,
+            "-I",
+            "-S",
+            "scripts/secure_runner.py",
+        ]
+        compiled = subprocess.run(
+            runner
+            + [
+                "scripts/compile_wechat.py",
+                "--transport-fidelity",
+                str(path),
+                "--live-root-export",
+                str(live_root),
+                "--session-draft",
+                "--output",
+                str(output),
+                "--check",
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr or compiled.stdout)
+        compile_report = json.loads(compiled.stdout)
+        self.assertFalse(compile_report["draft_write_eligible"], compile_report)
+        self.assertFalse(compile_report["portable_audit_verified"])
+
+        validated = subprocess.run(
+            runner
+            + [
+                "scripts/validate_transport_fidelity.py",
+                str(path),
+                "--html",
+                str(output / "wechat-candidate.html"),
+                "--live-root-export",
+                str(live_root),
+                "--require-live-root",
+                "--compile-report",
+                str(output / "candidate-report.json"),
+                "--require-compile-report",
+                "--session-draft",
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(validated.returncode, 0, validated.stderr or validated.stdout)
+        validation_report = json.loads(validated.stdout)
+        self.assertFalse(validation_report["draft_write_eligible"], validation_report)
+        self.assertFalse(validation_report["portable_audit_verified"])
+        self.assertFalse(validation_report["publication_preflight_eligible"])
+        self.assertFalse(validation_report["publication_authorized"])
+
+    def test_portable_audit_requires_both_receipts_and_never_authorizes_publish(self) -> None:
+        temporary, path, manifest = self.make_bundle()
+        self.addCleanup(temporary.cleanup)
+        output = path.parent / "signed-output"
+        live_root = self.live_root(path, output / "wechat.html")
+        live_receipt = self.live_receipt(path)
+        with (
+            patch("secure_runtime.require_secure_runtime"),
+            patch(
+                "transport_fidelity._require_secure_transport_finalization_runtime"
+            ),
+        ):
+            compiled = compile_frozen_transport(
+                path,
+                output,
+                live_root_path=live_root,
+                live_receipt_path=live_receipt,
+                check=True,
+            )
+        self.assertTrue(compiled["ok"], compiled)
+        self.assertTrue(compiled["draft_write_eligible"])
+        self.assertFalse(compiled["delivery_eligible"])
+        self.assertFalse(compiled["portable_audit_verified"])
+        self.assertFalse(compiled["publication_preflight_eligible"])
+        self.assertFalse(compiled["publication_authorized"])
+        self.assertFalse(compiled["finalization_verified"])
+
+        with patch(
+            "transport_fidelity._require_secure_transport_finalization_runtime"
+        ):
+            before_readback = transport_fidelity_module._validate_transport_fidelity_contract(
+                path,
+                html_path=output / "wechat.html",
+                live_root_path=live_root,
+                live_receipt_path=live_receipt,
+                require_live_root=True,
+                compile_report_path=output / "compile-report.json",
+                require_compile_report=True,
+                diagnostic=False,
+            )
+        self.assertTrue(before_readback["ok"], before_readback)
+        self.assertFalse(before_readback["portable_audit_verified"])
+        self.assertFalse(before_readback["delivery_eligible"])
+        self.assertFalse(before_readback["publication_preflight_eligible"])
+        self.assertFalse(before_readback["publication_authorized"])
+
+        readback = self.write_valid_readback(path, manifest)
+        readback_receipt = self.write_readback_receipt(
+            path,
+            readback=readback,
+            compiled_html=output / "wechat.html",
+            compile_report=output / "compile-report.json",
+        )
+        with patch(
+            "transport_fidelity._require_secure_transport_finalization_runtime"
+        ):
+            portable = transport_fidelity_module._validate_transport_fidelity_contract(
+                path,
+                html_path=output / "wechat.html",
+                live_root_path=live_root,
+                live_receipt_path=live_receipt,
+                require_live_root=True,
+                compile_report_path=output / "compile-report.json",
+                require_compile_report=True,
+                readback_path=readback,
+                readback_receipt_path=readback_receipt,
+                require_readback=True,
+                expected_target_account_ref="test-visible-account",
+                diagnostic=False,
+            )
+        self.assertTrue(portable["ok"], portable)
+        self.assertTrue(portable["portable_audit_verified"])
+        self.assertTrue(portable["delivery_eligible"])
+        self.assertTrue(portable["publication_preflight_eligible"])
+        self.assertTrue(portable["finalization_verified"])
+        self.assertFalse(portable["publication_authorized"])
+
     def test_imported_finalization_apis_require_the_isolated_runner(self) -> None:
         temporary, path, _ = self.make_bundle()
         self.addCleanup(temporary.cleanup)
         output = path.parent / "forbidden-final-output"
+        with self.assertRaises(SystemExit):
+            compile_frozen_session_draft(path, output, check=True)
         with self.assertRaises(SystemExit):
             compile_frozen_transport(path, output, check=True)
         with self.assertRaises(SystemExit):
@@ -758,11 +1103,21 @@ class TransportFidelityTests(unittest.TestCase):
                 path, output, check=True, finalization=True
             )
         with self.assertRaises(SystemExit):
+            _compile_frozen_transport_contract(
+                path,
+                output,
+                check=True,
+                finalization=False,
+                session_draft=True,
+            )
+        with self.assertRaises(SystemExit):
             transport_fidelity_module._validate_transport_fidelity_contract(
                 path, diagnostic=False
             )
         self.assertFalse((output / "wechat.html").exists())
         self.assertFalse((output / "compile-report.json").exists())
+        self.assertFalse((output / "wechat-candidate.html").exists())
+        self.assertFalse((output / "candidate-report.json").exists())
 
     def test_native_font_and_visual_style_cannot_be_silently_substituted(self) -> None:
         for label, mutate in (
@@ -872,14 +1227,16 @@ class TransportFidelityTests(unittest.TestCase):
         )
         self.write_live_receipt(path, valid_live, intended_html)
 
-        missing_receipt = self.report(
+        session_only = self.report(
             path,
             live_root_path=valid_live,
             require_live_root=True,
         )
-        self.assertIn(
-            "transport.current_root_receipt", missing_receipt["error_codes"]
-        )
+        self.assertTrue(session_only["ok"], session_only)
+        self.assertFalse(session_only["draft_write_eligible"])
+        self.assertEqual(session_only["assurance_scope"], "diagnostic-only")
+        self.assertFalse(session_only["portable_audit_verified"])
+        self.assertFalse(session_only["diagnostic_current_root_receipt_valid"])
 
         receipt_payload = json.loads(receipt_path.read_text(encoding="utf-8"))
         receipt_payload["signature"] = "ed25519:" + base64.b64encode(
@@ -945,6 +1302,132 @@ class TransportFidelityTests(unittest.TestCase):
             require_live_root=True,
         )
         self.assertIn("transport.current_root_live", changed["error_codes"])
+
+    def test_live_root_must_be_recent_and_not_future_dated(self) -> None:
+        temporary, path, manifest = self.make_bundle()
+        self.addCleanup(temporary.cleanup)
+        intended_html = path.parent / "compiled" / "wechat-candidate.html"
+        live = self.live_root(path, intended_html)
+        payload = json.loads(live.read_text(encoding="utf-8"))
+        payload["captured_at"] = (
+            datetime.now(timezone.utc) + timedelta(minutes=5)
+        ).isoformat()
+        live.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        future = self.report(path, live_root_path=live, require_live_root=True)
+        self.assertIn("transport.current_root_live", future["error_codes"])
+
+        frozen = path.parent / "qa" / "ardot-root-nodes.json"
+        frozen_payload = json.loads(frozen.read_text(encoding="utf-8"))
+        frozen_payload["captured_at"] = (
+            datetime.now(timezone.utc) - timedelta(hours=3)
+        ).isoformat()
+        frozen.write_text(
+            json.dumps(frozen_payload, ensure_ascii=False), encoding="utf-8"
+        )
+        manifest["workflow_attribution"]["node_export_sha256"] = (
+            "sha256:" + file_sha256(frozen)
+        )
+        path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+        stale_payload = json.loads(frozen.read_text(encoding="utf-8"))
+        stale_payload["captured_at"] = (
+            datetime.now(timezone.utc) - timedelta(hours=2)
+        ).isoformat()
+        live.write_text(
+            json.dumps(stale_payload, ensure_ascii=False), encoding="utf-8"
+        )
+        stale = self.report(path, live_root_path=live, require_live_root=True)
+        self.assertIn("transport.current_root_live", stale["error_codes"])
+
+    def test_session_readback_binds_target_and_fresh_ordering(self) -> None:
+        temporary, path, manifest = self.make_bundle()
+        self.addCleanup(temporary.cleanup)
+        output = path.parent / "session-readback-output"
+        live_root = self.live_root(path, output / "wechat-candidate.html")
+        with patch("secure_runtime.require_secure_runtime"):
+            compiled = compile_frozen_session_draft(
+                path,
+                output,
+                live_root_path=live_root,
+                check=True,
+            )
+        self.assertTrue(compiled["ok"], compiled)
+        html = output / "wechat-candidate.html"
+        compile_report = output / "candidate-report.json"
+        readback = self.write_valid_readback(path, manifest)
+
+        payload = json.loads(readback.read_text(encoding="utf-8"))
+        payload["target_account_ref"] = "wrong-account"
+        readback.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        wrong_target = self.report(
+            path,
+            html_path=html,
+            live_root_path=live_root,
+            compile_report_path=compile_report,
+            require_compile_report=True,
+            readback_path=readback,
+            require_readback=True,
+        )
+        self.assertIn("transport.readback_target", wrong_target["error_codes"])
+        self.assertFalse(wrong_target["session_readback_structural_match"])
+
+        payload["target_account_ref"] = "test-visible-account"
+        payload["observed_at"] = json.loads(
+            compile_report.read_text(encoding="utf-8")
+        )["compiled_at"]
+        readback.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        stale_order = self.report(
+            path,
+            html_path=html,
+            live_root_path=live_root,
+            compile_report_path=compile_report,
+            require_compile_report=True,
+            readback_path=readback,
+            require_readback=True,
+        )
+        self.assertIn("transport.readback_time", stale_order["error_codes"])
+        self.assertFalse(stale_order["session_readback_structural_match"])
+
+        missing_target = validate_transport_fidelity_diagnostic(
+            path,
+            html_path=html,
+            live_root_path=live_root,
+            compile_report_path=compile_report,
+            require_compile_report=True,
+            readback_path=readback,
+            require_readback=True,
+        )
+        self.assertIn("transport.readback_target", missing_target["error_codes"])
+        self.assertFalse(missing_target["session_readback_structural_match"])
+
+    def test_compile_report_must_be_recent_and_not_future_dated(self) -> None:
+        temporary, path, _ = self.make_bundle()
+        self.addCleanup(temporary.cleanup)
+        output = path.parent / "future-compile-output"
+        live_root = self.live_root(path, output / "wechat-candidate.html")
+        with patch("secure_runtime.require_secure_runtime"):
+            compiled = compile_frozen_session_draft(
+                path,
+                output,
+                live_root_path=live_root,
+                check=True,
+            )
+        self.assertTrue(compiled["ok"], compiled)
+        compile_report = output / "candidate-report.json"
+        payload = json.loads(compile_report.read_text(encoding="utf-8"))
+        payload["compiled_at"] = (
+            datetime.now(timezone.utc) + timedelta(minutes=5)
+        ).isoformat()
+        compile_report.write_text(
+            json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+        )
+        future = self.report(
+            path,
+            html_path=output / "wechat-candidate.html",
+            live_root_path=live_root,
+            compile_report_path=compile_report,
+            require_compile_report=True,
+        )
+        self.assertIn("transport.compile_artifact", future["error_codes"])
 
     def test_html_postflight_rejects_unstyled_or_wrong_asset_layers(self) -> None:
         temporary, path, _ = self.make_bundle()
@@ -1384,7 +1867,6 @@ class TransportFidelityTests(unittest.TestCase):
             {
                 "transport.compile_artifact",
                 "transport.readback",
-                "transport.readback_receipt",
             },
         )
 

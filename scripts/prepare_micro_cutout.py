@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Create a deterministic true-alpha micro cutout from a controlled PNG source.
 
-The generator is responsible only for an isolated, text-free subject.  An
-opaque source must use a near-monochrome chroma-key background; arbitrary
-photographs and complex scenes deliberately fail so the workflow can regenerate
-instead of silently manufacturing a bad mask.
+The preferred source is a provider-original PNG with genuine native Alpha.  Use
+``--require-native-alpha`` to make that first route fail rather than infer a
+background.  An explicitly selected fallback opaque source must use a
+near-monochrome chroma-key background; arbitrary photographs and complex scenes
+deliberately fail so the workflow can regenerate instead of silently
+manufacturing a bad mask.
 """
 
 from __future__ import annotations
@@ -545,6 +547,7 @@ def prepare_micro_cutout(
     prompt_sha256: str,
     generation_route: str,
     key_color: str | None = None,
+    require_native_alpha: bool = False,
     probe_colors: list[str] | None = None,
 ) -> dict[str, Any]:
     """Prepare and atomically create one approved cutout plus its lineage report."""
@@ -574,6 +577,16 @@ def prepare_micro_cutout(
         _parse_color(color)
     if key_color is not None:
         _parse_color(key_color)
+    if require_native_alpha and key_color is not None:
+        raise CutoutPreparationError(
+            "cutout.config.conflicting_alpha_route",
+            "require_native_alpha and key_color are mutually exclusive acquisition routes",
+        )
+    if not require_native_alpha and key_color is None:
+        raise CutoutPreparationError(
+            "cutout.config.explicit_alpha_route_required",
+            "select exactly one explicit acquisition route: require_native_alpha or controlled key_color",
+        )
     source = _safe_source(source_path)
     output = _safe_new_path(output_path)
     report = _safe_new_path(report_path)
@@ -604,6 +617,7 @@ def prepare_micro_cutout(
     config = {
         "role": role,
         "key_color": key_color,
+        "require_native_alpha": require_native_alpha,
         "border_ring_ratio": 0.04,
         "border_p95_limit_rgb": 32.0,
         "minimum_border_background_ratio": 0.985,
@@ -617,7 +631,16 @@ def prepare_micro_cutout(
     background_assessment: dict[str, Any]
     mask_metrics: dict[str, Any] = {}
     edge_metrics: dict[str, Any] = {}
-    if source_mode == "RGBA" and source_image.getchannel("A").getextrema()[0] < 255:
+    has_native_alpha = (
+        source_mode == "RGBA" and source_image.getchannel("A").getextrema()[0] < 255
+    )
+    if require_native_alpha and not has_native_alpha:
+        raise CutoutPreparationError(
+            "cutout.source.native_alpha_required",
+            "preferred native-alpha attempt did not download a PNG with real transparent pixels; "
+            "do not infer or remove a background in this attempt",
+        )
+    if has_native_alpha:
         from asset_quality import validate_micro_asset
 
         native_validation = validate_micro_asset(source, role)
@@ -743,6 +766,7 @@ def main() -> None:
     parser.add_argument("--prompt-sha256", required=True)
     parser.add_argument("--generation-route", required=True)
     parser.add_argument("--key-color")
+    parser.add_argument("--require-native-alpha", action="store_true")
     parser.add_argument("--probe-color", action="append", dest="probe_colors")
     args = parser.parse_args()
     try:
@@ -756,6 +780,7 @@ def main() -> None:
             prompt_sha256=args.prompt_sha256,
             generation_route=args.generation_route,
             key_color=args.key_color,
+            require_native_alpha=args.require_native_alpha,
             probe_colors=args.probe_colors,
         )
     except CutoutPreparationError as exc:

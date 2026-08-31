@@ -10,7 +10,32 @@
 
 > 感谢拓浙 AI 生态提供本篇内容生产工作流支持。
 
-这是工作流使用归属，不是目标组织的品牌元素，因此不得被 organization pack 改写，也不得删除、隐藏、图片化或移到正文中间。Ardot 中应保留末位原生可编辑文本节点。发布前使用 `scripts/validate_workflow_attribution.py` 校验 handoff v5 的当前 Ardot root 节点导出，并使用 `scripts/validate_transport_fidelity.py` 校验同一 root 的逐章图层导出。保存并重新打开草稿后，再同时校验末位感谢语与逐章 section/text/asset/390px 回读。
+这是工作流使用归属，不是目标组织的品牌元素，因此不得被 organization pack 改写，也不得删除、隐藏、图片化或移到正文中间。Ardot 中应保留末位原生可编辑文本节点。发布前使用 `scripts/validate_workflow_attribution.py` 校验 handoff v5 的当前 Ardot root 节点导出，并使用 `scripts/validate_transport_fidelity.py` 校验同一 root 的逐章图层导出。保存并重新打开草稿后，再同时校验末位感谢语与逐章 section/text/asset/390px 回读。投递有两档保证：无 signer 的 `current-session-draft` 可以在当前宿主轨迹中创建并回读验证草稿，但始终标记 `portable_audit_verified: false`；只有含两份 Ed25519 receipt 的 `portable-signed-audit` 才能声称可携带签名审计。两档都不授权正式发表或群发。
+
+`current-session-draft` 路径（必须保留当前宿主的真实 Ardot reread 和微信写入/重新打开轨迹）：
+
+```bash
+python3 scripts/validate_workflow_attribution.py handoff.json
+python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py handoff.json \
+  --intended-html delivery/wechat-candidate.html \
+  --live-root-export qa/live-current-root.json \
+  --require-live-root --session-draft
+python3 -I -S scripts/secure_runner.py scripts/compile_wechat.py \
+  --transport-fidelity handoff.json \
+  --live-root-export qa/live-current-root.json \
+  --session-draft --output delivery --check
+python3 scripts/validate_workflow_attribution.py handoff.json \
+  --saved-draft-visible-text saved-draft-visible-text.txt \
+  --require-readback
+python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py handoff.json \
+  --html delivery/wechat-candidate.html \
+  --live-root-export qa/live-current-root.json \
+  --compile-report delivery/candidate-report.json --require-compile-report \
+  --expected-target-account 'exact-account-ref-from-delivery-preflight' \
+  --readback saved-draft-readback.json --require-readback --session-draft
+```
+
+`portable-signed-audit` 路径：
 
 ```bash
 python3 scripts/validate_workflow_attribution.py handoff.json
@@ -19,6 +44,11 @@ python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py ha
   --live-root-export qa/live-current-root.json \
   --live-root-receipt qa/live-current-root-receipt.json \
   --require-live-root
+python3 -I -S scripts/secure_runner.py scripts/compile_wechat.py \
+  --transport-fidelity handoff.json \
+  --live-root-export qa/live-current-root.json \
+  --live-root-receipt qa/live-current-root-receipt.json \
+  --output delivery --check
 python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py handoff.json \
   --html delivery/wechat.html \
   --live-root-export qa/live-current-root.json \
@@ -32,6 +62,7 @@ python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py ha
   --live-root-export qa/live-current-root.json \
   --live-root-receipt qa/live-current-root-receipt.json \
   --compile-report delivery/compile-report.json --require-compile-report \
+  --expected-target-account 'exact-account-ref-from-delivery-preflight' \
   --readback saved-draft-readback.json \
   --readback-receipt saved-draft-readback-receipt.json \
   --require-readback
@@ -43,7 +74,7 @@ python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py ha
 
 机器门槛会检查 source-zero 输入清单、四类旧视觉排除项、同家族底图、四枚文章专属微组件、常规文章 2–3 个 semantic interaction modules 与逐实例 fallback hash、RGBA8/robust Alpha/紧裁切/无 matte cutout、Ardot 原生组件 node 与 asset SHA 证据、表现型字体的原生文本 node/style 证据，schema-v3 的 390 px 视觉证据，以及 handoff v5 的逐章冻结图层与草稿回读。
 
-最终编译还要求宿主从真实 Ardot 工具响应签发短时效 `ardot-host-live-read-receipt-v1`，并在重新打开微信草稿后签发 `wechat-host-saved-draft-receipt-v1`。宿主私有 Ed25519 私钥；仓库只能从 root-owned、非 symlink、组/其他用户不可写的信任库读取公钥，`ORG_WECHAT_HOST_RECEIPT_TRUST_STORE` 最多选择这个受保护文件的绝对路径，不能直接注入公钥。宿主还必须暴露实际 `host.receipt.attest` callable；缺失时 authoring 仍可运行，但 delivery/full 启动自检与可发布编译必须失败。receipt 会绑定 runtime binding、provider/session/request、目标 HTML 路径、handoff、编译报告、微信账号/草稿与整份 readback 字节，因此普通环境变量、复制 JSON、改时间戳或伪造 mmbiz URL 都不能自证“刚刚读取”。
+只有 `portable-signed-audit` 要求宿主从真实 Ardot 工具响应签发短时效 `ardot-host-live-read-receipt-v1`，并在重新打开微信草稿后签发 `wechat-host-saved-draft-receipt-v1`。宿主私有 Ed25519 私钥；仓库只能从 root-owned、非 symlink、组/其他用户不可写的信任库读取公钥，`ORG_WECHAT_HOST_RECEIPT_TRUST_STORE` 最多选择这个受保护文件的绝对路径，不能直接注入公钥。`host.receipt.attest` 缺失不再阻断 `delivery/full` 中的 current-session 草稿写入；它只使 `portable-signed-audit` 不可用。无 signer 时仍必须在同一宿主会话中真实重读精确 Ardot file/root，绑定 live export、`wechat-candidate.html`、`candidate-report.json`，写入微信后重新打开并逐章验收；本地 JSON 不能代替这些宿主轨迹。receipt 会绑定 runtime binding、provider/session/request、目标 HTML 路径、handoff、编译报告、微信账号/草稿与整份 readback 字节，因此普通环境变量、复制 JSON、改时间戳或伪造 mmbiz URL 都不能自证“刚刚读取”。
 
 这四个敏感入口（runtime preflight、transport validator、final compiler、watermark verifier）均拒绝普通 `python3 scripts/...` 直调，必须经 `python3 -I -S scripts/secure_runner.py ...`。runner 会先用跟随 trusted bundle 的平台依赖锁验证 Pillow/cryptography 全部可执行字节，然后从一次性 snapshot 导入；`PYTHONPATH`、`sitecustomize`、未锁定 wheel 或同名模块不能进入最终验证进程。
 
@@ -74,7 +105,17 @@ python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py ha
 
 ## 快速开始
 
-先运行启动自检。当前 harness 必须把真实 callable 映射为生图、验图、Ardot 创建/读写/导出、微信草稿和 secret resolver。本地脚本只验证 Skill SHA、工具路由合同和无凭据 URL；真正的 Ardot/微信/生图可用性必须来自当前宿主可见的工具调用结果：
+先运行启动自检。当前 harness 必须把真实 callable 映射为生图、验图、Ardot 创建/读写/导出、微信草稿和 secret resolver。本地脚本只验证 Skill SHA、工具路由合同和无凭据 URL；真正的 Ardot/微信/生图可用性必须来自当前宿主可见的工具调用结果。迁移到新 harness/机器/adapter/provider route 或建立新组织工作流时，在读材料前先运行 migration profile：
+
+```bash
+python3 -I -S scripts/secure_runner.py scripts/runtime_preflight.py output/runtime/migration-profile.json \
+  --phase migration --binding-only \
+  --output output/runtime/migration-binding-report-UNIQUE.json
+```
+
+Migration profile 只绑定 opaque/RGBA/inspect，不包含组织、Ardot 或微信链接。RGBA 能力必须匹配 adapter 的真实 `generation_route_id` 和 `neutral-rgba-route-probe-v1`。执行报告的 `host_setup_actions`：首轮要求真透明 provider-original PNG 并以 `--require-native-alpha` 验真；只有严格 Alpha/像素门禁失败后才允许一次 controlled-key fallback。nonce/digest 留在宿主 request metadata，不进入图片 prompt；该 metadata SHA、当前 provider request/original download、raw PNG 事实、secure RGBA 处理和 exact derivative 透明/浅/深三底验收必须属于同一证据链。探针只放 Git 忽略的 `output/runtime/migration-probes/<nonce>/`，禁止登记、上传 Ardot、加水印或作为风格参考。ChatGPT-web 路线遵守 C2C 单对话规则，不另开临时 chat；探针只使用无对象、无品牌、单一中灰的非语义校准轮廓，正式组件 prompt 明确排除该轮廓与灰度测试处理，避免把自检变成视觉参考。
+
+迁移自测通过后，再为实际目标运行：
 
 ```bash
 python3 -I -S scripts/secure_runner.py scripts/runtime_preflight.py output/runtime/runtime-profile.json \
@@ -82,11 +123,13 @@ python3 -I -S scripts/secure_runner.py scripts/runtime_preflight.py output/runti
   --output output/runtime/binding-report-UNIQUE.json
 ```
 
-只有 binding report 同时为 `ok: true` 和 `binding_ready: true`，且当前宿主工具轨迹已通过所选路线的真实只读探针，才进入材料读取与视觉校准。报告的 `phase_ready` 故意保持 `false`，避免将自填 profile 误当宿主证据。Codex Desktop 的默认透明小组件路由是 `chatgpt-web-image-route` + `codex-with-chatgpt` + 内置 Browser；首张正式资产的页面生成、原图下载事件、raw SHA、RGBA 派生报告和终态验图共同承担 live proof。C2C doctor、ChatGPT 文字回复或页面预览均不算。Ardot 与微信必须真实读取当前 file/root/可见账号。缺登录时停在登录步骤。profile 与报告只放在 Git 忽略的 `output/runtime/`，不得包含 token、Cookie、AppSecret 或水印密钥。Codex 的精确工具路由见 [runtime/adapters/codex-desktop.json](runtime/adapters/codex-desktop.json)，完整合同见[运行环境启动自检](references/runtime-preflight.md)。
+`authoring/full` 中的 `enforce-migration-rgba-route-gate` 是宿主工作流必须执行的硬门禁；本地 CLI 只负责发出该阻断动作，不能自行认证旧宿主 trace。
 
-绑定通过后立即执行报告的 `host_setup_actions`：`authoring/full` 先加载两个 ChatGPT 技能和内置 Browser，运行 C2C 日常检查，保持一个可见的 ChatGPT 标签；如果要登录/2FA/同意，在读材料前就只请求这一个操作。之后再准备 Ardot；微信选 API 时授权 provider，只有 UI 路线才打开无 token 公众平台入口。ChatGPT 严禁 Computer Use 和外部浏览器。`bootstrap` 只准备 `ardot.create`，`delivery` 不打开 ChatGPT。任何登录成功后都在同一 session 重新探针，不把带 token 的跳转链接或 ChatGPT 对话 URL 落盘。
+只有 binding report 同时为 `ok: true` 和 `binding_ready: true`，且当前宿主工具轨迹已通过所选路线的真实探针，才进入材料读取与视觉校准。报告的 `phase_ready` 故意保持 `false`，避免将自填 profile 误当宿主证据。Codex Desktop 的默认透明小组件路由是 `chatgpt-web-image-route` + `codex-with-chatgpt` + 内置 Browser。中性迁移 probe 只证明该路由在本次宿主轨迹中跑通；它不是文章资产。首张正式资产的页面生成、原图下载事件、raw SHA、RGBA 派生报告和终态验图仍共同承担它自己的 lineage。C2C doctor、ChatGPT 文字回复、页面预览、本地报告或模型手写 receipt 均不算 host route proof。Ardot 与微信必须真实读取当前 file/root/可见账号。缺登录时停在登录步骤。profile 与报告只放在 Git 忽略的 `output/runtime/`，不得包含 token、Cookie、AppSecret 或水印密钥。Codex 的精确工具路由见 [runtime/adapters/codex-desktop.json](runtime/adapters/codex-desktop.json)，完整合同见[运行环境启动自检](references/runtime-preflight.md)。
 
-新组织还没有 Ardot file/root 时，先将上述命令改为 `--phase bootstrap`，验证 `ardot.create` 后只创建空白设计/页，再使用新 file/root 重跑目标阶段（默认 `full`，用户明确只做 Ardot 时为 `authoring`）。`bootstrap` 不要求微信目标或登录，也不需要伪造 Ardot 链接。
+绑定通过后立即执行报告的 `host_setup_actions`：`migration/authoring/full` 先加载两个 ChatGPT 技能和内置 Browser，运行 C2C 日常检查，保持一个可见的 ChatGPT 标签；如果要登录/2FA/同意，在读材料前就只请求这一个操作。`migration` 紧接执行一次中性 RGBA 链路实测；普通 `authoring/full` 不重复这张 smoke image。之后再准备 Ardot；微信选 API 时授权 provider，只有 UI 路线才打开无 token 公众平台入口。ChatGPT 严禁 Computer Use 和外部浏览器。`bootstrap` 只准备 `ardot.create`，`delivery` 不打开 ChatGPT。任何登录成功后都在同一 session 重新探针，不把带 token 的跳转链接或 ChatGPT 对话 URL 落盘。
+
+新组织还没有 Ardot file/root 时，先完成上述 `migration` 自测，再将目标命令改为 `--phase bootstrap`，验证 `ardot.create` 后只创建空白设计/页，再使用新 file/root 重跑目标阶段（默认 `full`，用户明确只做 Ardot 时为 `authoring`）。`bootstrap` 不要求微信目标或登录，也不需要伪造 Ardot 链接。
 
 安装确定性图片处理依赖：
 
@@ -191,7 +234,7 @@ python3 scripts/build_visual_kit.py article.json \
   --output output/new-account-id/article-slug/visual-kit-plan.json
 ```
 
-逐张生图、验图，每张都必须绑定正文原句、具体主体/动作、分镜章节和构图职责。Codex Desktop 默认让 ChatGPT 在计划指定的单色 key 背景上生成单一主体，用内置 Browser 下载原始 PNG。原图放 `assets/generated/`，不直接进 Ardot。先生成 create-once 的 RGBA 派生图与报告：
+逐张生图、验图，每张都必须绑定正文原句、具体主体/动作、分镜章节和构图职责。Codex Desktop 默认先让 ChatGPT 直接生成具有真实透明像素的 provider-original PNG，用内置 Browser 下载原图；原图放 `assets/generated/`，不直接进 Ardot。首轮必须使用原生 Alpha 路由生成 create-once 的规范化派生图与报告：
 
 ```bash
 python3 -I -S scripts/secure_runner.py scripts/prepare_micro_cutout.py \
@@ -201,17 +244,18 @@ python3 -I -S scripts/secure_runner.py scripts/prepare_micro_cutout.py \
   --asset-slot-id kit.floating-spot \
   --prompt-sha256 sha256:PROMPT_SHA \
   --generation-route chatgpt-web-image-route-v1 \
-  --key-color '#00FF3C' \
+  --require-native-alpha \
   --report path/to/cutout-report.json
 ```
 
 然后对派生图运行像素级 Alpha、尺寸与角色宽高比检查：
 
 ```bash
-python3 scripts/inspect_asset.py path/to/derived.png --role floating-spot
+python3 -I -S scripts/secure_runner.py scripts/inspect_asset.py \
+  path/to/derived.png --role floating-spot
 ```
 
-只有安全可移除的 key 背景或已真正具备 Alpha 的原图才会产生派生图。背景不均、主体碰边、彩色 halo、碎片或底板均阻断并重新生图，不降低门槛。把四张 `assets/derived/` 成品做成 Ardot 原生组件，将 component file/node/name 证据写回文章。只有 `ready_for_layout: true` 才生成 Ardot 装配清单：
+`--require-native-alpha` 会拒绝 RGB、全不透明 RGBA 和假棋盘格，不会在首轮暗中去背景；通过时本地只做验真、清理透明像素 RGB、紧裁切和规范化。只有该原图未通过 Alpha/像素门禁时，才按当前 slot 的 `fallback_prompt` 重生成一次受控单色底原图，并严格使用该 slot 的 `source_generation.fallback_processor_args` / `fallback_key_color`，不得把所有 slot 硬编码为同一绿色。背景不均、主体碰边、彩色 halo、碎片或底板均阻断，不降低门槛。把四张 `assets/derived/` 成品做成 Ardot 原生组件，将 component file/node/name 证据写回文章。只有 `ready_for_layout: true` 才生成 Ardot 装配清单：
 
 ```bash
 python3 scripts/build_ardot_manifest.py article.json \
@@ -225,21 +269,22 @@ python3 scripts/build_ardot_manifest.py article.json \
 python3 scripts/build_visual_review.py visual-review.json --article article.json
 ```
 
-把路径写入 `article.visual_review_file`。通过后，从同一 Ardot root 冻结 handoff v5 与逐章图层 export，再生成微信投递文件：
+把路径写入 `article.visual_review_file`。通过后，从同一 Ardot root 冻结 handoff v5 与逐章图层 export，再生成微信投递文件。当前宿主无 receipt signer 时使用 `current-session-draft`：
 
 ```bash
 python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py handoff.json \
-  --intended-html output/new-account-id/article-slug/wechat.html \
+  --intended-html output/new-account-id/article-slug/wechat-candidate.html \
   --live-root-export qa/live-current-root.json \
-  --live-root-receipt qa/live-current-root-receipt.json \
-  --require-live-root
+  --require-live-root --session-draft
 python3 -I -S scripts/secure_runner.py scripts/compile_wechat.py \
   --transport-fidelity handoff.json \
   --live-root-export qa/live-current-root.json \
-  --live-root-receipt qa/live-current-root-receipt.json \
+  --session-draft \
   --output output/new-account-id/article-slug \
   --check
 ```
+
+该路径只有在当前宿主中实际写入微信、重新打开草稿并通过带 `--session-draft --require-readback` 的逐章验收后，才能称为“当前会话已验证草稿”。未签名的 candidate/report 只做结构绑定，始终保持 `draft_write_eligible: false`、`delivery_eligible: false`、`finalization_verified: false` 与 `portable_audit_verified: false`；草稿写入是当前宿主可见轨迹中的可逆动作策略，不是本地 JSON 可携带的授权声明。需要可携带审计时，再切换到带 `--live-root-receipt`、终态 `wechat.html` / `compile-report.json` 和草稿 readback receipt 的 `portable-signed-audit`。两条路径都默认停在草稿，正式发表/群发需另行明确确认。
 
 详细流程见[使用说明](references/%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E.md)，传输契约见[Ardot → 微信高保真传输](references/ardot-transport-fidelity.md)，跨公众号边界见[organization pack 迁移](references/organization-pack-migration.md)，水印合同见[隐藏来源水印](references/provenance-watermark.md)，改进依据见[source-zero 审计](references/source-zero-audit.md)。
 

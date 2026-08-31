@@ -98,4 +98,4 @@ Inventory 与逐实例文件的最小规范：
 python3 scripts/build_visual_review.py visual-review.json --article article.json
 ```
 
-把 review 文件路径写入 `article.visual_review_file`。作者层门禁会重新校验文章 ID、组织 ID、5 类节点证据、密度范围与全部视觉项。通过后还必须冻结 handoff v5 完整 current-root/layer export，在编译前重新读取 live root 并取得宿主 Ed25519 签名 receipt，使用带 `--intended-html`、`--live-root-export`、`--live-root-receipt` 的 gate 与 final compiler，并带原 receipt 复核 compile-report HTML artifact binding；缺一项就不生成可投递结果。
+把 review 文件路径写入 `article.visual_review_file`。作者层门禁会重新校验文章 ID、组织 ID、5 类节点证据、密度范围与全部视觉项。通过后还必须冻结 handoff v5 完整 current-root/layer export，并在编译前通过当前宿主真实重读 live root。无 signer 时使用带 `--session-draft` 的 gate/compiler，只生成精确绑定的 `wechat-candidate.html` / `candidate-report.json`，并在同一宿主中完成微信写入、重开和逐章 readback；其 `portable_audit_verified` 必须为 false。有 Ed25519 attestor 时才可进入 `portable-signed-audit`，使用两份 receipt 和终态 `wechat.html` / `compile-report.json` 链。视觉验收本身不授权正式发表或群发。

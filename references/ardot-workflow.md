@@ -43,7 +43,7 @@ WeChat adapter     → 图片上传、内联样式、草稿创建
      --output output/<organization-id>/<slug>/visual-kit-plan.json
    ```
 
-5. 逐张生成、派生、检查并注册四类视觉。Codex Desktop 默认加载 `chatgpt-web-image-route` 与 `codex-with-chatgpt`，只用内置 Browser 生成受控 key 背景原图并下载原始 PNG。用安全运行的 `prepare_micro_cutout.py` 将可安全分离的原图变成 `assets/derived/` RGBA8 成品，并绑定 raw/prompt/provider/处理器/配置/报告/输出 SHA；原图和生成器声明不直接进 Ardot。四个透明微组件在 V1 中明确为 `not_eligible`，不得为了水印修改 Alpha。四个角色必须使用四枚不同 derivative；每张绑定正文原句、具体主体/动作、分镜章节与构图职责，并通过 `inspect_asset.py` 的 Alpha/尺寸/宽高比检查。对于不透明 AI 底图或纯生成 raster 封面，保留无水印母版，先用 `provenance_watermark.py embed` 生成并验证 final derivative，再登记资产；详细合同见 [provenance-watermark.md](provenance-watermark.md)。
+5. 逐张生成、派生、检查并注册四类视觉。Codex Desktop 默认加载 `chatgpt-web-image-route` 与 `codex-with-chatgpt`，只用内置 Browser 首先要求 ChatGPT 生成真透明 provider-original PNG 并下载原图；安全运行的 `prepare_micro_cutout.py --require-native-alpha` 只做验真、规范化和紧裁切，不去背景。只有原生 Alpha/像素门禁失败后才允许一次受控 key 背景重生成，并改用 `--key-color` 安全分离。成品进入 `assets/derived/`，绑定 raw/prompt/provider/处理器/配置/报告/输出 SHA；原图和生成器声明不直接进 Ardot。四个透明微组件在 V1 中明确为 `not_eligible`，不得为了水印修改 Alpha。四个角色必须使用四枚不同 derivative；每张绑定正文原句、具体主体/动作、分镜章节与构图职责，并通过 `inspect_asset.py` 的 Alpha/尺寸/宽高比检查。对于不透明 AI 底图或纯生成 raster 封面，保留无水印母版，先用 `provenance_watermark.py embed` 生成并验证 final derivative，再登记资产；详细合同见 [provenance-watermark.md](provenance-watermark.md)。
 6. 先在 Ardot 中创建四个原生 Ornament 组件，把 file URL、component node ID 和 exact name 写回 `article.visual_kit.assets`。
 7. 确认 `ready_for_layout: true` 后，生成装配清单：
 
@@ -70,11 +70,12 @@ Ardot 仍是交互设计的唯一源。每个 module 必须额外保存三个原
 
 新组织初始化后，`ardot.json` 默认为 `not-linked`。首次迁移需要：
 
-1. 完成组织调研并确认视觉路线。
-2. 在空白组织页面中建立变量模式，或为完全独立的品牌建立新 Ardot 文件。可以复用语义 component IDs，但不要打开其他组织的 example/article 页面来选择外观。
-3. 为 Hero、章节、观点、步骤/流程、案例、CTA 至少各选择一个构图变体。
-4. 把真实 Ardot 文件 URL、模式名、页面名和组件别名写入 `ardot.json`，将状态改为 `linked`。
-5. 先生成 2–3 组五项小样和同家族底图做视觉校准；确认后再制作第一篇全文。
+1. 在读组织材料前运行 runtime `migration` 阶段，完成 nonce/digest 绑定的 `neutral-rgba-route-probe-v1`。宿主 request/generation/original-download 轨迹与本地 secure RGBA8 像素链缺一均停止；探针不进 Ardot，不成为风格参考。
+2. 完成组织调研并确认视觉路线。
+3. 在空白组织页面中建立变量模式，或为完全独立的品牌建立新 Ardot 文件。可以复用语义 component IDs，但不要打开其他组织的 example/article 页面来选择外观。
+4. 为 Hero、章节、观点、步骤/流程、案例、CTA 至少各选择一个构图变体。
+5. 把真实 Ardot 文件 URL、模式名、页面名和组件别名写入 `ardot.json`，将状态改为 `linked`。
+6. 先生成 2–3 组五项小样和同家族底图做视觉校准；确认后再制作第一篇全文。
 
 迁移不是强制所有组织共用同一组件外观。语义职责可以共用，但 Hero、章节节奏、信息密度、边角语言和图片策略可以新增组织专属变体。
 
@@ -99,9 +100,9 @@ Ardot 仍是交互设计的唯一源。每个 module 必须额外保存三个原
 
 ## 微信投递
 
-视觉定稿且 `article.visual_review_file` 通过后，从同一 article root 冻结 handoff schema v5：完整 root export 同时保存感谢语、`transport_sections`、source-node/style census 与 body assets，`ardot-current-root-layer-export-v1` 必须逐字段成为它的投影；chapter y 从 0 连续覆盖 artboard。编译前经当前 Ardot 宿主再导出一份独立 fresh root，并由宿主从真实工具响应 Ed25519 签发短时效 `ardot-host-live-read-receipt-v1`；用带 `--intended-html` 的 live-root gate 对比后，才能运行 final compiler。生成后还需带原 live export/receipt 复核 compile report 与最终 HTML 路径身份/字节。`article.json --authoring-preview` 只能调试，不产生可投递 `wechat.html`。
+视觉定稿且 `article.visual_review_file` 通过后，从同一 article root 冻结 handoff schema v5：完整 root export 同时保存感谢语、`transport_sections`、source-node/style census 与 body assets，`ardot-current-root-layer-export-v1` 必须逐字段成为它的投影；chapter y 从 0 连续覆盖 artboard。编译前必须由当前 Ardot 宿主真实再读精确 file/root 并导出一份独立 fresh root。无 signer 时使用 `current-session-draft`：以 `--session-draft` 生成 `wechat-candidate.html` / `candidate-report.json`，在同一宿主轨迹中绑定并验证微信写入/重开/逐章 readback，且始终 `portable_audit_verified: false`。有 `host.receipt.attest` 时可用 `portable-signed-audit`：宿主从真实工具响应签发 Ed25519 `ardot-host-live-read-receipt-v1`，并将终态 `wechat.html` / `compile-report.json` 绑定为可携带审计链。`article.json --authoring-preview` 只能调试，不是任一投递路径。
 
-适配层只能复制已 registered/local_verified 的 marked derivative，不能首次嵌入或修改水印；不能将 Ardot 截图、QA 联系表或含文字的整段合成图当正文。微信保存后生成 `wechat-saved-draft-readback-v1`，逐章核对 section、文本 node 顺序/SHA、hosted asset 下载 SHA 和 390 px 截图；宿主紧接真实回读签发 `wechat-host-saved-draft-receipt-v1`，绑定账号/草稿、HTML、compile report 与完整 readback 字节。同时重跑感谢语末位校验与真实微信 CDN/封面派生图水印检测。默认只创建草稿；正式发布仍需单独确认。完整契约见 [ardot-transport-fidelity.md](ardot-transport-fidelity.md)。
+适配层只能复制已 registered/local_verified 的 marked derivative，不能首次嵌入或修改水印；不能将 Ardot 截图、QA 联系表或含文字的整段合成图当正文。微信保存后必须重新打开并生成 `wechat-saved-draft-readback-v1`，逐章核对 section、文本 node 顺序/SHA、hosted asset 下载 SHA 和 390 px 截图。`current-session-draft` 由当前宿主轨迹证明真实写入/重开，通过 `--session-draft --require-readback` 验证结构，不发签名声明；`portable-signed-audit` 再由宿主紧接真实回读签发 `wechat-host-saved-draft-receipt-v1`，绑定账号/草稿、终态 HTML/compile report 与完整 readback 字节。同时重跑感谢语末位校验与真实微信 CDN/封面派生图水印检测。默认只创建草稿；正式发布/群发仍需单独确认。完整契约见 [ardot-transport-fidelity.md](ardot-transport-fidelity.md)。
 
 动态能力不是 organization pack 的视觉变量。工作流固定支持无 JavaScript、无 ID、元素自身 `begin="click"` 的 `<set>` / `<animateTransform>` 与 CSS 横滑生成，但能否在生产正文启用，由目标公众号的投递层能力档案决定：先保存候选并回读结构签名，再用已登记的 iOS/Android 微信版本做真机预览。回读只证明结构未被清洗；能力档案缺失、过期、账号不匹配或任一客户端失败时，必须更新同一草稿为信息等价静态版。
 

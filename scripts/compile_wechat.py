@@ -10,6 +10,7 @@ import json
 import re
 import shutil
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,7 @@ from build_visual_kit import build_visual_kit_plan
 from asset_quality import file_sha256
 from wechat_interaction_policy import audit_transport
 from transport_fidelity import (
+    CURRENT_ROOT_SOURCE,
     LIVE_RECEIPT_SOURCE,
     TRANSPORT_SOURCE,
     asset_layer_contract,
@@ -521,12 +523,15 @@ def _compile_frozen_transport_contract(
     live_receipt_path: Path | None = None,
     check: bool = True,
     finalization: bool,
+    session_draft: bool = False,
 ) -> dict[str, Any]:
     """Compile a frozen layer export after the caller selects its trust scope."""
-    if finalization:
+    if finalization and session_draft:
+        raise ValueError("finalization and session_draft modes are mutually exclusive")
+    if finalization or session_draft:
         # Keep the private engine fail-closed as well.  Importing this module
-        # and calling the implementation directly must not bypass the public
-        # final API's secure-runtime check.
+        # and calling a write-eligible implementation directly must not bypass
+        # the public API's secure-runtime check.
         from secure_runtime import require_secure_runtime
 
         require_secure_runtime("scripts/compile_wechat.py")
@@ -572,6 +577,34 @@ def _compile_frozen_transport_contract(
             "errors": [{"code": "transport.mapping", "message": str(exc)}],
         }
     errors = list(preflight.get("errors", []))
+    live_root_binding = None
+    if preflight.get("ok") and live_root_path is not None:
+        try:
+            if live_root_path.is_symlink():
+                raise ValueError("live-root export must not be a symlink")
+            resolved_live_root = live_root_path.resolve(strict=True)
+            live_root_payload = read_json(resolved_live_root)
+            if live_root_payload.get("source") != CURRENT_ROOT_SOURCE:
+                raise ValueError(
+                    f"live-root export source must be {CURRENT_ROOT_SOURCE}"
+                )
+            live_root_stat = resolved_live_root.stat()
+            live_root_binding = {
+                "source": CURRENT_ROOT_SOURCE,
+                "path": str(resolved_live_root),
+                "path_identity_sha256": path_identity_sha256(resolved_live_root),
+                "sha256": f"sha256:{file_sha256(resolved_live_root)}",
+                "byte_length": live_root_stat.st_size,
+                "device": live_root_stat.st_dev,
+                "inode": live_root_stat.st_ino,
+            }
+        except (OSError, ValueError, TypeError) as exc:
+            errors.append(
+                {
+                    "code": "transport.current_root_live",
+                    "message": f"cannot bind the fresh live-root export: {exc}",
+                }
+            )
     live_receipt_binding = None
     if preflight.get("ok") and live_receipt_path is not None:
         try:
@@ -779,6 +812,8 @@ def _compile_frozen_transport_contract(
             "source": (
                 "wechat-compiled-artifact-v1"
                 if finalization
+                else "wechat-session-draft-candidate-v1"
+                if session_draft
                 else "wechat-diagnostic-candidate-v1"
             ),
             "path": artifact_path.name,
@@ -791,18 +826,32 @@ def _compile_frozen_transport_contract(
         }
     report = {
         "ok": not errors,
+        "compiled_at": datetime.now(timezone.utc).isoformat(),
         "candidate_valid": not errors and not finalization,
-        "delivery_eligible": not errors and finalization,
+        # An unsigned session report is a structural binding only.  The
+        # current host may still choose to write the bound candidate while it
+        # owns the live tool trace, but that action policy must not become a
+        # portable eligibility claim in a model-writable JSON file.
+        "draft_write_eligible": not errors and finalization,
+        "delivery_eligible": False,
+        "portable_audit_verified": False,
+        "publication_preflight_eligible": False,
+        "publication_authorized": False,
         "assurance_scope": (
-            "secure-finalization" if finalization else "diagnostic-candidate"
+            "portable-signed-draft-candidate"
+            if finalization
+            else "current-session-draft"
+            if session_draft
+            else "diagnostic-candidate"
         ),
-        "finalization_verified": not errors and finalization,
+        "finalization_verified": False,
         "source": TRANSPORT_SOURCE,
         "revision_hash": preflight.get("revision_hash"),
         "handoff_sha256": f"sha256:{file_sha256(manifest_path)}",
         "artifact_binding": {
             "wechat_html": artifact_binding if finalization else None,
             "candidate_html": artifact_binding if not finalization else None,
+            "live_root_export": live_root_binding,
             "live_root_receipt": live_receipt_binding,
         },
         "preflight": preflight,
@@ -836,10 +885,12 @@ def compile_frozen_transport_candidate(
     live_receipt_path: Path | None = None,
     check: bool = True,
 ) -> dict[str, Any]:
-    """Build an explicitly non-delivery candidate for diagnostics and tests.
+    """Build a diagnostic candidate that is never write-eligible.
 
     This ordinary-import API never creates ``wechat.html`` or
-    ``compile-report.json`` and always returns ``delivery_eligible=false``.
+    ``compile-report.json`` and always returns ``draft_write_eligible=false``.
+    Use :func:`compile_frozen_session_draft` through the isolated runner when
+    the active publisher intends to write a WeChat draft.
     """
     return _compile_frozen_transport_contract(
         manifest_path,
@@ -848,6 +899,32 @@ def compile_frozen_transport_candidate(
         live_receipt_path=live_receipt_path,
         check=check,
         finalization=False,
+        session_draft=False,
+    )
+
+
+def compile_frozen_session_draft(
+    manifest_path: Path,
+    output_dir: Path,
+    *,
+    live_root_path: Path | None = None,
+    live_receipt_path: Path | None = None,
+    check: bool = True,
+) -> dict[str, Any]:
+    """Build a current-session structural candidate in the isolated runner.
+
+    The active host may use this exact candidate for a reversible draft write
+    while it owns the live tool trace.  The unsigned report deliberately never
+    serializes that action policy as ``draft_write_eligible=true``.
+    """
+    return _compile_frozen_transport_contract(
+        manifest_path,
+        output_dir,
+        live_root_path=live_root_path,
+        live_receipt_path=live_receipt_path,
+        check=check,
+        finalization=False,
+        session_draft=True,
     )
 
 
@@ -870,6 +947,7 @@ def compile_frozen_transport(
         live_receipt_path=live_receipt_path,
         check=check,
         finalization=True,
+        session_draft=False,
     )
 
 
@@ -1525,6 +1603,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="explicitly allow the article.json template adapter as a non-delivery preview",
     )
     parser.add_argument(
+        "--session-draft",
+        action="store_true",
+        help="compile a current-session draft candidate without claiming portable signed audit",
+    )
+    parser.add_argument(
         "--live-root-export",
         type=Path,
         help="fresh host-owned Ardot current-root export required for final compilation",
@@ -1547,7 +1630,12 @@ def main() -> None:
             raise SystemExit(
                 "--transport-fidelity is exclusive; final transport cannot mix article.json or org template inputs"
             )
-        report = compile_frozen_transport(
+        compiler = (
+            compile_frozen_session_draft
+            if args.session_draft
+            else compile_frozen_transport
+        )
+        report = compiler(
             args.transport_fidelity,
             args.output,
             live_root_path=args.live_root_export,
@@ -1558,6 +1646,8 @@ def main() -> None:
         if args.check and not report["ok"]:
             raise SystemExit(1)
         return
+    if args.session_draft:
+        raise SystemExit("--session-draft requires --transport-fidelity")
     if not args.article or not args.org or not args.authoring_preview:
         raise SystemExit(
             "article.json is authoring-only: pass --authoring-preview and --org, or use "

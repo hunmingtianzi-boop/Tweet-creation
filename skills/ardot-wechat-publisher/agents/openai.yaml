@@ -2,7 +2,7 @@ interface:
   display_name: "Ardot WeChat Publisher"
   short_description: "Send reviewed Ardot articles to WeChat"
   brand_color: "#07C160"
-  default_prompt: "Use $ardot-wechat-publisher, pass the delivery binding gate and fresh host probes for the current Ardot root and visible target account, then create and verify the draft; publish only after I explicitly confirm."
+  default_prompt: "Use $ardot-wechat-publisher, pass the delivery binding gate and fresh host probes for the current Ardot root and visible target account, then save, reopen, and verify the draft with an explicit current-session or portable-signed assurance label; publish only with portable signed audit and my fresh confirmation."
 dependencies:
   tools:
     - type: "mcp"

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import base64
 import ast
+import base64
 import copy
+import hashlib
 import json
 import os
 import subprocess
@@ -17,6 +18,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from runtime_preflight import (  # noqa: E402
     EXPECTED_SEMANTIC_CAPABILITIES,
+    MIGRATION_RGBA_PROBE_CONTRACT,
     REQUIRED_PATHS,
     TRUSTED_BUNDLE_PATHS,
     _build_host_setup_actions,
@@ -146,6 +148,7 @@ def valid_profile() -> dict:
                 "tool_ids": ["test__rgba_generate"],
                 "output_contract": "subject-cutout-rgba8-v1",
                 "processor": "scripts/prepare_micro_cutout.py",
+                "generation_route_id": "test-rgba-provider-v1",
                 "probe": probe("runtime-registry", "rgba-imagegen-schema-bound"),
             },
             "visual_inspection": {
@@ -243,8 +246,43 @@ def select_codex_chatgpt_rgba_route(profile: dict) -> dict:
         },
         "output_contract": "subject-cutout-rgba8-v1",
         "processor": "scripts/prepare_micro_cutout.py",
+        "generation_route_id": "chatgpt-web-image-route-v1",
         "probe": probe("runtime-registry", "chatgpt-web-route-bound-no-live-image-proof"),
     }
+    return profile
+
+
+def select_migration_profile(profile: dict) -> dict:
+    """Keep only the image-route capabilities used by migration stage zero."""
+
+    profile["links"] = {}
+    profile["capabilities"] = {
+        name: item
+        for name, item in profile["capabilities"].items()
+        if name
+        in {
+            "opaque_image_generation",
+            "rgba_cutout_generation",
+            "visual_inspection",
+        }
+    }
+    profile["capabilities"]["rgba_cutout_generation"][
+        "migration_probe_contract"
+    ] = MIGRATION_RGBA_PROBE_CONTRACT
+    profile["capabilities"]["rgba_cutout_generation"]["generation_route_id"] = (
+        "chatgpt-web-image-route-v1"
+        if profile["capabilities"]["rgba_cutout_generation"]["mode"]
+        == "chatgpt-web"
+        else "test-rgba-provider-v1"
+    )
+    used_tool_ids = {
+        tool_id
+        for capability in profile["capabilities"].values()
+        for tool_id in capability.get("tool_ids", [])
+    }
+    profile["tools"] = [
+        item for item in profile["tools"] if item["id"] in used_tool_ids
+    ]
     return profile
 
 
@@ -414,6 +452,19 @@ class RuntimePreflightTests(unittest.TestCase):
             self.assertIn(expected, action_ids)
             self.assertLess(action_ids.index(expected), action_ids.index("connect-ardot-mcp"))
         actions = {item["id"]: item for item in report["host_setup_actions"]}
+        migration_gate = actions["enforce-migration-rgba-route-gate"]
+        self.assertTrue(migration_gate["blocking"])
+        self.assertFalse(
+            migration_gate["local-profile-report-or-model-claim-can-satisfy"]
+        )
+        self.assertEqual(
+            migration_gate["scope"]["generation_route_id"],
+            "chatgpt-web-image-route-v1",
+        )
+        self.assertRegex(
+            migration_gate["scope"]["trusted_bundle_sha256"],
+            r"^sha256:[0-9a-f]{64}$",
+        )
         self.assertEqual(
             actions["prepare-codex-with-chatgpt"]["steps"],
             ["update-check", "sandbox-allow", "doctor"],
@@ -430,6 +481,328 @@ class RuntimePreflightTests(unittest.TestCase):
         self.assertIn(
             "first-real-generated-file",
             actions["bind-rgba-download-processing"]["expected_result"],
+        )
+        self.assertNotIn("run-migration-rgba-route-probe", actions)
+
+    def test_migration_phase_requires_neutral_rgba_route_probe_before_sources(self) -> None:
+        profile = select_migration_profile(valid_profile())
+        report = self.run_check(
+            profile, phase="migration", binding_only=True, environment={}
+        )
+        self.assertTrue(report["binding_ready"], report["errors"])
+        self.assertFalse(report["phase_ready"])
+        self.assertEqual(
+            report["external_probe_required"],
+            [
+                "opaque_image_generation",
+                "rgba_cutout_generation",
+                "visual_inspection",
+            ],
+        )
+        self.assertEqual(
+            report["resolved_capabilities"]["rgba_cutout_generation"][
+                "live_proof"
+            ],
+            "required-neutral-migration-probe-in-current-host-trace",
+        )
+        self.assertEqual(
+            report["migration_selftest"]["contract"],
+            MIGRATION_RGBA_PROBE_CONTRACT,
+        )
+        self.assertTrue(report["migration_selftest"]["before_source_material"])
+        self.assertEqual(
+            report["migration_selftest"]["truth_columns"],
+            {
+                "local_pixel_chain_verified": "host-trace-required",
+                "host_route_verified": "host-trace-required",
+            },
+        )
+        self.assertFalse(
+            report["migration_selftest"]["article_asset_registration_allowed"]
+        )
+        actions = {item["id"]: item for item in report["host_setup_actions"]}
+        probe_action = actions["run-migration-rgba-route-probe"]
+        self.assertTrue(probe_action["blocking"])
+        self.assertIn("read-source-material", probe_action["must_complete_before"])
+        self.assertEqual(
+            probe_action["artifact_root_template"],
+            "output/runtime/migration-probes/{binding_nonce}/",
+        )
+        self.assertIn("never-register", probe_action["artifact_policy"])
+        self.assertEqual(probe_action["attempt_policy"]["maximum_attempts"], 2)
+        self.assertEqual(
+            probe_action["attempt_policy"]["preference"],
+            "native-alpha-first-controlled-key-fallback-only",
+        )
+        self.assertTrue(
+            probe_action["attempt_policy"][
+                "run_attempt_2_only_after_attempt_1_processing_failure"
+            ]
+        )
+        self.assertEqual(len(probe_action["probe_cases"]), 2)
+        for case in probe_action["probe_cases"]:
+            self.assertEqual(
+                case["prompt_sha256"],
+                "sha256:"
+                + hashlib.sha256(case["prompt"].encode("utf-8")).hexdigest(),
+            )
+            self.assertIn("No text", case["prompt"])
+            self.assertNotIn("organization", case["prompt"].lower())
+            metadata = case["host_request_metadata"]
+            self.assertEqual(metadata["prompt_sha256"], case["prompt_sha256"])
+            self.assertEqual(
+                case["host_request_metadata_sha256"],
+                "sha256:"
+                + hashlib.sha256(
+                    json.dumps(
+                        metadata,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ).hexdigest(),
+            )
+        native, fallback = probe_action["probe_cases"]
+        self.assertEqual(native["acquisition_mode"], "native-alpha")
+        self.assertIsNone(native["key_color"])
+        self.assertIn("genuinely transparent background", native["prompt"])
+        self.assertIn("nonsemantic calibration mark", native["prompt"])
+        self.assertIn("large open negative spaces", native["prompt"])
+        self.assertNotIn("leaf-like ovals", native["prompt"].lower())
+        self.assertNotIn("coral", native["prompt"].lower())
+        self.assertNotIn("golden yellow", native["prompt"].lower())
+        self.assertIn("--require-native-alpha", native["processor_command"])
+        self.assertNotIn("--key-color", native["processor_command"])
+        self.assertEqual(fallback["acquisition_mode"], "controlled-key-fallback")
+        self.assertEqual(fallback["key_color"], "#00FF3C")
+        self.assertIn("--key-color", fallback["processor_command"])
+        self.assertIn("#00FF3C", fallback["processor_command"])
+        self.assertNotIn("connect-ardot-mcp", actions)
+        self.assertNotIn("open-ardot-target", actions)
+        self.assertNotIn("open-wechat-account", actions)
+        self.assertEqual(
+            probe_action["proof_boundary"]["local_pixel_chain"],
+            "processor-and-pixel-inspection-required-but-insufficient",
+        )
+        self.assertFalse(
+            probe_action["proof_boundary"]["profile_or_model_authored_receipt_can_pass"]
+        )
+        self.assertEqual(
+            probe_action["pixel_inspection_command_template"][:5],
+            [
+                "python3",
+                "-I",
+                "-S",
+                "scripts/secure_runner.py",
+                "scripts/inspect_asset.py",
+            ],
+        )
+        self.assertTrue(probe_action["visual_context_policy"]["probe_is_style_reference"] is False)
+        self.assertEqual(
+            probe_action["visual_context_policy"]["probe_semantics"],
+            "nonsemantic-monochrome-open-stroke-calibration-only",
+        )
+        self.assertTrue(
+            probe_action["visual_context_policy"][
+                "same_c2c_managed_conversation_required"
+            ]
+        )
+        self.assertFalse(
+            probe_action["visual_context_policy"][
+                "throwaway_chat_inside_current_c2c_task_allowed"
+            ]
+        )
+        ignored = subprocess.run(
+            [
+                "git",
+                "check-ignore",
+                "-q",
+                "--",
+                "output/runtime/migration-probes/example/provider-original.png",
+            ],
+            cwd=ROOT,
+            check=False,
+        )
+        self.assertEqual(ignored.returncode, 0)
+
+    def test_codex_migration_probe_runs_after_chatgpt_and_pixel_routes_bind(self) -> None:
+        profile = select_migration_profile(
+            select_codex_chatgpt_rgba_route(valid_profile())
+        )
+        report = self.run_check(
+            profile, phase="migration", binding_only=True, environment={}
+        )
+        self.assertTrue(report["binding_ready"], report["errors"])
+        action_ids = [item["id"] for item in report["host_setup_actions"]]
+        actions = {item["id"]: item for item in report["host_setup_actions"]}
+        self.assertEqual(
+            actions["open-chatgpt-image-session"]["target"],
+            "current-c2c-session-chat-or-project-conversation",
+        )
+        self.assertNotIn("seal-migration-gate-and-end-setup-task", actions)
+        probe_index = action_ids.index("run-migration-rgba-route-probe")
+        for prerequisite in (
+            "prepare-codex-with-chatgpt",
+            "open-chatgpt-image-session",
+            "bind-rgba-download-processing",
+            "bind-image-inspection",
+            "bind-opaque-image-generation",
+        ):
+            self.assertLess(action_ids.index(prerequisite), probe_index)
+        action = report["host_setup_actions"][probe_index]
+        self.assertEqual(
+            action["probe_cases"][0]["generation_route"],
+            "chatgpt-web-image-route-v1",
+        )
+        self.assertIn(
+            "browser-observed-provider-original-download-event",
+            action["host_evidence_required"],
+        )
+        self.assertIn(
+            "same-current-provider-session-for-request-generation-and-download",
+            action["host_evidence_required"],
+        )
+        self.assertIn(
+            "local-original-png-magic-mime-byte-length-download-time-and-sha256",
+            action["host_evidence_required"],
+        )
+        self.assertIn(
+            "host-image-inspection-of-the-exact-derived-file-on-transparent-light-and-dark-surfaces",
+            action["host_evidence_required"],
+        )
+
+    def test_migration_phase_rejects_missing_probe_contract(self) -> None:
+        profile = select_migration_profile(valid_profile())
+        profile["capabilities"]["rgba_cutout_generation"].pop(
+            "migration_probe_contract"
+        )
+        report = self.run_check(
+            profile, phase="migration", binding_only=True, environment={}
+        )
+        self.assertIn(
+            "runtime.capability.rgba_migration_probe_contract_missing",
+            error_codes(report),
+        )
+
+        wrong_route = select_migration_profile(valid_profile())
+        wrong_route["capabilities"]["rgba_cutout_generation"][
+            "generation_route_id"
+        ] = "invented-generic-route-v1"
+        report = self.run_check(
+            wrong_route, phase="migration", binding_only=True, environment={}
+        )
+        self.assertIn(
+            "runtime.capability.rgba_adapter_generation_route_mismatch",
+            error_codes(report),
+        )
+
+    def test_authoring_requires_adapter_matched_rgba_generation_route(self) -> None:
+        missing = valid_profile()
+        missing["capabilities"]["rgba_cutout_generation"].pop("generation_route_id")
+        report = self.run_check(
+            missing, phase="authoring", binding_only=True, environment={}
+        )
+        self.assertIn(
+            "runtime.capability.rgba_generation_route_id_invalid",
+            error_codes(report),
+        )
+
+        mismatched = valid_profile()
+        mismatched["capabilities"]["rgba_cutout_generation"][
+            "generation_route_id"
+        ] = "invented-route-v1"
+        report = self.run_check(
+            mismatched, phase="authoring", binding_only=True, environment={}
+        )
+        self.assertIn(
+            "runtime.capability.rgba_adapter_generation_route_mismatch",
+            error_codes(report),
+        )
+
+    def test_migration_probe_is_nonce_bound_and_rejects_unsafe_nonce(self) -> None:
+        profile = select_migration_profile(valid_profile())
+        first = validate_runtime_profile(
+            profile,
+            ROOT,
+            "migration",
+            now=NOW,
+            environment={},
+            binding_only=True,
+            challenge_nonce="A" * 32,
+        )
+        second = validate_runtime_profile(
+            profile,
+            ROOT,
+            "migration",
+            now=NOW,
+            environment={},
+            binding_only=True,
+            challenge_nonce="B" * 32,
+        )
+        first_action = next(
+            item
+            for item in first["host_setup_actions"]
+            if item["id"] == "run-migration-rgba-route-probe"
+        )
+        second_action = next(
+            item
+            for item in second["host_setup_actions"]
+            if item["id"] == "run-migration-rgba-route-probe"
+        )
+        self.assertEqual(
+            first_action["probe_cases"][0]["prompt_sha256"],
+            second_action["probe_cases"][0]["prompt_sha256"],
+        )
+        self.assertNotEqual(
+            first_action["probe_cases"][0]["host_request_metadata_sha256"],
+            second_action["probe_cases"][0]["host_request_metadata_sha256"],
+        )
+        self.assertNotEqual(first_action["artifact_root"], second_action["artifact_root"])
+        self.assertNotIn("A" * 32, first_action["probe_cases"][0]["prompt"])
+        self.assertEqual(
+            first_action["probe_cases"][0]["host_request_metadata"]["binding_nonce"],
+            "A" * 32,
+        )
+        with self.assertRaises(ValueError):
+            validate_runtime_profile(
+                profile,
+                ROOT,
+                "migration",
+                now=NOW,
+                environment={},
+                binding_only=True,
+                challenge_nonce="../unsafe/path" + "x" * 32,
+            )
+
+    def test_migration_profile_claims_cannot_self_attest_host_route(self) -> None:
+        profile = select_migration_profile(valid_profile())
+        rgba = profile["capabilities"]["rgba_cutout_generation"]
+        rgba["status"] = "passed"
+        rgba["probe"] = probe(
+            "generated-asset-live", "model-authored-old-local-report"
+        )
+        report = self.run_check(profile, phase="migration", environment={})
+        self.assertFalse(report["ok"])
+        self.assertFalse(report["phase_ready"])
+        self.assertEqual(
+            report["migration_selftest"]["status"], "host-trace-required"
+        )
+        self.assertIn("runtime.probe.unattested", error_codes(report))
+
+    def test_native_migration_route_does_not_load_chatgpt(self) -> None:
+        profile = select_migration_profile(valid_profile())
+        report = self.run_check(
+            profile, phase="migration", binding_only=True, environment={}
+        )
+        self.assertTrue(report["binding_ready"], report["errors"])
+        actions = {item["id"]: item for item in report["host_setup_actions"]}
+        self.assertNotIn("prepare-codex-with-chatgpt", actions)
+        self.assertNotIn("open-chatgpt-image-session", actions)
+        self.assertEqual(
+            actions["run-migration-rgba-route-probe"]["probe_cases"][0][
+                "generation_route"
+            ],
+            "test-rgba-provider-v1",
         )
 
     def test_codex_chatgpt_rgba_route_requires_skill_contract_and_one_session(self) -> None:
@@ -499,6 +872,7 @@ class RuntimePreflightTests(unittest.TestCase):
         self.assertNotIn("bind-opaque-image-generation", actions)
         self.assertNotIn("bind-rgba-cutout-generation", actions)
         self.assertNotIn("open-chatgpt-image-session", actions)
+        self.assertNotIn("run-migration-rgba-route-probe", actions)
 
     def test_missing_opaque_image_generation_tool_is_blocking(self) -> None:
         profile = valid_profile()
@@ -665,7 +1039,7 @@ class RuntimePreflightTests(unittest.TestCase):
         self.assertIn("runtime.secret.watermark_key_invalid", error_codes(short))
         self.assertNotIn("base64:YWJj", json.dumps(short, ensure_ascii=False))
 
-    def test_delivery_requires_host_receipt_attestation_tool_and_trust_boundary(self) -> None:
+    def test_optional_delivery_audit_requires_real_attestor_and_trust_boundary(self) -> None:
         missing_tool = valid_profile()
         missing_tool["tools"] = [
             item for item in missing_tool["tools"] if item["kind"] != "host.receipt.attest"
@@ -761,35 +1135,68 @@ class RuntimePreflightTests(unittest.TestCase):
         self.assertEqual(rgba_route["output_contract"], "subject-cutout-rgba8-v1")
         self.assertEqual(rgba_route["processor"], "scripts/prepare_micro_cutout.py")
         self.assertEqual(
+            rgba_route["acquisition_preference"],
+            "native-alpha-first-controlled-key-fallback-only",
+        )
+        self.assertEqual(rgba_route["preferred_processor_arg"], "--require-native-alpha")
+        self.assertEqual(rgba_route["fallback_processor_arg"], "--key-color")
+        self.assertEqual(
+            rgba_route["migration_probe_contract"],
+            MIGRATION_RGBA_PROBE_CONTRACT,
+        )
+        self.assertEqual(
+            rgba_route["generation_route_id"], "chatgpt-web-image-route-v1"
+        )
+        self.assertEqual(
             rgba_route["provider_skill"]["contract"], "chatgpt-web-image-route-v1"
         )
 
-    def test_current_codex_adapter_blocks_delivery_but_keeps_authoring_available(self) -> None:
-        delivery = select_codex_chatgpt_rgba_route(valid_profile())
-        delivery["tools"] = [
-            item for item in delivery["tools"] if item["kind"] != "host.receipt.attest"
-        ]
-        report = self.run_check(delivery, binding_only=True, environment={})
+    def test_current_codex_adapter_allows_session_draft_but_not_optional_signed_audit(self) -> None:
+        audited = select_codex_chatgpt_rgba_route(valid_profile())
+        report = self.run_check(audited, binding_only=True, environment={})
         self.assertFalse(report["binding_ready"])
         self.assertIn(
             "runtime.capability.host_receipt_attestation_unavailable",
             error_codes(report),
         )
 
-        authoring = copy.deepcopy(delivery)
-        authoring["capabilities"].pop("wechat_delivery")
-        authoring["capabilities"].pop("host_receipt_attestation")
-        authoring["links"].pop("wechat_current_account")
+        delivery = copy.deepcopy(audited)
+        delivery["capabilities"].pop("host_receipt_attestation")
+        delivery["capabilities"].pop("opaque_image_generation")
+        delivery["capabilities"].pop("rgba_cutout_generation")
+        for skill in delivery["skills"]:
+            if skill["id"] == "ardot-wechat-publisher":
+                skill["status"] = "loaded"
+            elif skill["id"] == "org-wechat-studio":
+                skill["status"] = "available"
+        used_tool_ids = {
+            tool_id
+            for capability in delivery["capabilities"].values()
+            for tool_id in capability.get("tool_ids", [])
+        }
+        delivery["tools"] = [
+            item for item in delivery["tools"] if item["id"] in used_tool_ids
+        ]
         report = self.run_check(
-            authoring, phase="authoring", binding_only=True, environment={}
+            delivery, phase="delivery", binding_only=True, environment={}
         )
         self.assertTrue(report["binding_ready"], report["errors"])
+        self.assertEqual(
+            report["host_attestation"], "optional-portable-audit-upgrade"
+        )
+        self.assertEqual(report["delivery_assurance"]["mode"], "current-session-draft")
+        self.assertFalse(
+            report["delivery_assurance"]["host_receipt_absence_blocks_draft_write"]
+        )
+        action_ids = {item["id"] for item in report["host_setup_actions"]}
+        self.assertNotIn("bind-host-receipt-attestation", action_ids)
 
     def test_delivery_transport_chain_is_required_and_digest_bound(self) -> None:
         critical = {
             "requirements.txt",
             "runtime/python-dependency-lock.json",
             "skills/chatgpt-web-image-route/SKILL.md",
+            "skills/chatgpt-web-image-route/agents/openai.yaml",
             "skills/chatgpt-web-image-route/references/image-generation-contract.md",
             "references/使用说明.md",
             "references/organization-pack-migration.md",
@@ -1037,6 +1444,7 @@ class RuntimePreflightTests(unittest.TestCase):
         )
         self.assertNotIn("open-wechat-account", actions)
         self.assertNotIn("open-chatgpt-image-session", actions)
+        self.assertNotIn("run-migration-rgba-route-probe", actions)
         self.assertNotIn("bind-image-inspection", actions)
         self.assertNotIn("resolve-watermark-runtime", actions)
 

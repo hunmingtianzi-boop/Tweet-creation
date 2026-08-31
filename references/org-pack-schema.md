@@ -154,9 +154,9 @@ Generate an article-type asset plan with `scripts/orgs.py asset-plan`, then prep
 
 ### Micro-illustration raw→derived lineage
 
-The ChatGPT/provider download is a **raw generation source**. Keep its original bytes under `assets/generated/`; it may be RGB8 on the planned uniform chroma-key background or native RGBA8, but provider/file-extension claims about transparency are never trusted. The raw file is normally not a standalone `assets[]` entry. It must never carry `visual_role: article-micro`, a visual-kit `role`, or be placed in Ardot as the final component image.
+The ChatGPT/provider download is a **raw generation source**. Keep its original bytes under `assets/generated/`. Attempt 1 must request native transparency and run with `--require-native-alpha`; provider/file-extension claims are never trusted, and an RGB8 or all-opaque file fails without background removal. Only after that strict failure may attempt 2 download an RGB8 source on the plan's uniform chroma-key fallback. The raw file is normally not a standalone `assets[]` entry. It must never carry `visual_role: article-micro`, a visual-kit `role`, or be placed in Ardot as the final component image.
 
-Create a separate output and report with the actual processor CLI. All three paths are create-once and distinct; replace the example prompt hash with the SHA-256 of the exact generation prompt. `--key-color` is required for the controlled opaque-key route and may be omitted only when the downloaded native RGBA already passes the strengthened gate.
+Create a separate output and report with the actual processor CLI. All three paths are create-once and distinct; replace the example prompt hash with the SHA-256 of the exact generation prompt. `--require-native-alpha` is mandatory for the preferred route. Only the single fallback replaces it with `--key-color`; the two flags are mutually exclusive.
 
 ```bash
 python3 -I -S scripts/secure_runner.py scripts/prepare_micro_cutout.py \
@@ -168,8 +168,14 @@ python3 -I -S scripts/secure_runner.py scripts/prepare_micro_cutout.py \
   --asset-slot-id kit.floating-spot \
   --prompt-sha256 sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
   --generation-route chatgpt-web-image-route-v1 \
-  --key-color '#00FF3C'
+  --require-native-alpha
 ```
+
+If and only if this preferred attempt fails its native-Alpha/pixel gate,
+regenerate from the slot's `fallback_prompt` and replace the final flag with
+the exact `source_generation.fallback_processor_args` emitted for that slot.
+Its `fallback_key_color` may differ across slots; never hard-code one shared
+green key for the whole visual kit.
 
 The create-once `org-wechat-micro-cutout-derivation-v1` report binds the raw and final locations and file/pixel hashes; article ID, slot ID and role; generation route and prompt hash; processor script/config hashes and method; background/mask/edge assessment; black/white composite probes; and the final RGBA inspection. The validator resolves both files relative to the report, requires the source under `assets/generated/` and the output under `assets/derived/`, and re-computes the hashes and current pixel inspection. A copied report or an `approved: true` claim cannot substitute for those bytes.
 
@@ -204,7 +210,7 @@ python3 scripts/orgs.py register-asset organizations/new-account-id \
     "source_location": "assets/generated/article-object-raw.png",
     "source_sha256": "sha256:<provider-original-bytes>",
     "output_sha256": "sha256:<derived-rgba-bytes>",
-    "method": "border-connected-chroma-matting-v1",
+    "method": "native-rgba-normalize-v1",
     "article_id": "article-slug",
     "asset_slot_id": "kit.floating-spot",
     "prompt_sha256": "sha256:<exact-prompt>",

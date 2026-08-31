@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import tempfile
@@ -68,6 +69,34 @@ def write_native_rgba(path: Path) -> None:
     draw.ellipse((48, 42, 304, 318), fill=(42, 126, 184, 255))
     draw.ellipse((154, 106, 330, 284), fill=(228, 132, 52, 255))
     draw.polygon(((82, 94), (24, 158), (116, 176)), fill=(54, 154, 112, 255))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image.save(path)
+
+
+def write_neutral_open_stroke_probe(path: Path) -> None:
+    """Approximate the migration prompt's connected, low-fill calibration mark."""
+
+    image = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    draw.line(
+        (
+            (92, 156),
+            (182, 88),
+            (286, 126),
+            (402, 102),
+            (334, 218),
+            (414, 302),
+            (312, 408),
+            (236, 296),
+            (104, 394),
+            (142, 260),
+            (238, 224),
+            (356, 360),
+        ),
+        fill=(119, 119, 119, 255),
+        width=40,
+        joint="curve",
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     image.save(path)
 
@@ -164,11 +193,98 @@ class PrepareMicroCutoutTests(unittest.TestCase):
             asset_slot_id=ASSET_SLOT_ID,
             prompt_sha256=PROMPT_SHA,
             generation_route=ROUTE,
+            require_native_alpha=True,
         )
 
         self.assertEqual(result["processor"]["method"], "native-rgba-normalize-v1")
         self.assertTrue(result["background_assessment"]["native_alpha_accepted"])
         self.assertTrue(validate_micro_asset(output, "floating-spot")["ok"])
+
+    def test_native_alpha_attempt_rejects_opaque_source_without_keying(self) -> None:
+        source, output, report = self._paths("native-required-opaque")
+        write_controlled_source(source)
+        with self.assertRaises(CutoutPreparationError) as failure:
+            prepare_micro_cutout(
+                source,
+                output,
+                report,
+                role="floating-spot",
+                article_id=ARTICLE_ID,
+                asset_slot_id=ASSET_SLOT_ID,
+                prompt_sha256=PROMPT_SHA,
+                generation_route=ROUTE,
+                require_native_alpha=True,
+            )
+
+        self.assertEqual(failure.exception.code, "cutout.source.native_alpha_required")
+        self.assertFalse(output.exists())
+        self.assertFalse(report.exists())
+
+    def test_native_alpha_and_key_routes_are_mutually_exclusive(self) -> None:
+        source, output, report = self._paths("conflicting-routes")
+        write_native_rgba(source)
+        with self.assertRaises(CutoutPreparationError) as failure:
+            prepare_micro_cutout(
+                source,
+                output,
+                report,
+                role="floating-spot",
+                article_id=ARTICLE_ID,
+                asset_slot_id=ASSET_SLOT_ID,
+                prompt_sha256=PROMPT_SHA,
+                generation_route=ROUTE,
+                key_color="#FF00FF",
+                require_native_alpha=True,
+            )
+
+        self.assertEqual(failure.exception.code, "cutout.config.conflicting_alpha_route")
+
+    def test_implicit_background_inference_route_is_rejected(self) -> None:
+        source, output, report = self._paths("implicit-route")
+        write_controlled_source(source)
+        with self.assertRaises(CutoutPreparationError) as failure:
+            prepare_micro_cutout(
+                source,
+                output,
+                report,
+                role="floating-spot",
+                article_id=ARTICLE_ID,
+                asset_slot_id=ASSET_SLOT_ID,
+                prompt_sha256=PROMPT_SHA,
+                generation_route=ROUTE,
+            )
+
+        self.assertEqual(
+            failure.exception.code,
+            "cutout.config.explicit_alpha_route_required",
+        )
+        self.assertFalse(output.exists())
+        self.assertFalse(report.exists())
+
+    def test_neutral_open_stroke_migration_probe_passes_native_gate(self) -> None:
+        source, output, report = self._paths("neutral-open-stroke-probe")
+        write_neutral_open_stroke_probe(source)
+        source_validation = validate_micro_asset(source, "floating-spot")
+        self.assertTrue(source_validation["ok"], source_validation["errors"])
+        self.assertLess(
+            source_validation["inspection"]["alpha_bbox_fill_ratio"],
+            0.60,
+        )
+
+        result = prepare_micro_cutout(
+            source,
+            output,
+            report,
+            role="floating-spot",
+            article_id="migration-route-probe",
+            asset_slot_id="migration.rgba-route-probe",
+            prompt_sha256=PROMPT_SHA,
+            generation_route=ROUTE,
+            require_native_alpha=True,
+        )
+
+        self.assertEqual(result["processor"]["method"], "native-rgba-normalize-v1")
+        self.assertTrue(result["final_validation"]["ok"])
 
     def test_nonuniform_background_and_touching_subject_fail_without_outputs(self) -> None:
         source, output, report = self._paths("gradient")
@@ -189,8 +305,12 @@ class PrepareMicroCutoutTests(unittest.TestCase):
                 asset_slot_id=ASSET_SLOT_ID,
                 prompt_sha256=PROMPT_SHA,
                 generation_route=ROUTE,
+                key_color="#FF00FF",
             )
-        self.assertEqual(failure.exception.code, "cutout.source.background_not_uniform")
+        self.assertIn(
+            failure.exception.code,
+            {"cutout.source.background_not_uniform", "cutout.source.key_mismatch"},
+        )
         self.assertFalse(output.exists())
         self.assertFalse(report.exists())
 
@@ -206,6 +326,7 @@ class PrepareMicroCutoutTests(unittest.TestCase):
                 asset_slot_id=ASSET_SLOT_ID,
                 prompt_sha256=PROMPT_SHA,
                 generation_route=ROUTE,
+                key_color="#FF00FF",
             )
         self.assertEqual(failure.exception.code, "cutout.source.background_not_uniform")
         self.assertFalse(output.exists())
@@ -227,6 +348,7 @@ class PrepareMicroCutoutTests(unittest.TestCase):
                 asset_slot_id=ASSET_SLOT_ID,
                 prompt_sha256=PROMPT_SHA,
                 generation_route=ROUTE,
+                key_color="#FF00FF",
             )
         self.assertIn(
             failure.exception.code,
@@ -247,6 +369,7 @@ class PrepareMicroCutoutTests(unittest.TestCase):
                 asset_slot_id=ASSET_SLOT_ID,
                 prompt_sha256=PROMPT_SHA,
                 generation_route=ROUTE,
+                key_color="#FF00FF",
             )
         self.assertEqual(failure.exception.code, "cutout.output.create_once")
 
@@ -262,6 +385,7 @@ class PrepareMicroCutoutTests(unittest.TestCase):
                 asset_slot_id=ASSET_SLOT_ID,
                 prompt_sha256=PROMPT_SHA,
                 generation_route=ROUTE,
+                key_color="#FF00FF",
             )
         self.assertEqual(failure.exception.code, "cutout.path.symlink_forbidden")
 
@@ -281,6 +405,63 @@ class PrepareMicroCutoutTests(unittest.TestCase):
         )
         self.assertFalse(tampered["ok"])
         self.assertTrue(any("config SHA-256" in error for error in tampered["errors"]))
+
+    def test_report_verifier_rejects_implicit_or_mislabeled_alpha_route(self) -> None:
+        _, _, output, report = self._prepare("route-contract")
+        payload = json.loads(report.read_text(encoding="utf-8"))
+        payload["processor"]["config"]["key_color"] = None
+        config_bytes = json.dumps(
+            payload["processor"]["config"],
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        payload["processor"]["config_sha256"] = (
+            "sha256:" + hashlib.sha256(config_bytes).hexdigest()
+        )
+        report.write_text(json.dumps(payload), encoding="utf-8")
+        implicit = validate_cutout_derivation_report(
+            self.root, report, output, "floating-spot"
+        )
+        self.assertFalse(implicit["ok"])
+        self.assertTrue(
+            any("explicit controlled key" in error for error in implicit["errors"]),
+            implicit["errors"],
+        )
+
+        native_source, native_output, native_report = self._paths("native-route-contract")
+        write_native_rgba(native_source)
+        prepare_micro_cutout(
+            native_source,
+            native_output,
+            native_report,
+            role="floating-spot",
+            article_id=ARTICLE_ID,
+            asset_slot_id=ASSET_SLOT_ID,
+            prompt_sha256=PROMPT_SHA,
+            generation_route=ROUTE,
+            require_native_alpha=True,
+        )
+        native_payload = json.loads(native_report.read_text(encoding="utf-8"))
+        native_payload["processor"]["config"]["require_native_alpha"] = False
+        native_config_bytes = json.dumps(
+            native_payload["processor"]["config"],
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        native_payload["processor"]["config_sha256"] = (
+            "sha256:" + hashlib.sha256(native_config_bytes).hexdigest()
+        )
+        native_report.write_text(json.dumps(native_payload), encoding="utf-8")
+        mislabeled = validate_cutout_derivation_report(
+            self.root, native_report, native_output, "floating-spot"
+        )
+        self.assertFalse(mislabeled["ok"])
+        self.assertTrue(
+            any("explicit native-alpha" in error for error in mislabeled["errors"]),
+            mislabeled["errors"],
+        )
 
     def test_report_verifier_recomputes_pixel_processor_and_probe_evidence(self) -> None:
         tamper_cases = (

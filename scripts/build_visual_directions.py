@@ -12,6 +12,11 @@ from orgs import load_pack, validate_pack
 from workflow_quality import calibration_state
 
 
+CALIBRATION_EXCLUSION = (
+    " Never reuse the neutral migration calibration mark or its grayscale test treatment."
+)
+
+
 def build_directions(org_dir: Path, article_type: str) -> dict[str, Any]:
     report = validate_pack(org_dir)
     if not report["ok"]:
@@ -85,6 +90,7 @@ def build_directions(org_dir: Path, article_type: str) -> dict[str, Any]:
             + source_basis
             + reference_basis
             + "text remains editable in Ardot; no generated letters, logo, QR, dashboard, or generic AI glow."
+            + CALIBRATION_EXCLUSION
         )
         directions.append(
             {
@@ -105,8 +111,10 @@ def build_directions(org_dir: Path, article_type: str) -> dict[str, Any]:
                 ],
                 "background_family_trial": {
                     "required": True,
-                    "master": "Generate one text-free atmosphere master with a near-solid copy-safe zone.",
-                    "companions": "Generate 1 to 3 variants with the same spatial logic, material, light direction, palette, and declared surface mode.",
+                    "master": "Generate one text-free atmosphere master with a near-solid copy-safe zone."
+                    + CALIBRATION_EXCLUSION,
+                    "companions": "Generate 1 to 3 variants with the same spatial logic, material, light direction, palette, and declared surface mode."
+                    + CALIBRATION_EXCLUSION,
                     "approval_contract": {
                         "surface_mode": "choose exactly one of light or dark for the whole family",
                         "copy_safe_zone": "record normalized x/y/width/height",
@@ -115,7 +123,7 @@ def build_directions(org_dir: Path, article_type: str) -> dict[str, Any]:
                         "maximum_copy_safe_stddev": 0.10,
                     },
                     "preflight": "Export final opaque PNGs, register the master and companions, then run orgs.py validate. Do not begin an article root until pixel inspection passes.",
-                    "forbidden": "Do not mix light and dark chapter surfaces, accept a high-variance copy zone, generate unrelated chapter backgrounds, or use generated scenes as documentary evidence.",
+                    "forbidden": "Do not mix light and dark chapter surfaces, accept a high-variance copy zone, generate unrelated chapter backgrounds, use generated scenes as documentary evidence, or reuse the neutral migration calibration mark/grayscale test treatment.",
                 },
                 "typography_trial": {
                     "recommended_strategy": typography_strategy,
