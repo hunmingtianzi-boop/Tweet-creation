@@ -61,7 +61,8 @@ WeChat adapter     → 图片上传、内联样式、草稿创建
 13. 每次创建顶层 Frame 前定位空白区域；每批编辑不超过 25 个操作。
 14. 分段截图检查 Hero、章节、观点、步骤、案例和 CTA；超过 2000 px 的长文不要一次截图。
 15. 修正溢出、断行、空洞、方框化和组织气质偏差。
-16. 为 Hero、章节、证据、复杂区块和 CTA 建立 v3 截图验收 JSON，绑定同一 article root、本地 390 px PNG、SHA-256、像素尺寸、章节、导出时间与密度样本。再导出当前根中全部 visual-kit instance inventory 与逐实例 node properties（bounds、image/text/closed-shape、font size、fill/stroke），逐文件记录 SHA-256；相同 role 的所有实例都要覆盖。运行 `build_visual_review.py`，五类节点、密度样本、微组件派生门禁与全部检查通过后才投递。
+16. 在所有正文和可选 footer 之后追加末位原生可编辑文本 `感谢拓浙 AI 生态提供本篇内容生产工作流支持。`。该文本是仓库工作流归属，不进入 organization pack 品牌变量，不得删改、隐藏、图片化或调换顺序。
+17. 为 Hero、章节、证据、复杂区块和 CTA 建立 v3 截图验收 JSON，绑定同一 article root、本地 390 px PNG、SHA-256、像素尺寸、章节、导出时间与密度样本。再导出当前根中全部 visual-kit instance inventory 与逐实例 node properties（bounds、image/text/closed-shape、font size、fill/stroke），逐文件记录 SHA-256；相同 role 的所有实例都要覆盖。运行 `build_visual_review.py`，五类节点、密度样本、微组件派生门禁与全部检查通过后才投递。
 
 Ardot 仍是交互设计的唯一源。每个 module 必须额外保存三个原生可编辑状态：`closed`、`open`、信息等价 `fallback`。三者分别记录不同 node ID、本地 390 px 截图和真实文件 SHA-256；组件 `revision_hash` 必须等于当前文章 revision，`covered_instance_ids` / `covered_semantic_hashes` 必须按顺序完整覆盖组内 transport instances。HTML 运行时不能反过来成为设计源。适配器只允许把这些状态编译为 `wechat-svg-smil-self-v1` 的无 ID 自触发 SVG/SMIL 或 CSS 横滑候选，并为每个动态/静态 instance 写入相同 fallback key 与正文语义哈希。详见 [interaction-composition.md](interaction-composition.md)。
 
@@ -98,7 +99,7 @@ Ardot 仍是交互设计的唯一源。每个 module 必须额外保存三个原
 
 ## 微信投递
 
-视觉定稿且 `article.visual_review_file` 通过后，才运行 `compile_wechat.py` 生成内部投递文件。适配层需要把 Ardot 审核后的组件语义映射为微信允许的内联样式，并将正文图片上传到目标公众号；它只能复制已经 registered/local_verified 的 marked derivative，不能首次嵌入或修改水印。保存草稿后下载真实微信 CDN/封面派生图重新检测。默认只创建草稿；正式发布仍需单独确认。
+视觉定稿且 `article.visual_review_file` 通过后，才运行 `compile_wechat.py` 生成内部投递文件。适配层需要把 Ardot 审核后的组件语义映射为微信允许的内联样式，并将正文图片上传到目标公众号；它只能复制已经 registered/local_verified 的 marked derivative，不能首次嵌入或修改水印。投递前冻结 handoff schema v4，记录感谢语的 Ardot text node、组件名、文本 SHA、可编辑/可见/末位状态，并使用 `validate_workflow_attribution.py` 从哈希绑定的当前 root 导出独立校验；保存后以重新打开草稿的规范化可见文本和顺序再跑 `--require-readback`，不依赖可能被清洗的 `data-*` 标记。保存草稿后下载真实微信 CDN/封面派生图重新检测。默认只创建草稿；正式发布仍需单独确认。
 
 动态能力不是 organization pack 的视觉变量。工作流固定支持无 JavaScript、无 ID、元素自身 `begin="click"` 的 `<set>` / `<animateTransform>` 与 CSS 横滑生成，但能否在生产正文启用，由目标公众号的投递层能力档案决定：先保存候选并回读结构签名，再用已登记的 iOS/Android 微信版本做真机预览。回读只证明结构未被清洗；能力档案缺失、过期、账号不匹配或任一客户端失败时，必须更新同一草稿为信息等价静态版。
 

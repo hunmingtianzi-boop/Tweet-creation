@@ -44,6 +44,49 @@ Use this order for every eligible asset:
    derivative and run detection again. HTML readback alone is not watermark
    evidence.
 
+## Detection commands
+
+Inject `PROVENANCE_WATERMARK_KEY` from an external secret manager. Its value is
+`hex:` or `base64:` encoded key material containing at least 32 random bytes;
+never pass it on the command line or save it in Git, Ardot, HTML, or a public
+report.
+
+Check the exact local final asset:
+
+```bash
+audit_dir="$(mktemp -d)"
+python3 scripts/provenance_watermark.py detect \
+  "/absolute/path/background-final.png" \
+  --report "$audit_dir/local-detect.json"
+```
+
+After saving the WeChat draft, download the exact hosted object returned by the
+draft and detect that file without screenshotting, cropping, or transcoding it:
+
+```bash
+curl --fail --location --silent --show-error \
+  -H 'Accept: image/png,image/jpeg' \
+  "$WECHAT_CDN_URL" --output "$audit_dir/wechat-hosted-image"
+python3 scripts/provenance_watermark.py detect \
+  "$audit_dir/wechat-hosted-image" \
+  --report "$audit_dir/cdn-detect.json"
+```
+
+A successful detector exits `0` and reports both
+`status: payload_authenticated` and `authenticated: true`. For the local final,
+`input_sha256` must equal the embed report's `post_sha256`. WeChat may re-encode
+the hosted object, so its byte SHA may differ; compare `algorithm`,
+`payload_fingerprint`, `key_epoch`, `version`, and `purpose` with the local embed
+evidence before the outer workflow records `transport_verified`.
+
+Exit `1` means `not_detected`: the file may be unmarked, the selected key may be
+wrong, or transport may have destroyed the signal. It does not prove the image
+was never marked. Exit `2` means an input, key, path, CLI, or format error. The
+detector currently accepts complete PNG/JPEG images, not HTML error pages or
+WebP. `repeat_vote_agreement` and `mean_abs_margin` are diagnostics, not
+probabilities or ownership scores. Ordinary detection must not request
+`--private-record`; raw watermark IDs stay in the Git-external private registry.
+
 Never add the first watermark in `compile_wechat.py`: doing so would bypass the
 registered asset hash and the Ardot revision evidence. Never overwrite the
 unmarked master or stack a new watermark over an already marked derivative.
@@ -130,9 +173,11 @@ exact input SHA-256, byte length, format, and dimensions. The diagnostic
 `repeat_vote_agreement` is not a probability or attribution score.
 
 Inputs are restricted to regular, single-frame files and bounded by format,
-byte, pixel, edge, and aspect-ratio limits before full decode. Transparent,
-oversized, malformed, truncated, animated, FIFO/device, and decompression-bomb
-inputs fail closed without a traceback.
+byte, pixel, edge, and aspect-ratio limits before full decode. Oversized,
+malformed, truncated, animated, FIFO/device, and decompression-bomb inputs fail
+closed without a traceback. Embed, PSNR, and transport-simulation carriers must
+also be fully opaque; detection may inspect a PNG with Alpha but does not make
+that file an eligible V1 carrier.
 
 Do not increase strength past the visual-quality limit merely to make a poor
 carrier pass. Keep at least two independently marked eligible carriers in a

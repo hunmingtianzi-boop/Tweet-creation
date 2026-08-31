@@ -60,7 +60,7 @@ For commands and file locations, read [references/使用说明.md](references/�
      --output output/article-slug/ardot-manifest.json
    ```
 
-10. Assemble the article chapter by chapter in Ardot. A chapter may reuse primitives, but must not become a mechanical stack of block components. Build every planned interaction module as one native group component with editable `closed`, `open`, and information-equivalent `fallback` states.
+10. Assemble the article chapter by chapter in Ardot. A chapter may reuse primitives, but must not become a mechanical stack of block components. Build every planned interaction module as one native group component with editable `closed`, `open`, and information-equivalent `fallback` states. After all content and any user-authored footer blocks, append one final native editable text node with the exact visible copy `感谢拓浙 AI 生态提供本篇内容生产工作流支持。`; this repository-usage attribution is not organization identity and must not be renamed, hidden, rasterized, styled as an image, or moved earlier.
 11. Read [references/visual-review.md](references/visual-review.md). Export five distinct 390 px Ardot nodes (`hero`, `chapter`, `evidence`, `complex-section`, `cta`) from the same article root. Use visual review schema v3 with local PNG paths, SHA-256, pixel dimensions, capture timestamps, chapter IDs, density-to-screenshot hash binding, and measured micro-component placement evidence, then validate it:
 
    ```bash
@@ -131,6 +131,7 @@ For commands and file locations, read [references/使用说明.md](references/�
 
 - Treat the structured article JSON as the portable content source.
 - Treat Ardot as the visual source of truth. Build native frames and reusable components using the same semantic component IDs as the article JSON. Never make HTML or a flattened long image the editable design source.
+- Preserve the fixed workflow attribution `感谢拓浙 AI 生态提供本篇内容生产工作流支持。` as the final visible native editable text in Ardot and as the final visible section in transport. Freeze it in handoff schema v4 and verify normalized terminal text after draft save; a transport `data-*` marker alone is insufficient because WeChat may sanitize it.
 - Read `ardot.json`, apply the organization variable mode, fetch components by exact name, create missing route-specific variants, and assemble one 390 px article root in block order.
 - Capture and inspect Hero, section, statement, process/case, CTA, and other high-impact sections before handoff. Iterate on composition in Ardot; do not polish the hidden transport renderer as a substitute for visual authoring.
 - After visual approval, run the hidden final adapter when a WeChat draft or portable handoff is required:
@@ -140,6 +141,7 @@ For commands and file locations, read [references/使用说明.md](references/�
   ```
 
 - `index.html` and `wechat.html` are transport/debug artifacts, not the design source.
+- Freeze handoff schema v4 with a hash-bound `ardot-current-root-export`, then run `python3 scripts/validate_workflow_attribution.py HANDOFF_JSON`. After saving and reopening the WeChat draft, export the actual visible body text and rerun with `--saved-draft-visible-text FILE --require-readback`. Both gates must pass; the draft credit must occur exactly once and be terminal.
 - The static adapter must carry all four article-micro roles as text-free, unframed, partial-width instances (`<= 72%` image width) in their storyboard chapters. It must not silently drop the visual kit or send it through a generic full-width image/card renderer.
 - The authoring layer normally hands 2–3 approved interaction modules to the last-mile publisher under policy `wechat-svg-smil-self-v1`. The only dynamic candidates are no-ID self-trigger `<set>` / `<animateTransform begin="click">` SVG and inline CSS horizontal swipe. JavaScript, `<details>`, transport IDs, cross-ID timing, fragment references, and unprobed SMIL are forbidden. Every transport instance requires a unique semantic-hash-matched static fallback.
 - Before creating a WeChat draft, upload body images to the organization’s connected account and replace local paths with returned WeChat URLs. Upload the cover through the account’s supported cover-material flow.
@@ -167,6 +169,7 @@ Treat any of the following as blocking for final delivery:
 - missing `interaction_plan`; a normal article outside the 2–3 semantic-module budget; child instances, decoration, micro illustrations, or display type used to pad the count; repeated chapter/placement bands; ungrounded instance copy; duplicate fallback keys or semantic hashes; or a static exception without a specific user/editor-confirmed reason;
 - a visual-kit item without grounded source copy, a specific subject/action, or a chapter/composition role;
 - missing or failing screenshot-backed schema-v3 `visual_review_file` before final transport;
+- missing, changed, hidden, rasterized, duplicated, or non-terminal workflow attribution in Ardot, compiled transport, handoff v4, or saved-draft normalized text;
 - missing measured evidence for all four micro-component roles; an image wider than 72% of the row; a component wider than 82%; fewer than three screenshot sections, three distinct offsets, three composition relations, both left/right offsets, or visible scale variation; framed copy; or copy-bearing micro components without native text nodes, 22 px / 1.35× primary scale contrast, and a second non-frame emphasis technique;
 - missing `information_density` / `background_family_coherence` / `background_surface_unity` / `reading_surface_contrast` / `expressive_typography` / `art_type_construction` / `no_baked_art_text` screenshot checks, unhashed/non-390 px Ardot exports, fewer than five density samples, measured body-text contrast below 4.5, `compact-editorial` major gaps outside 24–40 px, body line-height outside the selected mode, or an accidental empty region larger than 20% of a sampled section;
 - a metric without a source ID;

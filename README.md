@@ -4,6 +4,21 @@
 
 不是“换 Logo 和颜色”的统一模板。新公众号会先建立组织包，再按该组织的受众、语气、视觉母题、文章类型和真实资料生成文章与文件资产。
 
+## 使用声明
+
+公开使用本仓库工作流制作的公众号推文，必须在正文最后保留以下可见文字：
+
+> 感谢拓浙 AI 生态提供本篇内容生产工作流支持。
+
+这是工作流使用归属，不是目标组织的品牌元素，因此不得被 organization pack 改写，也不得删除、隐藏、图片化或移到正文中间。Ardot 中应保留末位原生可编辑文本节点；微信适配器会强制生成同文末位区块。发布前使用 `scripts/validate_workflow_attribution.py` 校验 handoff v4 的当前 Ardot root 哈希节点导出，保存并重新打开草稿后再用实际可见文本回读校验“恰好一次且末位”。
+
+```bash
+python3 scripts/validate_workflow_attribution.py handoff.json
+python3 scripts/validate_workflow_attribution.py handoff.json \
+  --saved-draft-visible-text saved-draft-visible-text.txt \
+  --require-readback
+```
+
 ## Source-zero 默认模式
 
 新公众号只从本轮明确允许的组织资料、原始文案、品牌文件和真实照片开始视觉校准。工作流不会打开 `examples/`、另一组织的 pack、旧推文截图/PDF 或旧 Ardot 文件来“找风格”。仓库中的历史目录仅用于迁移兼容审计，不是视觉基准，也不参与测试。
@@ -103,6 +118,30 @@ python3 scripts/orgs.py register-asset organizations/new-account-id \
 ```
 
 真实照片、Logo、二维码、透明小组件、SVG 和 QA 截图不进入 V1 水印链路。无水印母版的标准 `unwatermarked-masters/` 目录已被 Git 忽略，迁移时需从组织的私有资产库单独恢复。完整边界见[隐藏来源水印](references/provenance-watermark.md)。
+
+### 检查已生成图的水印
+
+先由 secret manager 向当前进程注入 `PROVENANCE_WATERMARK_KEY`；值必须是 `hex:` 或 `base64:` 编码的至少 32 字节随机密钥，不要写入 Git、命令参数或公开报告。检查本地成品：
+
+```bash
+audit_dir="$(mktemp -d)"
+python3 scripts/provenance_watermark.py detect \
+  "/absolute/path/background-final.png" \
+  --report "$audit_dir/local-detect.json"
+```
+
+检查保存后草稿的真实微信托管图：
+
+```bash
+curl --fail --location --silent --show-error \
+  -H 'Accept: image/png,image/jpeg' \
+  "$WECHAT_CDN_URL" --output "$audit_dir/wechat-hosted-image"
+python3 scripts/provenance_watermark.py detect \
+  "$audit_dir/wechat-hosted-image" \
+  --report "$audit_dir/cdn-detect.json"
+```
+
+成功时退出码为 `0`，且报告需同时为 `status: payload_authenticated` 和 `authenticated: true`。本地成品与微信 CDN 图都要核对 `payload_fingerprint`、`key_epoch`、`version`、`purpose` 和 `algorithm`；本地成品还要求 `input_sha256` 等于 embed 报告的 `post_sha256`。微信 CDN 可能改变文件 SHA，不要强求两者 SHA 相同。退出码 `1` 是 `not_detected`，可能表示未标记、密钥不对或传输破坏，不能证明“从未加过水印”；退出码 `2` 表示密钥、输入、路径或格式错误。日常检测不要使用 `--private-record`，也不要用截图、裁切图或转码图替代实际 `mmbiz.qpic.cn` 对象。
 
 在 `article.json` 写入 `interaction_plan`：常规文章使用 `dynamic-default`，2 个模块分布在 `early` + `middle`，3 个再增加 `late`。先绑定 chapter、source blocks 和逐实例语义哈希；当前 Ardot revision 的三态截图在全文装配后补齐。详见 [动态组件构图与计数](references/interaction-composition.md)。
 

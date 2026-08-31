@@ -34,6 +34,9 @@ from orgs import (  # noqa: E402
 )
 from provenance_watermark import embed_watermark, measure_psnr  # noqa: E402
 from workflow_quality import (  # noqa: E402
+    WORKFLOW_ATTRIBUTION_MARKER,
+    WORKFLOW_ATTRIBUTION_TEXT,
+    WORKFLOW_ATTRIBUTION_TEXT_SHA256,
     WATERMARK_SCHEME,
     asset_watermark_requirement,
     interaction_semantic_hash,
@@ -1923,6 +1926,46 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
         self.assertTrue(manifest["interaction_plan"]["ready"])
         self.assertEqual(manifest["interaction_plan"]["module_count"], 2)
         self.assertFalse(manifest["interaction_plan"]["evidence_required"])
+        self.assertEqual(
+            manifest["workflow_attribution"]["text"],
+            WORKFLOW_ATTRIBUTION_TEXT,
+        )
+        self.assertEqual(
+            manifest["workflow_attribution"]["marker"],
+            WORKFLOW_ATTRIBUTION_MARKER,
+        )
+        self.assertEqual(
+            manifest["workflow_attribution"]["policy_id"],
+            WORKFLOW_ATTRIBUTION_MARKER,
+        )
+        self.assertEqual(
+            manifest["workflow_attribution"]["placement"],
+            "terminal-after-all-article-blocks",
+        )
+        self.assertEqual(
+            manifest["workflow_attribution"]["text_sha256"],
+            f"sha256:{WORKFLOW_ATTRIBUTION_TEXT_SHA256}",
+        )
+        self.assertTrue(manifest["workflow_attribution"]["native_editable_text"])
+        self.assertFalse(manifest["workflow_attribution"]["organization_identity"])
+        self.assertTrue(
+            manifest["workflow_attribution"]["component_name"].startswith(
+                "WeChat/Footer/WorkflowAttribution/"
+            )
+        )
+        self.assertEqual(manifest["handoff"]["contract_schema_version"], 4)
+        self.assertEqual(
+            manifest["handoff"]["revision_algorithm"],
+            "ardot-root-revision-v1",
+        )
+        self.assertEqual(
+            manifest["handoff"]["required_workflow_attribution"]["policy_id"],
+            WORKFLOW_ATTRIBUTION_MARKER,
+        )
+        self.assertIn(
+            "node_export_sha256",
+            manifest["handoff"]["required_workflow_attribution"]["evidence"],
+        )
         self.assertTrue(all(block["container_policy"] == "open-by-default" for block in manifest["blocks"]))
 
     def test_compile_passes_only_with_hashed_390px_ardot_evidence(self) -> None:
@@ -1939,6 +1982,94 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
         self.assertEqual(
             report["interaction_authoring"]["production_default"],
             "static-fallback-until-account-runtime-certification",
+        )
+        self.assertTrue(report["workflow_attribution"]["ready"])
+        self.assertTrue(report["workflow_attribution"]["terminal"])
+        self.assertEqual(
+            report["workflow_attribution"]["policy_id"],
+            WORKFLOW_ATTRIBUTION_MARKER,
+        )
+        self.assertEqual(
+            report["workflow_attribution"]["text_sha256"],
+            f"sha256:{WORKFLOW_ATTRIBUTION_TEXT_SHA256}",
+        )
+        body = (self.root / "output" / "wechat.html").read_text(encoding="utf-8")
+        self.assertEqual(body.count(WORKFLOW_ATTRIBUTION_TEXT), 1)
+        self.assertEqual(
+            body.count(f'data-workflow-attribution="{WORKFLOW_ATTRIBUTION_MARKER}"'),
+            1,
+        )
+        self.assertGreater(
+            body.rfind(WORKFLOW_ATTRIBUTION_TEXT),
+            body.rfind('data-component="'),
+        )
+
+    def test_missing_terminal_workflow_attribution_blocks_transport(self) -> None:
+        add_visual_review(self.article)
+        output = self.root / "output"
+        with mock.patch("compile_wechat.render_workflow_attribution", return_value=""):
+            report = compile_article(self.article, self.pack, output, check=True)
+        self.assertFalse(report["ok"])
+        self.assertFalse(report["workflow_attribution"]["ready"])
+        self.assertTrue(
+            any("workflow attribution" in item for item in report["errors"]),
+            report["errors"],
+        )
+        self.assertFalse((output / "wechat.html").exists())
+
+    def test_user_footer_precedes_single_reserved_workflow_attribution(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article["blocks"].append(
+            {
+                "type": "footer",
+                "name": "Fresh organization",
+                "tagline": "A user-authored footer",
+                "credits": "编辑：测试编辑组",
+            }
+        )
+        article["storyboard"]["chapters"][-1]["block_indices"].append(4)
+        write_json(self.article, article)
+        add_visual_review(self.article)
+        output = self.root / "output"
+        report = compile_article(self.article, self.pack, output, check=True)
+        self.assertTrue(report["ok"], report["errors"])
+        body = (output / "wechat.html").read_text(encoding="utf-8")
+        self.assertEqual(body.count(WORKFLOW_ATTRIBUTION_TEXT), 1)
+        self.assertLess(body.index("编辑：测试编辑组"), body.index(WORKFLOW_ATTRIBUTION_TEXT))
+
+    def test_article_cannot_duplicate_reserved_workflow_attribution(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article["blocks"].append(
+            {"type": "footer", "credits": WORKFLOW_ATTRIBUTION_TEXT}
+        )
+        article["storyboard"]["chapters"][-1]["block_indices"].append(4)
+        write_json(self.article, article)
+        add_visual_review(self.article)
+        output = self.root / "output"
+        report = compile_article(self.article, self.pack, output, check=True)
+        self.assertFalse(report["ok"])
+        self.assertFalse(report["workflow_attribution"]["present_once"])
+        self.assertFalse((output / "wechat.html").exists())
+
+    def test_organization_tokens_cannot_hide_workflow_attribution(self) -> None:
+        organization_path = self.pack / "organization.json"
+        organization = json.loads(organization_path.read_text(encoding="utf-8"))
+        organization["visual"]["tokens"]["body"] = organization["visual"]["tokens"][
+            "surface"
+        ]
+        write_json(organization_path, organization)
+        add_visual_review(self.article)
+        output = self.root / "output"
+        report = compile_article(self.article, self.pack, output, check=True)
+        self.assertTrue(report["ok"], report["errors"])
+        attribution = report["workflow_attribution"]
+        self.assertTrue(attribution["contrast_ready"])
+        self.assertGreaterEqual(attribution["contrast_ratio"], 4.5)
+        self.assertNotEqual(attribution["text_color"], attribution["surface_color"])
+        body = (output / "wechat.html").read_text(encoding="utf-8")
+        self.assertIn(
+            f'data-workflow-attribution-contrast="{attribution["contrast_ratio"]}"',
+            body,
         )
 
     def test_static_transport_keeps_micro_components_partial_width_and_unframed(self) -> None:

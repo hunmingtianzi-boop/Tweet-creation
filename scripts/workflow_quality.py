@@ -291,6 +291,15 @@ WATERMARK_EVIDENCE_FIELDS = {
     "report_sha256",
 }
 
+# Repository-level usage attribution.  It is deliberately independent from an
+# organization pack so migrating the workflow cannot silently rename, hide, or
+# reinterpret the credit as the target organization's own identity.
+WORKFLOW_ATTRIBUTION_TEXT = "感谢拓浙 AI 生态提供本篇内容生产工作流支持。"
+WORKFLOW_ATTRIBUTION_MARKER = "tuozhe-ai-ecosystem-workflow-v1"
+WORKFLOW_ATTRIBUTION_TEXT_SHA256 = hashlib.sha256(
+    WORKFLOW_ATTRIBUTION_TEXT.encode("utf-8")
+).hexdigest()
+
 
 def valid_watermark_key_id(value: Any) -> bool:
     """Accept a public identifier, never material that resembles a secret key."""

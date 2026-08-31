@@ -8,6 +8,7 @@
 - 事实、来源、资产、Ardot 和投递适配的文件分层；
 - 390 px、开放式构图、compact-editorial、截图证据与草稿投递门槛；
 - Logo/二维码权限边界和发布确认规则。
+- 仓库级末位使用归属 `感谢拓浙 AI 生态提供本篇内容生产工作流支持。`；它跟随工作流迁移，不是可换的组织品牌文案。
 - 隐藏来源水印的算法版本、公开证据 schema、`local_verified → transport_verified` 状态机和排除资产类型；密钥与私有 registry 不随 pack 迁移。
 - `wechat-svg-smil-self-v1` 的交互语义、探针协议、静态等价物合同、fallback 哈希和验收步骤。
 - 创作层默认 2–3 个 semantic interaction modules、module/transport instance 计数边界、两阶段 Ardot 证据合同与显式静态例外 schema。

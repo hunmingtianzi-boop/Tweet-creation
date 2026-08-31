@@ -13,6 +13,9 @@ from build_visual_kit import build_visual_kit_plan
 from build_storyboard import build_storyboard_plan
 from orgs import load_pack, validate_pack
 from workflow_quality import (
+    WORKFLOW_ATTRIBUTION_MARKER,
+    WORKFLOW_ATTRIBUTION_TEXT,
+    WORKFLOW_ATTRIBUTION_TEXT_SHA256,
     calibration_state,
     validate_interaction_plan,
     validate_typography_plan,
@@ -337,6 +340,18 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
         },
         "calibration": calibration,
         "provenance_watermark": provenance_watermark,
+        "workflow_attribution": {
+            "required": True,
+            "policy_id": WORKFLOW_ATTRIBUTION_MARKER,
+            "classification": "repository-usage-credit",
+            "text": WORKFLOW_ATTRIBUTION_TEXT,
+            "text_sha256": f"sha256:{WORKFLOW_ATTRIBUTION_TEXT_SHA256}",
+            "marker": WORKFLOW_ATTRIBUTION_MARKER,
+            "placement": "terminal-after-all-article-blocks",
+            "component_name": f"WeChat/Footer/WorkflowAttribution/{mode}",
+            "native_editable_text": True,
+            "organization_identity": False,
+        },
         "storyboard": storyboard,
         "variables": variables,
         "visual_kit": visual_kit_plan,
@@ -369,6 +384,7 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
             "export every actual visual-kit instance from the article root into the hashed inventory and node-property evidence; repeated roles are allowed but no instance may be omitted",
             "upload registered image assets to their named image slots",
             "use the already-watermarked registered derivative; never embed a watermark for the first time in Ardot or during WeChat compile",
+            "append the exact workflow_attribution text once as the final native editable text component after all article and user-authored footer blocks; it is repository usage credit, not organization identity, and must not be renamed, hidden, rasterized, or moved earlier",
             "capture section screenshots and iterate before any WeChat handoff",
         ],
         "qa": {
@@ -400,6 +416,7 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
                 "a micro image exceeds 72 percent of the row, a micro component exceeds 82 percent, or the four roles lack measurable left/right stagger and scale variation",
                 "copy-bearing micro components lack native text nodes, at least 22 px primary type, 1.35x body scale contrast, or a second non-frame emphasis technique",
                 "organization mode or organization_id mismatch",
+                "terminal workflow attribution is missing, changed, hidden, rasterized, or not the final visible text",
             ],
             "layout_policy": {
                 "maximum_boxed_section_ratio": 0.2,
@@ -427,9 +444,27 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
             "requires_visual_review": True,
         },
         "handoff": {
+            "contract_schema_version": 4,
+            "revision_algorithm": "ardot-root-revision-v1",
             "source_of_truth": "ardot-native",
             "wechat_adapter": "hidden-final-transport",
             "publish_action": "draft-only",
+            "required_workflow_attribution": {
+                "policy_id": WORKFLOW_ATTRIBUTION_MARKER,
+                "classification": "repository-usage-credit",
+                "text": WORKFLOW_ATTRIBUTION_TEXT,
+                "text_sha256": f"sha256:{WORKFLOW_ATTRIBUTION_TEXT_SHA256}",
+                "evidence": [
+                    "ardot_node_id",
+                    "component_name",
+                    "node_kind",
+                    "native_editable_text",
+                    "visible",
+                    "terminal",
+                    "node_export_file",
+                    "node_export_sha256",
+                ],
+            },
         },
     }
 

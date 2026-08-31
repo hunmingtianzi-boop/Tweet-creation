@@ -47,6 +47,8 @@
 
 ## WeChat handoff
 
+- Handoff schema v4 binds `tuozhe-ai-ecosystem-workflow-v1` to the exact text `感谢拓浙 AI 生态提供本篇内容生产工作流支持。`, its SHA-256, current-root Ardot text node, component name, and native/editable/visible/terminal facts. `ardot-root-revision-v1` is independently recomputed from full visible text order, component order, asset hashes, file ID, and root ID; matching self-reported strings do not pass. Legacy v3 must be refrozen rather than grandfathered.
+- `scripts/validate_workflow_attribution.py` derives the node facts from a hash-bound current-root export before delivery. After save, rerun it with `--saved-draft-visible-text FILE --require-readback`; the actual reopened draft contains the credit exactly once as its final normalized visible text. A surviving `data-*` marker alone is not evidence.
 - `wechat.html` uses inline styles, with no `<script>`, `<style>`, form, iframe, or external stylesheet dependency.
 - Static `wechat.html` contains one text-free `data-visual-role="article-micro"` instance for every visual-kit item; each carries its semantic role/asset marker, uses a partial-width wrapper no larger than 72%, and has no border, radius, filled copy frame, or generic full-width image container.
 - Dynamic candidates use policy `wechat-svg-smil-self-v1`: only no-ID inline SVG `<set>` / `<animateTransform>` with self `begin="click"`, plus inline CSS horizontal swipe. Reject `<details>`, `<summary>`, JavaScript, `on*`, `javascript:`, every transport `id`, `foo.click`, `<use>`, fragment references, `<foreignObject>`, and unprobed SMIL.

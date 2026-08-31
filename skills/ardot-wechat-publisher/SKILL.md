@@ -22,6 +22,7 @@ Obtain or resolve these values before transmitting content:
 - current Ardot file or design identifier;
 - exact final article root node or frame;
 - title, digest, body text, body images, and cover from that current root;
+- handoff schema v4 workflow-attribution evidence from the current root: policy `tuozhe-ai-ecosystem-workflow-v1`, exact text `感谢拓浙 AI 生态提供本篇内容生产工作流支持。`, its text SHA-256, Ardot node/component, and derived native-editable/visible/terminal order; refreeze legacy v3 rather than exempting it;
 - public watermark evidence for every eligible generated raster carrier, including final pixel SHA, report hash, key identifier, and `local_verified` status; never request or copy the private watermark-ID registry into the handoff;
 - closed/open/static-fallback Ardot nodes for every requested non-static component;
 - target WeChat Official Account identity;
@@ -36,9 +37,11 @@ Prefer the official WeChat server API. Use browser editing only as a declared fa
 ### 1. Freeze the reviewed revision
 
 - Read the current Ardot root, not an upstream content file.
-- Record file/design ID, root node ID, capture time, and a deterministic revision hash.
+- Record file/design ID, root node ID, capture time, and `ardot-root-revision-v1`. Recompute the revision from the current root's full normalized visible-text order, complete component order, asset ID/SHA map, file ID, and root ID; two matching self-reported strings are not evidence.
 - Capture current Ardot screenshot evidence for the article root. Closed, open/completed, and static-fallback state screenshots are mandatory before enabling any non-static component.
 - Extract native text and asset references. Do not flatten the entire article into one long image.
+- Resolve the fixed workflow attribution from the current root and include its node, exact text, and final reading-order position in the revision hash. Reject a hidden, rasterized, duplicated, changed, or non-terminal credit; do not trust self-reported Boolean fields without the current-root export.
+- Run `python3 scripts/validate_workflow_attribution.py HANDOFF_JSON` against the hashed current-root node export before compiling or transmitting. A Markdown contract or manifest expected-field list is not evidence.
 
 ### 2. Compile transport artifacts
 
@@ -71,6 +74,7 @@ Prefer the official WeChat server API. Use browser editing only as a declared fa
 
 - Immediately retrieve the saved draft from WeChat.
 - Compare title, digest, text order, image count and URLs, cover, and expected component markers with the delivery manifest.
+- Export the reopened saved draft's actual visible body text, then rerun `validate_workflow_attribution.py` with `--saved-draft-visible-text FILE --require-readback`. Require exactly one occurrence and require it to be terminal. Treat the `data-workflow-attribution` marker as a diagnostic only; WeChat may remove it.
 - Verify the actual saved cover as well as `thumb_media_id`; missing cover evidence is a failed draft verification.
 - Download each locally verified carrier from the actual returned `mmbiz.qpic.cn` body URL or saved cover derivative and run authenticated pixel detection. Bind the detector result to the downloaded byte SHA-256, byte length, format, dimensions, expected payload fingerprint, and asset ID; record no raw watermark ID. `payload_authenticated` means only that the HMAC payload survived—it is not a copyright/authorship verdict. HTML/image-count readback is not watermark evidence; required-mode delivery cannot advance to publication until every required carrier is `transport_verified`.
 - Detect the complete hosted body/cover object. V1 does not promise recovery from a cropped screenshot, added borders, rotation, perspective, or a partial phone capture. If WeChat creates a geometrically cropped cover derivative, test that actual derivative and block required-mode publication when it fails.
@@ -91,6 +95,7 @@ Use browser fallback only when the official API path is unavailable and the user
 - Confirm the visible logged-in account before entering content.
 - Copy from the frozen current-revision transport artifact, not from a previous clipboard or old experiment output.
 - Import title, digest, rich body, images, and cover; verify the editor after paste.
+- Confirm in the real body editor and after reopening the draft that the exact fixed attribution remains the final visible text.
 - Save and reopen the draft to verify the actual cover. Do not report a complete import while the cover remains empty or only exists as a body image.
 - Browser readback may establish structure preservation, but dynamic eligibility still requires the matching iOS/Android capability profile defined in the interaction reference.
 - Save as draft only. Do not press **发表** or initiate group send without the separate authorization above.

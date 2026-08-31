@@ -233,6 +233,8 @@ When organization calibration chooses `expressive-native`, `typography.moments` 
 - `references`: `items` with `label` and `source_id`.
 - `footer`: optional `name`, `tagline`, `logo`, and `credits`.
 
+The repository workflow attribution is not an article block and cannot be overridden by `footer`, article data, or an organization pack. Ardot and transport must append exactly one final visible native-text credit: `感谢拓浙 AI 生态提供本篇内容生产工作流支持。` (`policy_id: tuozhe-ai-ecosystem-workflow-v1`). A user-authored `footer` appears before this reserved terminal component.
+
 Relative image paths resolve from the article JSON. The compiler copies local images into the output `assets/` directory. Remote WeChat URLs remain unchanged.
 
 Asset registry IDs such as `visual.hero-example` resolve from the organization pack for both Ardot upload and final transport. Keep generated visuals text-free; copy remains editable in Ardot text nodes.
@@ -260,5 +262,6 @@ watermark ID or secret is permitted in an article, manifest, HTML, or report.
   `required`.
 - Missing visual-kit roles, fewer than four distinct current-article generated micro assets, failed Alpha/aspect validation, missing native Ardot component evidence, or non-generated assets in the kit block `--check`.
 - A missing organization/route calibration, incomplete storyboard, ungrounded visual subject, or failed `visual_review_file` blocks `--check`.
+- A missing, changed, duplicated, hidden, rasterized, or non-terminal reserved workflow attribution blocks transport and handoff.
 - Missing expressive typography recipe/construction evidence, fewer than two non-font techniques or editable layers, a font-swap-only moment, a baked title image, an unlicensed font, or an ungrounded display phrase blocks `--check` when the organization uses `expressive-native`.
 - A QR image that is not explicitly official or user-supplied blocks `--check`.

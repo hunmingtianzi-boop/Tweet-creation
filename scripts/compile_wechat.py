@@ -18,6 +18,9 @@ from build_visual_kit import build_visual_kit_plan
 from asset_quality import file_sha256
 from wechat_interaction_policy import audit_transport
 from workflow_quality import (
+    WORKFLOW_ATTRIBUTION_MARKER,
+    WORKFLOW_ATTRIBUTION_TEXT,
+    WORKFLOW_ATTRIBUTION_TEXT_SHA256,
     WATERMARK_SCHEME,
     asset_watermark_requirement,
     calibration_state,
@@ -99,6 +102,59 @@ def paragraphs(items: list[Any], color: str) -> str:
     return "".join(
         f'<p style="margin:0 0 14px;line-height:1.82;font-size:16px;color:{color};letter-spacing:.015em;">{esc(item)}</p>'
         for item in items
+    )
+
+
+def _relative_luminance(color: str) -> float:
+    """Return WCAG relative luminance for a #RRGGBB color."""
+    if not re.fullmatch(r"#[0-9A-Fa-f]{6}", color):
+        color = "#FFFFFF"
+
+    def channel(value: int) -> float:
+        normalized = value / 255.0
+        return (
+            normalized / 12.92
+            if normalized <= 0.04045
+            else ((normalized + 0.055) / 1.055) ** 2.4
+        )
+
+    red, green, blue = (int(color[index : index + 2], 16) for index in (1, 3, 5))
+    return 0.2126 * channel(red) + 0.7152 * channel(green) + 0.0722 * channel(blue)
+
+
+def workflow_attribution_presentation(tokens: dict[str, str]) -> dict[str, Any]:
+    """Choose a visible credit color even when organization tokens collide."""
+    surface = tokens.get("surface", "#FFFFFF")
+    if not re.fullmatch(r"#[0-9A-Fa-f]{6}", surface):
+        surface = "#FFFFFF"
+    candidates = [tokens.get("body", "#4A4A4A"), "#111111", "#FFFFFF"]
+    scored: list[tuple[float, str]] = []
+    surface_luminance = _relative_luminance(surface)
+    for candidate in candidates:
+        if not isinstance(candidate, str) or not re.fullmatch(r"#[0-9A-Fa-f]{6}", candidate):
+            continue
+        candidate_luminance = _relative_luminance(candidate)
+        ratio = (max(surface_luminance, candidate_luminance) + 0.05) / (
+            min(surface_luminance, candidate_luminance) + 0.05
+        )
+        scored.append((ratio, candidate.upper()))
+    ratio, color = max(scored)
+    return {
+        "surface_color": surface.upper(),
+        "text_color": color,
+        "contrast_ratio": round(ratio, 3),
+    }
+
+
+def render_workflow_attribution(tokens: dict[str, str]) -> str:
+    """Render the fixed, visible, terminal repository-usage credit."""
+    presentation = workflow_attribution_presentation(tokens)
+    return (
+        f'<section data-workflow-attribution="{esc(WORKFLOW_ATTRIBUTION_MARKER)}" '
+        f'data-workflow-attribution-contrast="{presentation["contrast_ratio"]}" '
+        f'style="padding:18px 24px 26px;text-align:center;background:{presentation["surface_color"]};">'
+        f'<span style="font-size:12px;line-height:1.7;color:{presentation["text_color"]};">'
+        f'{esc(WORKFLOW_ATTRIBUTION_TEXT)}</span></section>'
     )
 
 
@@ -849,12 +905,39 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
         ctx.errors.append("every article block must be an object")
 
     t = ctx.tokens
+    workflow_attribution_display = workflow_attribution_presentation(t)
+    workflow_attribution_html = render_workflow_attribution(t)
+    rendered += workflow_attribution_html
     fragment = (
         f'<section data-organization="{esc(ctx.organization.get("id", ""))}" '
         f'data-route="{esc(ctx.route.get("id", ""))}" '
         f'style="max-width:100%;margin:0 auto;background:{t["surface"]};font-family:-apple-system,BlinkMacSystemFont,\'PingFang SC\',\'Microsoft YaHei\',sans-serif;">'
         f"{rendered}</section>"
     )
+    workflow_attribution = {
+        "required": True,
+        "policy_id": WORKFLOW_ATTRIBUTION_MARKER,
+        "classification": "repository-usage-credit",
+        "text": WORKFLOW_ATTRIBUTION_TEXT,
+        "text_sha256": f"sha256:{WORKFLOW_ATTRIBUTION_TEXT_SHA256}",
+        "marker": WORKFLOW_ATTRIBUTION_MARKER,
+        "present_once": fragment.count(WORKFLOW_ATTRIBUTION_TEXT) == 1,
+        "marker_present_once": fragment.count(
+            f'data-workflow-attribution="{WORKFLOW_ATTRIBUTION_MARKER}"'
+        )
+        == 1,
+        "terminal": fragment.endswith(workflow_attribution_html + "</section>"),
+        **workflow_attribution_display,
+        "contrast_ready": workflow_attribution_display["contrast_ratio"] >= 4.5,
+    }
+    workflow_attribution["ready"] = all(
+        workflow_attribution[field]
+        for field in ("present_once", "marker_present_once", "terminal", "contrast_ready")
+    )
+    if not workflow_attribution["ready"]:
+        ctx.errors.append(
+            "workflow attribution must appear exactly once as the final visible article section"
+        )
     if UNSAFE_WECHAT.search(fragment):
         ctx.errors.append("wechat fragment contains an unsafe tag")
     interaction_policy = audit_transport(fragment)
@@ -909,6 +992,7 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
             "ready": provenance_watermark["ready"]
             and all(item.get("ready") for item in ctx.watermark_checks),
         },
+        "workflow_attribution": workflow_attribution,
         "storyboard": storyboard,
         "counts": {
             "blocks": len(rendered_blocks),
