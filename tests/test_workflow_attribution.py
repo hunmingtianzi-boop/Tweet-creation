@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import platform
 import subprocess
 import sys
 import tempfile
@@ -13,6 +14,31 @@ from typing import Any, Callable
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
+
+
+def _locked_runtime_available() -> bool:
+    key = "-".join(
+        (
+            platform.system().lower(),
+            platform.machine().lower(),
+            sys.implementation.cache_tag or "unknown-python",
+        )
+    )
+    support = json.loads(
+        (ROOT / "runtime" / "platform-support.json").read_text(encoding="utf-8")
+    )
+    return any(
+        isinstance(row, dict)
+        and row.get("platform_key") == key
+        and row.get("status") == "locked"
+        for row in support.get("supported", [])
+    )
+
+
+requires_locked_runtime = unittest.skipUnless(
+    _locked_runtime_available(),
+    "requires the reviewed locked Codex Desktop runtime; portable CI verifies fail-closed behavior instead",
+)
 
 from asset_quality import file_sha256  # noqa: E402
 from validate_workflow_attribution import (  # noqa: E402
@@ -258,6 +284,7 @@ class WorkflowAttributionHandoffTests(unittest.TestCase):
         self.assertFalse(report["ardot_evidence_ready"])
         self.assertTrue(any("does not match its file" in item for item in report["errors"]))
 
+    @requires_locked_runtime
     def test_cli_exit_codes_match_gate(self) -> None:
         handoff_path = self.make_fixture()
         command = [
@@ -287,6 +314,7 @@ class WorkflowAttributionHandoffTests(unittest.TestCase):
         )
         self.assertEqual(bad.returncode, 1, bad.stderr + bad.stdout)
 
+    @requires_locked_runtime
     def test_cli_report_is_create_once_and_rejects_symlink_ancestors(self) -> None:
         handoff_path = self.make_fixture()
         command = [

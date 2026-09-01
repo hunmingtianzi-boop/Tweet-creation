@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import re
 import subprocess
 import sys
@@ -26,6 +27,31 @@ from scripts.release_skills import (
 
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def _locked_runtime_available() -> bool:
+    key = "-".join(
+        (
+            platform.system().lower(),
+            platform.machine().lower(),
+            sys.implementation.cache_tag or "unknown-python",
+        )
+    )
+    support = json.loads(
+        (ROOT / "runtime" / "platform-support.json").read_text(encoding="utf-8")
+    )
+    return any(
+        isinstance(row, dict)
+        and row.get("platform_key") == key
+        and row.get("status") == "locked"
+        for row in support.get("supported", [])
+    )
+
+
+requires_locked_runtime = unittest.skipUnless(
+    _locked_runtime_available(),
+    "requires the reviewed locked Codex Desktop runtime; portable CI verifies fail-closed behavior instead",
+)
 
 
 class ReleaseSkillTests(unittest.TestCase):
@@ -296,6 +322,7 @@ class ReleaseSkillTests(unittest.TestCase):
                     verify_workspace_source=False,
                 )
 
+    @requires_locked_runtime
     def test_installed_runtime_runs_census_and_profile_from_external_cwd(self) -> None:
         private_tmp = Path("/private/tmp")
         if not private_tmp.is_dir():
@@ -524,6 +551,7 @@ class ReleaseSkillTests(unittest.TestCase):
                 install_packages(linked_skills, manifest, ROOT)
             self.assertFalse((nested / "skills").exists())
 
+    @requires_locked_runtime
     def test_installed_external_census_is_phase_scoped_for_bootstrap_and_api_delivery(self) -> None:
         private_tmp = Path("/private/tmp")
         if not private_tmp.is_dir():
