@@ -1,6 +1,6 @@
 {
   "schema": "org-wechat-skill-release-v1",
-  "release_sha256": "5c081e4633cd67a5ed4a65f80f710d3971cfccaee9d0533244f825b0c17b3901",
+  "release_sha256": "435feaa9dd5f02f337578ee3fec639fd027e1e9979b079e823a021d022b695e9",
   "packages": [
     {
       "package": "ardot-wechat-publisher",
@@ -76,7 +76,7 @@
     {
       "package": "org-wechat-studio",
       "source": ".",
-      "bundle_sha256": "4fd5d6754a14fec06195ee23ca9c12b47947180a2ff282bc0dc104b57a136a7d",
+      "bundle_sha256": "3ff8c8866a55d384245bbc15f1446efdef4b57844bd404e3b8c109300e75a152",
       "file_count": 83,
       "files": [
         {
@@ -346,8 +346,8 @@
         },
         {
           "path": "scripts/release_skills.py",
-          "sha256": "28a159bd1da238aa2cfdf6d236124b861821366edcefa9d085f9889f9344cae3",
-          "byte_length": 45877
+          "sha256": "1b6a15fd20eb5463d9aea7f8fa0e1db19e2667c3f018888a9f3412d5147c76be",
+          "byte_length": 45874
         },
         {
           "path": "scripts/runtime_preflight.py",
@@ -456,8 +456,8 @@
         },
         {
           "path": "tests/test_release_skills.py",
-          "sha256": "740349d2a856a932cb46eae163fcc1156b1c4a1a7512ec755ba1d06128c7bc68",
-          "byte_length": 29635
+          "sha256": "fc90878724d9f6c4f273cba3f5a5a26015e08c90b05fb6b55f87713375948d58",
+          "byte_length": 30515
         },
         {
           "path": "tests/test_runtime_preflight.py",

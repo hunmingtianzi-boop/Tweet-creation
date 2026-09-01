@@ -1155,9 +1155,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 verify_workspace_source=False,
             )
     except ReleaseError as exc:
-        print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
+        print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=True))
         return 1
-    print(json.dumps({"ok": True, "result": result}, ensure_ascii=False))
+    print(json.dumps({"ok": True, "result": result}, ensure_ascii=True))
     return 0
 
 
@@ -1169,7 +1169,7 @@ if __name__ == "__main__":
                     "ok": False,
                     "error": "release_skills CLI requires python3 -I -S",
                 },
-                ensure_ascii=False,
+                ensure_ascii=True,
             )
         )
         raise SystemExit(2)

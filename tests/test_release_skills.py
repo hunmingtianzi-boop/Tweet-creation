@@ -135,6 +135,27 @@ class ReleaseSkillTests(unittest.TestCase):
             self.assertEqual(isolated.returncode, 0, isolated.stdout + isolated.stderr)
             self.assertFalse(marker.exists())
 
+    def test_release_cli_json_is_safe_on_ascii_only_stdout(self) -> None:
+        script = ROOT / "scripts" / "release_skills.py"
+        manifest = ROOT / "release" / "org-wechat-skills-v1.json"
+        command = (
+            "import runpy,sys;"
+            "sys.stdout.reconfigure(encoding='ascii');"
+            f"sys.argv={[str(script), 'verify', str(manifest)]!r};"
+            f"runpy.run_path({str(script)!r},run_name='__main__')"
+        )
+        completed = subprocess.run(
+            [sys.executable, "-I", "-S", "-c", command],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertIn("\\u4f7f", completed.stdout)
+
     def test_org_package_excludes_visual_and_organization_history(self) -> None:
         relative = {
             item.as_posix()
