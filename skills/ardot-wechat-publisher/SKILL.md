@@ -1,11 +1,21 @@
 ---
 name: ardot-wechat-publisher
-description: Deliver a user-reviewed, already-designed Ardot WeChat article into a target WeChat Official Account draft, verify the imported result, and publish only after explicit confirmation. Use only for the last mile from an existing final Ardot article; do not research, rewrite, generate visuals, recalibrate branding, or redo layout.
+description: On Codex Desktop only, deliver a user-reviewed, already-designed Ardot WeChat article into a target WeChat Official Account draft, verify the imported result, and publish only after explicit confirmation. Use only for the last mile from an existing final Ardot article; do not use from another harness or research, rewrite, generate visuals, recalibrate branding, or redo layout.
 ---
 
 # Ardot WeChat Publisher
 
 Treat the current reviewed Ardot article as the visual and editorial source of truth. This skill begins after the user has finished editing in Ardot and ends with a verified WeChat draft or, when separately authorized, a published article.
+
+This executable publisher supports Codex Desktop only. At the start, state that
+the same-release three workflow Skills, the locked platform, an active Ardot
+Remote connection/login with permission for the exact final file/root, and the
+exact target WeChat account login or execution-time API route are required.
+Ardot MCP OAuth and Ardot web login are separate; verify both only when the
+selected route needs them. A clone, old profile, open homepage, saved Cookie or
+similarly named tool in another harness proves none of these conditions. Stop
+before upload or draft mutation until the current Codex session closes every
+required live probe.
 
 ## Mandatory delivery preflight
 
@@ -22,18 +32,8 @@ python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
   --output "$ORG_WECHAT_SESSION_ROOT/registry-census-UNIQUE.json"
 ```
 
-Only when another harness exposes a real `host.registry.export` callable may its host-generated, non-handwritten export use the higher-assurance census route:
-
-```bash
-python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
-  "$ORG_WECHAT_RUNTIME_ROOT/scripts/runtime_preflight.py" build-census \
-  "$ORG_WECHAT_SESSION_ROOT/HOST-CALLABLE-registry-export.json" \
-  --skills-root /ABSOLUTE/INSTALLED/SKILLS/ROOT \
-  --release-manifest /ABSOLUTE/INSTALLED/SKILLS/ROOT/.org-wechat-release-manifests/RELEASE_SHA.json \
-  --output "$ORG_WECHAT_SESSION_ROOT/registry-census-UNIQUE.json"
-```
-
-Both routes then continue identically:
+`build-census` remains a future adapter-development contract, not a supported
+end-user route in this release. Continue with the Codex current-session census:
 
 ```bash
 python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
@@ -49,7 +49,7 @@ python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
   --output "$ORG_WECHAT_SESSION_ROOT/delivery-preflight-report-UNIQUE.json"
 ```
 
-The `-I -S` secure runner is mandatory for preflight, transport validation/compilation, and hosted-asset watermark verification. Direct `python3 scripts/...`, `PYTHONPATH`, site hooks, and unlocked dependency roots are blockers; a new harness platform must add reviewed distribution hashes to `runtime/python-dependency-lock.json` before delivery.
+The `-I -S` secure runner is mandatory for preflight, transport validation/compilation, and hosted-asset watermark verification. Direct `python3 scripts/...`, `PYTHONPATH`, site hooks, and unlocked dependency roots are blockers. No other harness/platform may deliver until a reviewed adapter, login routes, full forward test and locked release are shipped.
 
 Stop unless `ok` and `binding_ready` are both true. `phase_ready: false` is expected because the local validator cannot authenticate its own profile. Execute `host_setup_actions` immediately: prepare the selected Ardot route (MCP connect/OAuth or the declared UI fallback), open/read the exact reviewed Ardot root, keep image inspection blocking, and prepare the selected WeChat route before compiling or uploading anything. The API route authorizes its publisher provider; only the UI route opens the credential-free WeChat base and requests QR login. Ardot MCP OAuth and web login are separate; if a login/authorization page appears, leave the safe page open, tell the user which login is needed, wait, and then re-probe without persisting the token-bearing redirect URL. Continue only after the current host tool trace shows: repository publisher Skill path/hash loaded; current Ardot file and exact article root read successfully; write/export callables present in the same provider/session; target WeChat account matched with draft read/write access. Do not reuse an authoring/startup report, trust a self-reported profile, or treat a Browser/Computer Use listing as a successful login probe. This preflight is read-only and does not authorize draft creation or publication.
 

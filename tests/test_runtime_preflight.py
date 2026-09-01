@@ -2118,6 +2118,19 @@ class RuntimePreflightTests(unittest.TestCase):
         )
         self.assertEqual(setup["schema_version"], 2)
         self.assertEqual(adapter["schema_version"], 2)
+        self.assertEqual(adapter["harness"], "codex-desktop")
+        self.assertEqual(
+            adapter["support_status"], "only-supported-execution-adapter"
+        )
+        self.assertEqual(
+            setup["support"],
+            {
+                "execution_host": "codex-desktop",
+                "status": "supported-only-on-codex-desktop",
+                "other_harnesses": "unsupported-until-a-reviewed-adapter-and-full-forward-test-are-released",
+                "semantic_contract_portability_is_execution_support": False,
+            },
+        )
         self.assertEqual(setup["semantic_capabilities"], list(EXPECTED_SEMANTIC_CAPABILITIES))
         self.assertEqual(set(adapter["capabilities"]), set(EXPECTED_SEMANTIC_CAPABILITIES))
         self.assertEqual(set(setup["local"]), set(EXPECTED_LOCAL_SETUP_LINKS))
@@ -2141,8 +2154,22 @@ class RuntimePreflightTests(unittest.TestCase):
         self.assertFalse(provider_authority["can_upgrade_assurance"])
         self.assertIn("does not block current-session", provider_authority["reason"])
         self.assertTrue(setup["startup_policy"]["wait_for_user_login"])
+        self.assertTrue(
+            setup["startup_policy"]["declare_execution_conditions_first"]
+        )
+        self.assertTrue(
+            setup["startup_policy"]["clone_check_before_source_material"]
+        )
         self.assertFalse(setup["startup_policy"]["persist_session_query"])
         self.assertEqual(setup["external"]["chatgpt_web"]["url"], "https://chatgpt.com/")
+        self.assertEqual(
+            setup["external"]["codex_with_chatgpt_repository"]["url"],
+            "https://github.com/XiaoDuoYa/codex-with-chatgpt",
+        )
+        self.assertEqual(
+            setup["local"]["host_prerequisites"]["path"],
+            "references/host-prerequisites.md",
+        )
         rgba_route = adapter["capabilities"]["image.generate.rgba"]
         self.assertEqual(rgba_route["route"], "chatgpt-web")
         self.assertEqual(rgba_route["output_contract"], "subject-cutout-rgba8-v1")
@@ -2906,16 +2933,23 @@ class RuntimePreflightTests(unittest.TestCase):
             )
         self.assertTrue(imported_scripts.issubset(set(TRUSTED_BUNDLE_PATHS)))
 
-    def test_runtime_docs_expose_both_census_paths_and_exact_ingest_cli(self) -> None:
+    def test_runtime_docs_expose_codex_census_and_future_adapter_boundary(self) -> None:
         runtime_docs = (ROOT / "references" / "runtime-preflight.md").read_text(
             encoding="utf-8"
         )
         for relative in ("README.md", "SKILL.md", "references/使用说明.md"):
             text = (ROOT / relative).read_text(encoding="utf-8")
             self.assertIn("init-current-session-census", text, relative)
-            self.assertIn("build-census", text, relative)
-            self.assertIn("host.registry.export", text, relative)
+            self.assertIn("Codex Desktop", text, relative)
             self.assertIn('--session-root "$ORG_WECHAT_SESSION_ROOT"', text, relative)
+            self.assertNotIn(
+                '"$ORG_WECHAT_RUNTIME_ROOT/scripts/runtime_preflight.py" build-census',
+                text,
+                relative,
+            )
+        self.assertIn("build-census", runtime_docs)
+        self.assertIn("未来 adapter", runtime_docs)
+        self.assertIn("host.registry.export", runtime_docs)
         self.assertIn('--session-root "$ORG_WECHAT_SESSION_ROOT"', runtime_docs)
         self.assertIn(
             '"$ORG_WECHAT_RUNTIME_ROOT/scripts/ingest_browser_download.py" \\',

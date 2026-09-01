@@ -1,6 +1,20 @@
 # Tweet Creation / Organization WeChat Studio
 
-一套可迁移到不同组织和公众号的 Codex + Ardot 工作流。它把可编辑视觉组件、每个组织的品牌资料、单篇文章事实和最终微信投递适配分开管理。
+> [!IMPORTANT]
+> **当前可执行版本只能运行在 Codex Desktop。** 拉取仓库并不等于环境已经可用。开始前必须安装同一 release 的三个仓库 Skill，另行安装并绑定当前 workspace 的 [Codex with ChatGPT](https://github.com/XiaoDuoYa/codex-with-chatgpt)，在 Codex 内置 Browser 登录 ChatGPT，连接并登录 Ardot Remote，取得精确 Ardot file/root 权限；涉及投递时还要准备目标微信公众号登录或 API 凭据。当前发布锁只支持 Apple Silicon macOS + CPython 3.9。其他 LLM、harness、Linux、Windows 或 Intel Mac 目前只能阅读契约，不能声称可执行兼容。
+
+克隆后先读[克隆、安装与登录前置条件](references/host-prerequisites.md)，并在读取任何组织材料前运行：
+
+```bash
+ORG_WECHAT_SOURCE_ROOT=/ABSOLUTE/SOURCE/CHECKOUT
+python3 -I -S "$ORG_WECHAT_SOURCE_ROOT/scripts/release_skills.py" clone-check \
+  --skills-root /ABSOLUTE/CODEX/SKILLS/ROOT \
+  --phase full
+```
+
+该检查只证明本地文件、版本与二进制；ChatGPT、Ardot、微信登录和当前文件/账号权限必须继续由本次 Codex 会话的 live probes 证明。
+
+一套可迁移到不同组织和公众号的 **Codex Desktop + Ardot** 工作流。它把可编辑视觉组件、每个组织的品牌资料、单篇文章事实和最终微信投递适配分开管理。这里的“可迁移”指不同组织与公众号之间的内容/品牌迁移，不代表已经支持任意 LLM 或运行宿主。
 
 不是“换 Logo 和颜色”的统一模板。新公众号会先建立组织包，再按该组织的受众、语气、视觉母题、文章类型和真实资料生成文章与文件资产。
 
@@ -172,16 +186,6 @@ python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
   --visible-tool-id codex-with-chatgpt \
   --visible-tool-id browser:control-in-app-browser \
   --visible-tool-id mcp__node_repl__js \
-  --skills-root /ABSOLUTE/INSTALLED/SKILLS/ROOT \
-  --release-manifest /ABSOLUTE/INSTALLED/SKILLS/ROOT/.org-wechat-release-manifests/RELEASE_SHA.json \
-  --workspace-root "$ORG_WECHAT_RUNTIME_ROOT" \
-  --output "$ORG_WECHAT_SESSION_ROOT/registry-census-UNIQUE.json"
-
-# 仅限 adapter 真实提供 host.registry.export callable 的其他 harness；
-# HOST-CALLABLE-registry-export.json 必须由宿主生成，禁止手写。
-python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
-  "$ORG_WECHAT_RUNTIME_ROOT/scripts/runtime_preflight.py" build-census \
-  "$ORG_WECHAT_SESSION_ROOT/HOST-CALLABLE-registry-export.json" \
   --skills-root /ABSOLUTE/INSTALLED/SKILLS/ROOT \
   --release-manifest /ABSOLUTE/INSTALLED/SKILLS/ROOT/.org-wechat-release-manifests/RELEASE_SHA.json \
   --workspace-root "$ORG_WECHAT_RUNTIME_ROOT" \
@@ -500,7 +504,7 @@ python3 /path/to/skill-creator/scripts/quick_validate.py "$ORG_WECHAT_SOURCE_ROO
 python3 /path/to/skill-creator/scripts/quick_validate.py "$ORG_WECHAT_SOURCE_ROOT/skills/ardot-wechat-publisher"
 ```
 
-跨平台 CI 运行不依赖受信任本机 wheel 的 portable contract 子集，并验证未知 OS/Python 会在执行目标前 fail-closed。完整发布回归只能在 `runtime/platform-support.json` 已登记、且 `secure_runner.py --platform-audit` 真正通过的运行时执行，不能让 CI 临时生成的 dependency candidate 自动升级信任。
+跨平台 CI 只运行不依赖真实登录和受信任本机 wheel 的契约测试，并验证未知 OS/Python 会在执行目标前 fail-closed；它不表示 Linux、Windows、Intel Mac 或其他 harness 已获得工作流运行支持。完整发布回归只能在 `runtime/platform-support.json` 已登记、且 `secure_runner.py --platform-audit` 真正通过的 Codex Desktop 运行时执行，不能让 CI 临时生成的 dependency candidate 自动升级信任。
 
 ## 确定性发布与安装
 
@@ -518,7 +522,7 @@ python3 -I -S "$ORG_WECHAT_SOURCE_ROOT/scripts/release_skills.py" verify \
   "$ORG_WECHAT_SOURCE_ROOT/release/org-wechat-skills-v1.json"
 ```
 
-安装会先逐字节验证仓库与清单、在临时目录组包、保留旧 Skill 的时间戳备份，再替换 `org-wechat-studio`、`chatgpt-web-image-route` 和 `ardot-wechat-publisher`。同时把本次清单 create-once 保存到 Skill 根目录，供新 harness 的 `build-census` 使用：
+安装会先逐字节验证仓库与清单、在临时目录组包、保留旧 Skill 的时间戳备份，再替换 `org-wechat-studio`、`chatgpt-web-image-route` 和 `ardot-wechat-publisher`。同时把本次清单 create-once 保存到 Skill 根目录，供当前 Codex census 和 installed-release 校验使用；未来 adapter 的契约测试不得把它解释为已支持其他 harness：
 
 ```bash
 python3 -I -S "$ORG_WECHAT_SOURCE_ROOT/scripts/release_skills.py" install \

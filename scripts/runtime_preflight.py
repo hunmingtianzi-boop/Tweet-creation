@@ -77,6 +77,7 @@ REQUIRED_PATHS = (
     "references/qa.md",
     "references/provenance-watermark.md",
     "references/runtime-preflight.md",
+    "references/host-prerequisites.md",
     "runtime/setup-links.json",
     "runtime/adapters/codex-desktop.json",
     "runtime/python-dependency-lock.json",
@@ -128,6 +129,7 @@ EXPECTED_SETUP_LINKS = {
     "wechat_web": "https://mp.weixin.qq.com/",
     "wechat_api": "https://api.weixin.qq.com/",
     "chatgpt_web": "https://chatgpt.com/",
+    "codex_with_chatgpt_repository": "https://github.com/XiaoDuoYa/codex-with-chatgpt",
 }
 
 EXPECTED_SEMANTIC_CAPABILITIES = (
@@ -156,6 +158,10 @@ EXPECTED_SEMANTIC_CAPABILITIES = (
 REQUIRED_SKILLS = {"org-wechat-studio", "ardot-wechat-publisher"}
 
 EXPECTED_LOCAL_SETUP_LINKS = {
+    "host_prerequisites": (
+        "org-wechat-studio",
+        "references/host-prerequisites.md",
+    ),
     "authoring_skill": ("org-wechat-studio", "SKILL.md"),
     "publisher_skill": ("ardot-wechat-publisher", "SKILL.md"),
     "runtime_contract": ("org-wechat-studio", "references/runtime-preflight.md"),
@@ -1820,7 +1826,22 @@ def _validate_local_paths(workspace_root: Path, errors: list[dict[str, str]]) ->
                 "runtime/setup-links.json",
                 "setup link registry schema/kind is invalid",
             )
+        if setup_links.get("support") != {
+            "execution_host": "codex-desktop",
+            "status": "supported-only-on-codex-desktop",
+            "other_harnesses": "unsupported-until-a-reviewed-adapter-and-full-forward-test-are-released",
+            "semantic_contract_portability_is_execution_support": False,
+        }:
+            setup_links_status = "failed"
+            _error(
+                errors,
+                "runtime.local.execution_host_support_invalid",
+                "runtime/setup-links.json.support",
+                "this release must declare Codex Desktop as its only supported execution host",
+            )
         if setup_links.get("startup_policy") != {
+            "declare_execution_conditions_first": True,
+            "clone_check_before_source_material": True,
             "open_after_binding": True,
             "prepare_before_source_material": True,
             "migration_rgba_probe_before_source_material": True,
@@ -1833,7 +1854,7 @@ def _validate_local_paths(workspace_root: Path, errors: list[dict[str, str]]) ->
                 errors,
                 "runtime.local.startup_policy_invalid",
                 "runtime/setup-links.json.startup_policy",
-                "startup policy must open safe targets early, wait for login, and never persist session queries",
+                "startup policy must declare Codex-only conditions first, require clone check, open safe targets early, wait for login, and never persist session queries",
             )
         external = setup_links.get("external")
         if not isinstance(external, dict):
@@ -1932,6 +1953,8 @@ def _validate_local_paths(workspace_root: Path, errors: list[dict[str, str]]) ->
             adapter.get("schema_version") != SCHEMA_VERSION
             or adapter.get("kind") != "org-wechat-runtime-adapter"
             or adapter.get("harness") != "codex-desktop"
+            or adapter.get("support_status")
+            != "only-supported-execution-adapter"
             or not isinstance(adapter_capabilities, dict)
             or set(adapter_capabilities) != set(EXPECTED_SEMANTIC_CAPABILITIES)
         ):
@@ -2111,13 +2134,15 @@ def _validate_local_paths(workspace_root: Path, errors: list[dict[str, str]]) ->
             is not False
             or not isinstance(locked_platforms, dict)
             or supported_keys != set(locked_platforms)
+            or platform_support.get("supported_execution_hosts")
+            != ["codex-desktop"]
         ):
             setup_links_status = "failed"
             _error(
                 errors,
                 "runtime.local.platform_support_mismatch",
                 "runtime/platform-support.json",
-                "reviewed platform matrix must exactly match the dependency lock and fail unknown platforms before target execution",
+                "reviewed platform matrix must name only Codex Desktop, exactly match the dependency lock, and fail unknown platforms before target execution",
             )
         required_entrypoints = {
             "scripts/runtime_preflight.py",
@@ -2146,6 +2171,7 @@ def _validate_local_paths(workspace_root: Path, errors: list[dict[str, str]]) ->
             non_mcp.get("kind") != "org-wechat-non-mcp-dependency-contract"
             or not {
                 "python-locked-runtime",
+                "codex-desktop-host",
                 "codex-with-chatgpt",
                 "browser-control-in-app-browser",
                 "browser-download-ingestion",

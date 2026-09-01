@@ -19,7 +19,7 @@
 ## Mobile layout
 
 - `article.visual_kit` 覆盖四类角色、四枚不同生成图；每枚通过 RGBA8/robust Alpha/紧裁切/无 matte/尺寸/宽高比检查，并记录 Ardot 原生组件 file/node/name 与准确 asset SHA。
-- Codex Desktop 透明小组件的默认源图来自当前会话中的 `chatgpt-web-image-route` + `codex-with-chatgpt` + 内置 Browser；不使用 Computer Use、外部浏览器、截图、Canvas、剪贴板或远程 URL 代替原图下载。其他 harness 可换 provider，但不可换终态合同。
+- 当前 release 只支持 Codex Desktop；透明小组件的默认源图来自当前会话中的 `chatgpt-web-image-route` + `codex-with-chatgpt` + 内置 Browser，不使用 Computer Use、外部浏览器、截图、Canvas、剪贴板或远程 URL 代替原图下载。其他 harness 的 provider 映射只是未来移植验收条件，不是本版本可选路线。
 - 每枚微组件有完整 `org-wechat-micro-cutout-derivation-v1` 链：raw 下载、prompt/provider route、处理器/配置、报告与 derivative SHA 均一致。Ardot 和 transport 只引用 `assets/derived/` 的终态 SHA，raw 不可见。
 - 透明图经过可确定解码的像素检查；预览棋盘格不能当作透明证明。小组件 PNG 只含主体，不含白/黑/色底板或用于留白的巨大透明画布。
 - 透明图不存在全画布 low-Alpha 色污、脱离碎片、中性/彩色/key-color halo 或纹理化不规则底板；如果受控 key 背景不均、主体碰边或复杂透明材质无法安全分离，必须重生成而非放宽门槛。

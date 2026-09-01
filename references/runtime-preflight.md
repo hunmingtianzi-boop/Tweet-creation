@@ -1,6 +1,8 @@
 # 运行环境启动自检
 
-每次迁移 harness、LLM、机器、adapter、provider route 或 Skill release 后，都要在读取组织材料前执行这套自检。它不要求操作者手写庞大 profile：当前 Codex Desktop 从“已验证安装 release + adapter allowlist + 本会话模型实际可见 registry id”生成非签名 census intent；只有宿主真实提供 `host.registry.export` callable 时才走高保证 export 路径。然后两条路径都从 census 与紧凑 target 确定性生成 profile。
+当前 release 的执行宿主固定为 **Codex Desktop**。第一次拉取先读[克隆、安装与登录前置条件](host-prerequisites.md)并从源码 checkout 运行 `release_skills.py clone-check --phase <phase>`；该命令只证明本地文件/二进制，不能证明登录。每次换 clone、机器、Codex 会话、adapter/provider route 或 Skill release 后，都要在读取组织材料前执行下列 live self-check。它不要求操作者手写庞大 profile：Codex Desktop 从“已验证安装 release + adapter allowlist + 本会话模型实际可见 registry id”生成非签名 census intent，再从 census 与紧凑 target 确定性生成 profile。
+
+其他 LLM/harness、Linux、Windows、Intel Mac 或未审核 adapter 当前为 unsupported。`build-census` 和语义能力 schema 仅保留给未来 adapter 开发与契约测试；它们不能把另一个宿主现场升级为受支持运行时。
 
 ## 双层保证
 
@@ -87,7 +89,7 @@ python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
 
 输出必须标记 `registry_assurance.mode=current-session-model-visible-intent`、`host_attested_registry=false`、`portable=false`、`requires_later_live_probes=true`。它可用于生成本会话 profile；当前 Codex Desktop 的 `authoring/full` 不会仅因 provider policy hook 或 portable signer 缺失而失败。它不得称为 host-attested registry，也不替代后续 login/account/file/root/generation/download 真实探针和每张正式图的完整链门禁。
 
-仅当其他 harness 的 adapter 真实声明并暴露 `host.registry.export` callable 时，才接受该 callable 的 export。它必须同时包含 `registry_export` 调用轨迹，且工具清单中有同 provider/session 的 `host.registry.export` 行：
+以下 `build-census` 格式只供未来 adapter 开发者做契约验证，不是当前 release 的操作路径，也不能用于真实文章或投递。未来版本若正式新增宿主，必须先让该宿主生成不可手写的 export、增加审核 adapter/登录路线/发布锁并完成全量前向测试；届时 export 还必须同时包含 `registry_export` 调用轨迹，且工具清单中有同 provider/session 的 `host.registry.export` 行：
 
 ```json
 {

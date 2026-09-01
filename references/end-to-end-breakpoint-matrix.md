@@ -7,7 +7,7 @@
 | 安装 | 仓库已更新，当前 harness 仍载入旧 Skill | `release_skills.py verify-installed` 及 `build-census` 逐字节校验三个 Skill | 按 release manifest 临时组包、备份、原子替换后重建 census | “已 commit/push”不等于“当前会话已安装” |
 | 平台 | OS/Python/wheel 与锁定字节不一致 | `secure_runner.py --platform-audit` 核对 `platform-support.json` 和依赖分发文件 | 仅生成 candidate，经独立审查后才能更新信任锁 | CI 或未知平台不得自动晋升为 trusted |
 | 启动 | 不知道需要哪些 Skill、工具、链接、登录或密钥 | `build-census` 从已验证安装包与 host registry 生成能力快照；`init-profile` 只接收紧凑 target，并分开草稿 API、宿主 current-session authority、portable signer 与 UI live route | 按报告的有序 `host_setup_actions` 预备，只在真实登录/2FA 阻断时请用户一次处理 | 手填 `loaded/available`、带 token URL、Cookie 或密钥值不得入档；`wechat.draft` 不等于 live publish authority |
-| 迁移 | 其他 harness 只有部分工具，或把 shell 当成生图/Browser | 稳定语义能力绑定 + 中性 RGBA 路由实测 + 三底检查 | 可以更换具体 provider，但必须继续满足同一输出合同 | 本地像素报告不能冒充宿主生成/下载事件 |
+| 克隆/宿主 | 把 schema 可移植性误当成其他 LLM/harness 已可运行，或把 shell 当成生图/Browser | `clone-check` 声明 Codex-only、锁定平台、外部 C2C 与 live login 条件；runtime census 再验证当前会话 | 当前 release 直接停止；未来必须发布审核 adapter、登录路线、全量前向测试和新锁 | 本地文件、同名工具或像素报告不能冒充受支持 Codex 宿主与真实生成/下载事件 |
 | 审计等级 | 缺 `host.receipt.attest`、`host.migration.finalize` 或 `filesystem.access.lease` | 报告分开 `operational_ready` / `phase_ready` / `portable_audit_verified` | 同一可见宿主会话可继续；只是不得声称 host-enforced 或 portable signed audit | 这些缺失不是登录错误，也不得单独阻断当次发布 |
 | source-zero | 旧稿、其他组织、examples 或 output 污染视觉 | 真实路径/父级 symlink/字节 SHA 白名单，中英文旧稿目录排除 | 只使用当次 `inputs/current` 与本组织 pack；明确风格参考只提取抽象 grammar | 不得打开旧推文“找感觉”；release 不打包历史目录 |
 | 组织迁移 | 只换 Logo/颜色，或复用上一公众号的设计 | `orgs.py validate` 检查组织事实、视觉校准、Ardot root 和资产归属 | 从 provisional pack 与 2–3 组小样重新校准 | 旧 organization pack 不得作为新组织的品牌依据 |

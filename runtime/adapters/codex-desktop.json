@@ -2,6 +2,7 @@
   "schema_version": 2,
   "kind": "org-wechat-runtime-adapter",
   "harness": "codex-desktop",
+  "support_status": "only-supported-execution-adapter",
   "truth_boundary": "routing-only; the host tool trace is required for live proof",
   "capabilities": {
     "host.registry.export": {

@@ -52,7 +52,7 @@
 - [x] 四类微组件：四个角色必须由四枚当前文章专属资产分别承担，并绑定正文原句、章节、主体、动作、构图职责和 Ardot 原生组件。
 - [x] Alpha/抠图验收：解码 RGBA8，使用最大连通主体忽略飞点并检查紧裁切、截边、白/黑/彩色 matte、半透明白黑 halo、尺寸、角色宽高比与 SHA-256；登记后每次 ready 门禁都从当前像素重算。
 - [x] ChatGPT 默认生图路由：Codex Desktop 加载仓库内 `chatgpt-web-image-route` 与已安装 `codex-with-chatgpt`，只用内置 Browser 生成和下载原始 PNG；不把 C2C doctor、文字回复、页面预览、截图、Canvas、剪贴板或远程 URL 当成图像证据。
-- [x] 迁移起始 RGBA 实测：新 harness/机器/adapter/provider route 或新组织迁移在读材料前运行 `migration` 阶段；中性 prompt 保持无 nonce/digest 污染，宿主以 canonical request metadata SHA 绑定当前 nonce/digest、route、attempt、mode 和 prompt SHA。宿主 request/generation/original-download 轨迹与本地 secure RGBA8 像素链缺一均失败。探针只在 Git 忽略 runtime 目录，不得注册、上传、加水印、成为风格参考或代替正式资产 lineage。
+- [x] 迁移起始 RGBA 实测：新 clone/机器/Codex 会话/adapter-provider route 或新组织迁移在读材料前运行 `migration` 阶段；其他 LLM/harness 在当前 release 直接判 unsupported，不能靠本探针升级。中性 prompt 保持无 nonce/digest 污染，宿主以 canonical request metadata SHA 绑定当前 nonce/digest、route、attempt、mode 和 prompt SHA。宿主 request/generation/original-download 轨迹与本地 secure RGBA8 像素链缺一均失败。探针只在 Git 忽略 runtime 目录，不得注册、上传、加水印、成为风格参考或代替正式资产 lineage。
 - [x] 生图上下文防污染：ChatGPT-web migration 遵守 C2C 单对话规则，不另开 throwaway chat；探针限定为无对象、无品牌、单一中灰的非语义校准轮廓，不携带组织、材质、配色或艺术风格。正式微组件 prompt 明确排除该轮廓与灰度测试处理，探针不能登记或充当视觉参考。
 - [x] 确定性 RGBA 生产链：默认先要求 provider-original 真透明 PNG，以 `prepare_micro_cutout.py --require-native-alpha` 验真、规范化、紧裁切并生成 create-once RGBA8 derivative；RGB、全不透明 RGBA 或伪透明直接失败且不暗中去背景。仅在该严格门禁失败后允许一次受控单色 key 重生成并以 `--key-color` 分离。两条路线都绑定 raw/prompt/provider/处理器/配置/报告/输出 SHA；背景不均、主体碰边或复杂透明材质时 fail-and-stop，不强抠任意照片。
 - [x] Alpha 对抗样本：新像素门禁拒绝彩色/key halo、全画布 low-Alpha 残留、未声明脱离碎片和纹理化底板，且只允许 Ardot/transport 引用已验证 derivative SHA。

@@ -1,6 +1,6 @@
 ---
 name: chatgpt-web-image-route
-description: Generate article image sources through ChatGPT web under Codex control, download the original file, and produce or verify a true RGBA8 subject cutout before an organization WeChat workflow may register it. Use as the default Codex Desktop image route for org-wechat-studio; do not use for documentary photographs, logos, QR codes, layout, or WeChat publishing.
+description: On Codex Desktop only, generate article image sources through ChatGPT web under Codex control, download the original file, and produce or verify a true RGBA8 subject cutout before an organization WeChat workflow may register it. Use as the default Codex Desktop image route for org-wechat-studio; do not use from another harness or for documentary photographs, logos, QR codes, layout, or WeChat publishing.
 ---
 
 # ChatGPT Web Image Route
@@ -8,6 +8,15 @@ description: Generate article image sources through ChatGPT web under Codex cont
 This is a narrow provider wrapper for `org-wechat-studio`. ChatGPT supplies the
 source pixels; Codex owns the prompt scope, original download, deterministic
 processing, evidence, visual inspection, and registration decision.
+
+This executable route supports Codex Desktop only. Before opening ChatGPT,
+state that `codex-with-chatgpt`, its built checkout, the exact current-workspace
+connection, the built-in Browser route, and the current ChatGPT login are hard
+requirements. The repository release does not install or pair
+`codex-with-chatgpt`. If the Skill/checkout is absent, C2C doctor is not green,
+the connector belongs to another checkout, or login/CAPTCHA/2FA is unresolved,
+stop before generating or reading organization material. A saved conversation,
+another browser, or another LLM/harness is not a substitute.
 
 Read [the installed runtime location contract](references/runtime-location.md)
 and [the image-generation contract](references/image-generation-contract.md)

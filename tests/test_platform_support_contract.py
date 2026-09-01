@@ -25,6 +25,7 @@ class PlatformSupportContractTests(unittest.TestCase):
         )
         lock = json.loads(LOCK.read_text(encoding="utf-8"))
         support = json.loads(MATRIX.read_text(encoding="utf-8"))
+        self.assertEqual(support["supported_execution_hosts"], ["codex-desktop"])
         locked = key in lock.get("platforms", {})
         completed = subprocess.run(
             [sys.executable, "-I", "-S", str(RUNNER), "--platform-audit"],

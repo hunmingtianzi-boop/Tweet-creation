@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
   "kind": "org-wechat-platform-support-matrix",
-  "policy": "Only exact keys present in python-dependency-lock.json are executable. Candidate reports are review material and never expand this matrix automatically.",
+  "policy": "Only Codex Desktop plus exact keys present in python-dependency-lock.json are executable. Candidate reports and cross-platform contract tests are review material and never expand this matrix automatically.",
+  "supported_execution_hosts": ["codex-desktop"],
+  "unsupported_execution_hosts": ["other-llm", "cli-agent", "cloud-agent", "unreviewed-adapter"],
   "supported": [
     {
       "platform_key": "darwin-arm64-cpython-39",

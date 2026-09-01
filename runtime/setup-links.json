@@ -1,7 +1,15 @@
 {
   "schema_version": 2,
   "kind": "org-wechat-setup-links",
+  "support": {
+    "execution_host": "codex-desktop",
+    "status": "supported-only-on-codex-desktop",
+    "other_harnesses": "unsupported-until-a-reviewed-adapter-and-full-forward-test-are-released",
+    "semantic_contract_portability_is_execution_support": false
+  },
   "startup_policy": {
+    "declare_execution_conditions_first": true,
+    "clone_check_before_source_material": true,
     "open_after_binding": true,
     "prepare_before_source_material": true,
     "migration_rgba_probe_before_source_material": true,
@@ -29,9 +37,18 @@
     "chatgpt_web": {
       "url": "https://chatgpt.com/",
       "purpose": "credential-free ChatGPT entry; the codex-with-chatgpt Skill owns safe session setup and login"
+    },
+    "codex_with_chatgpt_repository": {
+      "url": "https://github.com/XiaoDuoYa/codex-with-chatgpt",
+      "purpose": "external required Skill and checkout for migration, authoring, and full; bind it to the exact cloned workspace"
     }
   },
   "local": {
+    "host_prerequisites": {
+      "package": "org-wechat-studio",
+      "path": "references/host-prerequisites.md",
+      "purpose": "clone-time Codex-only support, installation and phase-specific login declaration"
+    },
     "authoring_skill": {
       "package": "org-wechat-studio",
       "path": "SKILL.md",

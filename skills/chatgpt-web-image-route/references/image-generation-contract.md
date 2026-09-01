@@ -18,6 +18,12 @@ needed, and the repository quality gate.
 
 ## Startup contract
 
+This executable contract is currently bound to Codex Desktop. Before the
+actions below, the clone-time check and current Codex session must declare the
+external `codex-with-chatgpt` Skill/built checkout, exact-workspace connection,
+single built-in Browser route, and current ChatGPT login. Another LLM/harness
+cannot select this route in the current release.
+
 Run these actions before source-material reading in `migration`, `authoring`, or `full`:
 
 1. Load `org-wechat-studio`, this wrapper, `codex-with-chatgpt`, and
@@ -45,8 +51,8 @@ public evidence.
 
 ## Migration self-test
 
-Every workflow/organization migration into a new harness, machine, adapter,
-provider route, or changed trusted bundle begins with runtime phase `migration`.
+Every workflow/organization migration into a new clone, machine, Codex session,
+adapter/provider route, or changed trusted bundle begins with runtime phase `migration`.
 Its profile has no organization, Ardot, or WeChat links. It binds opaque image
 generation, the selected RGBA route, and image inspection. The RGBA capability
 must match both `migration_probe_contract: neutral-rgba-route-probe-v1` and the
@@ -290,13 +296,15 @@ Incomplete chains are `structural-only` and cannot produce/register a formal
 derivative or make `ready_for_layout` true. A configured callback denial or
 exception blocks. A copied v1 ledger is always rejected for new formal assets.
 
-## Harness portability
+## Future harness port contract — not executable in this release
 
 Codex Desktop uses this wrapper plus `codex-with-chatgpt` and the built-in
-browser by default. Another harness may bind a native/API generator directly to
-`image.generate.rgba` and omit both ChatGPT skills, provided it still returns an
-original local source and passes the exact `subject-cutout-rgba8-v1` processor,
-inspection, lineage, and registration gates. Its adapter must expose its real
-stable `generation_route_id` and the same `neutral-rgba-route-probe-v1` migration
-contract; invented generic route names are forbidden. Provider substitution
-never changes the final asset contract.
+Browser. The following is only a specification for a future reviewed release,
+not an operator-selectable fallback: a new harness would need a native/API
+generator bound to `image.generate.rgba`, an original local source, the exact
+`subject-cutout-rgba8-v1` processor/inspection/lineage/registration gates, a
+real stable `generation_route_id`, the same `neutral-rgba-route-probe-v1`
+migration contract, equivalent login/download evidence, full forward tests and
+a new release lock. Until those are shipped, the route is unsupported even if
+its tools have similar names. Provider substitution never changes the final
+asset contract.

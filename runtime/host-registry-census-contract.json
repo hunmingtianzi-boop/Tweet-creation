@@ -1,6 +1,8 @@
 {
   "schema_version": 1,
   "kind": "org-wechat-host-registry-census-contract",
+  "supported_execution_host": "codex-desktop",
+  "host_callable_path_status": "future-adapter-contract-only-not-current-execution-support",
   "initialization_paths": {
     "current_session": {
       "input_kind": "org-wechat-current-session-registry-intent-v1",

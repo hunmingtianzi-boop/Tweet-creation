@@ -15,6 +15,7 @@ from scripts.release_skills import (
     PACKAGE_SOURCES,
     ReleaseError,
     build_manifest,
+    clone_readiness,
     collect_package_files,
     install_packages,
     stage_packages,
@@ -28,6 +29,54 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 class ReleaseSkillTests(unittest.TestCase):
+    def test_clone_readiness_declares_codex_only_and_live_login_boundaries(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result = clone_readiness(Path(directory), phase="full", workspace_root=ROOT)
+        self.assertEqual(result["schema"], "org-wechat-clone-readiness-v1")
+        self.assertEqual(result["support"]["execution_host"], "codex-desktop")
+        self.assertEqual(
+            result["support"]["other_harnesses"],
+            "unsupported-until-a-reviewed-adapter-and-full-forward-test-are-released",
+        )
+        self.assertFalse(
+            result["support"]["semantic_contract_portability_is_execution_support"]
+        )
+        checks = {item["id"]: item for item in result["checks"]}
+        self.assertTrue(checks["codex-with-chatgpt"]["required"])
+        self.assertEqual(
+            checks["codex-desktop-session"]["status"], "requires-live-probe"
+        )
+        self.assertEqual(
+            checks["chatgpt-connection-and-login"]["status"],
+            "requires-live-probe",
+        )
+        self.assertEqual(
+            checks["ardot-login-and-target-access"]["status"],
+            "requires-live-probe",
+        )
+        self.assertEqual(
+            checks["wechat-account-session"]["status"], "requires-live-probe"
+        )
+        self.assertFalse(result["live_session_ready"])
+        self.assertFalse(result["ready_to_read_source_material"])
+
+    def test_clone_readiness_is_phase_specific(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            delivery = clone_readiness(
+                Path(directory), phase="delivery", workspace_root=ROOT
+            )
+            bootstrap = clone_readiness(
+                Path(directory), phase="bootstrap", workspace_root=ROOT
+            )
+        delivery_checks = {item["id"]: item for item in delivery["checks"]}
+        self.assertFalse(delivery_checks["codex-with-chatgpt"]["required"])
+        self.assertEqual(delivery_checks["codex-with-chatgpt"]["status"], "not-required")
+        self.assertTrue(delivery_checks["ardot-login-and-target-access"]["required"])
+        self.assertTrue(delivery_checks["wechat-account-session"]["required"])
+        bootstrap_checks = {item["id"]: item for item in bootstrap["checks"]}
+        self.assertTrue(bootstrap_checks["ardot-login-and-target-access"]["required"])
+        self.assertFalse(bootstrap_checks["wechat-account-session"]["required"])
+
     def test_release_cli_requires_isolation_and_ignores_hostile_pythonpath(self) -> None:
         script = ROOT / "scripts" / "release_skills.py"
         unisolated = subprocess.run(
@@ -67,6 +116,7 @@ class ReleaseSkillTests(unittest.TestCase):
         }
         self.assertIn("SKILL.md", relative)
         self.assertIn("scripts/runtime_preflight.py", relative)
+        self.assertIn("references/host-prerequisites.md", relative)
         self.assertFalse(any(path.startswith("examples/") for path in relative))
         self.assertFalse(any(path.startswith("organizations/") for path in relative))
         self.assertFalse(any(path.startswith("output/") for path in relative))

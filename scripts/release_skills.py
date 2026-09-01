@@ -13,9 +13,12 @@ import argparse
 import hashlib
 import json
 import os
+import platform
 import re
+import shlex
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 import uuid
@@ -27,6 +30,10 @@ from typing import Iterable, Sequence
 WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
 MANIFEST_SCHEMA = "org-wechat-skill-release-v1"
 INSTALLED_MANIFEST_DIRECTORY = ".org-wechat-release-manifests"
+CLONE_READINESS_SCHEMA = "org-wechat-clone-readiness-v1"
+SUPPORTED_EXECUTION_HOST = "codex-desktop"
+SUPPORTED_PHASES = ("migration", "bootstrap", "authoring", "delivery", "full")
+CODEX_WITH_CHATGPT_REPOSITORY = "https://github.com/XiaoDuoYa/codex-with-chatgpt"
 PACKAGE_SOURCES = {
     "org-wechat-studio": Path("."),
     "chatgpt-web-image-route": Path("skills/chatgpt-web-image-route"),
@@ -742,6 +749,371 @@ def verify_installed_packages(
     }
 
 
+def _current_platform_key() -> str:
+    return "-".join(
+        (
+            platform.system().lower(),
+            platform.machine().lower(),
+            sys.implementation.cache_tag or "unknown-python",
+        )
+    )
+
+
+def _command_version(command: str) -> tuple[str | None, str | None]:
+    executable = shutil.which(command)
+    if executable is None:
+        return None, None
+    try:
+        completed = subprocess.run(
+            [executable, "--version"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return executable, None
+    version = (completed.stdout or completed.stderr).strip()
+    return executable, version or None
+
+
+def _major_version(value: str | None) -> int | None:
+    if value is None:
+        return None
+    match = re.search(r"(?:^|\s)v?(\d+)(?:\.|$)", value)
+    return int(match.group(1)) if match else None
+
+
+def _codex_with_chatgpt_checkout(skill_path: Path) -> Path | None:
+    if not skill_path.is_file() or skill_path.is_symlink():
+        return None
+    try:
+        text = skill_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = re.search(
+        r"The codex-with-chatgpt checkout lives at:\s*`?([^`\n]+?)`?\s*$",
+        text,
+        re.MULTILINE,
+    )
+    if not match:
+        return None
+    candidate = Path(match.group(1).strip()).expanduser()
+    try:
+        resolved = candidate.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return None
+    if not resolved.is_dir():
+        return None
+    return resolved
+
+
+def clone_readiness(
+    skills_root: Path,
+    *,
+    phase: str = "full",
+    workspace_root: Path = WORKSPACE_ROOT,
+) -> dict[str, object]:
+    """Declare clone-time requirements without pretending to prove live login.
+
+    This check deliberately stops at local installation evidence.  ChatGPT,
+    Ardot and WeChat readiness can only be closed by the current Codex Desktop
+    registry and live page/provider probes after the repository is opened.
+    """
+
+    if phase not in SUPPORTED_PHASES:
+        raise ReleaseError(f"unsupported readiness phase: {phase}")
+    workspace_root = _release_existing_directory(
+        workspace_root, label="source workspace root"
+    )
+    skills_root = _release_absolute_path(skills_root, label="skills root")
+    setup_path = workspace_root / "runtime" / "setup-links.json"
+    platform_path = workspace_root / "runtime" / "platform-support.json"
+    manifest_path = workspace_root / "release" / "org-wechat-skills-v1.json"
+    try:
+        setup = json.loads(setup_path.read_text(encoding="utf-8"))
+        support = json.loads(platform_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ReleaseError(f"cannot read clone prerequisite contracts: {exc}") from exc
+    if not isinstance(setup, dict) or not isinstance(support, dict):
+        raise ReleaseError("clone prerequisite contracts must be JSON objects")
+    expected_support = {
+        "execution_host": SUPPORTED_EXECUTION_HOST,
+        "status": "supported-only-on-codex-desktop",
+        "other_harnesses": "unsupported-until-a-reviewed-adapter-and-full-forward-test-are-released",
+        "semantic_contract_portability_is_execution_support": False,
+    }
+    if setup.get("support") != expected_support:
+        raise ReleaseError("setup support contract must declare Codex Desktop only")
+    if support.get("supported_execution_hosts") != [SUPPORTED_EXECUTION_HOST]:
+        raise ReleaseError("platform support matrix must declare Codex Desktop only")
+
+    external = setup.get("external")
+    if not isinstance(external, dict):
+        raise ReleaseError("setup link registry has no external link map")
+    links = {
+        key: value.get("url")
+        for key, value in external.items()
+        if isinstance(value, dict) and isinstance(value.get("url"), str)
+    }
+
+    checks: list[dict[str, object]] = []
+
+    def add_check(
+        check_id: str,
+        status: str,
+        *,
+        required: bool,
+        scope: str,
+        detail: str,
+        action: str,
+        url: str | None = None,
+    ) -> None:
+        item: dict[str, object] = {
+            "id": check_id,
+            "status": status,
+            "required": required,
+            "scope": scope,
+            "detail": detail,
+            "action": action,
+        }
+        if url:
+            item["url"] = url
+        checks.append(item)
+
+    platform_key = _current_platform_key()
+    supported_keys = {
+        row.get("platform_key")
+        for row in support.get("supported", [])
+        if isinstance(row, dict) and row.get("status") == "locked"
+    }
+    platform_ok = platform_key in supported_keys
+    add_check(
+        "locked-platform",
+        "passed" if platform_ok else "missing",
+        required=True,
+        scope="local",
+        detail=(
+            f"current={platform_key}; this release executes only reviewed locked rows"
+        ),
+        action=(
+            "Continue with the installed workflow."
+            if platform_ok
+            else "Use Apple Silicon macOS with the reviewed bundled CPython 3.9 runtime; other platforms are contract-test-only."
+        ),
+    )
+
+    manifest_ok = False
+    release_sha = None
+    try:
+        manifest = verify_manifest(manifest_path, workspace_root)
+        manifest_ok = True
+        release_sha = str(manifest["release_sha256"])
+    except ReleaseError as exc:
+        manifest = None
+        manifest_error = str(exc)
+    add_check(
+        "source-release-manifest",
+        "passed" if manifest_ok else "missing",
+        required=True,
+        scope="local",
+        detail=(
+            f"verified release={release_sha}"
+            if manifest_ok
+            else f"release manifest is absent, stale or invalid: {manifest_error}"
+        ),
+        action=(
+            "The checked-in release manifest matches the clone."
+            if manifest_ok
+            else "Verify or regenerate the checked-in release manifest before installation."
+        ),
+    )
+
+    installed_ok = False
+    installed_manifest = (
+        skills_root / INSTALLED_MANIFEST_DIRECTORY / f"{release_sha}.json"
+        if release_sha
+        else None
+    )
+    if manifest_ok and installed_manifest is not None and installed_manifest.is_file():
+        try:
+            verify_installed_packages(
+                skills_root,
+                installed_manifest,
+                workspace_root,
+                verify_workspace_source=False,
+            )
+            installed_ok = True
+        except ReleaseError:
+            installed_ok = False
+    install_command = " ".join(
+        (
+            "python3 -I -S",
+            shlex.quote(str(workspace_root / "scripts" / "release_skills.py")),
+            "install",
+            shlex.quote(str(manifest_path)),
+            "--skills-root",
+            shlex.quote(str(skills_root)),
+        )
+    )
+    add_check(
+        "same-release-workflow-skills",
+        "passed" if installed_ok else "missing",
+        required=True,
+        scope="local",
+        detail="org-wechat-studio, chatgpt-web-image-route and ardot-wechat-publisher must be installed from one verified release",
+        action=("Installed bytes match the source release." if installed_ok else install_command),
+    )
+
+    git_path, git_version = _command_version("git")
+    add_check(
+        "git",
+        "passed" if git_path else "missing",
+        required=True,
+        scope="local",
+        detail=git_version or "git was not found",
+        action=(
+            "Git is available."
+            if git_path
+            else "Install Git and reopen the cloned workspace in Codex Desktop."
+        ),
+    )
+
+    c2c_required = phase in {"migration", "authoring", "full"}
+    node_path, node_version = _command_version("node")
+    node_ok = bool(node_path and (_major_version(node_version) or 0) >= 20)
+    add_check(
+        "node-20",
+        "passed" if node_ok else ("missing" if c2c_required else "not-required"),
+        required=c2c_required,
+        scope="local",
+        detail=node_version or "Node.js was not found",
+        action=(
+            "Node.js satisfies the C2C requirement."
+            if node_ok
+            else "Install Node.js 20 or newer for Codex with ChatGPT."
+        ),
+    )
+
+    cloudflared_path, cloudflared_version = _command_version("cloudflared")
+    add_check(
+        "cloudflared",
+        "passed"
+        if cloudflared_path
+        else ("missing" if c2c_required else "not-required"),
+        required=c2c_required,
+        scope="local",
+        detail=cloudflared_version or "cloudflared was not found",
+        action=(
+            "cloudflared is available."
+            if cloudflared_path
+            else "Let the Codex with ChatGPT setup install cloudflared, or install it before pairing."
+        ),
+    )
+
+    c2c_skill = skills_root / "codex-with-chatgpt" / "SKILL.md"
+    c2c_checkout = _codex_with_chatgpt_checkout(c2c_skill)
+    c2c_ok = bool(
+        c2c_checkout
+        and (c2c_checkout / "bin" / "c2c.js").is_file()
+        and (c2c_checkout / "dist").is_dir()
+    )
+    add_check(
+        "codex-with-chatgpt",
+        "passed" if c2c_ok else ("missing" if c2c_required else "not-required"),
+        required=c2c_required,
+        scope="local",
+        detail=(
+            f"installed Skill and built checkout={c2c_checkout}"
+            if c2c_ok
+            else "this repository does not vendor Codex with ChatGPT; its Skill and built checkout are external prerequisites"
+        ),
+        action=(
+            "The external Skill and built checkout are present; live workspace pairing still requires the current Codex session."
+            if c2c_ok
+            else "Install and configure Codex with ChatGPT for this exact cloned workspace."
+        ),
+        url=CODEX_WITH_CHATGPT_REPOSITORY,
+    )
+
+    add_check(
+        "codex-desktop-session",
+        "requires-live-probe",
+        required=True,
+        scope="host-session",
+        detail="the repository cannot prove which harness loaded it from shell or files",
+        action="Open this exact clone as a local task in Codex Desktop, reload the installed Skills, and run the runtime census.",
+    )
+    if c2c_required:
+        add_check(
+            "chatgpt-connection-and-login",
+            "requires-live-probe",
+            required=True,
+            scope="host-session",
+            detail="C2C doctor, connector/workspace identity, the single built-in Browser tab, and ChatGPT login must pass in this Codex session",
+            action="Run the Codex with ChatGPT first-time/setup or doctor flow; complete login, CAPTCHA or 2FA only when the built-in Browser asks.",
+            url=links.get("chatgpt_web"),
+        )
+        add_check(
+            "codex-image-and-browser-tools",
+            "requires-live-probe",
+            required=True,
+            scope="host-session",
+            detail="image_gen__imagegen, view_image, browser:control-in-app-browser and its JavaScript runtime must be model-visible",
+            action="Let runtime_preflight build the current-session census; a shell executable or generic JavaScript tool is not a substitute.",
+        )
+
+    ardot_required = phase in {"bootstrap", "authoring", "delivery", "full"}
+    add_check(
+        "ardot-login-and-target-access",
+        "requires-live-probe" if ardot_required else "not-required",
+        required=ardot_required,
+        scope="host-session",
+        detail="Ardot MCP OAuth/web login and permission for the exact file/root are session-specific and never travel with the clone",
+        action="Connect ardot-remote in Codex, log in to Ardot, then prove create/read/write/export access to the exact target file and root.",
+        url=links.get("ardot_web"),
+    )
+
+    wechat_required = phase in {"delivery", "full"}
+    add_check(
+        "wechat-account-session",
+        "requires-live-probe" if wechat_required else "not-required",
+        required=wechat_required,
+        scope="host-session",
+        detail="the exact Official Account login or API credentials and draft readback route are required only for delivery/full",
+        action="Log in at the credential-free WeChat entry or provide execution-time API credentials; then bind and re-read the exact account before any draft write.",
+        url=links.get("wechat_web"),
+    )
+
+    local_blockers = [
+        str(item["id"])
+        for item in checks
+        if item["scope"] == "local"
+        and item["required"] is True
+        and item["status"] != "passed"
+    ]
+    live_pending = [
+        str(item["id"])
+        for item in checks
+        if item["required"] is True and item["status"] == "requires-live-probe"
+    ]
+    return {
+        "schema": CLONE_READINESS_SCHEMA,
+        "support": expected_support,
+        "phase": phase,
+        "workspace_root": str(workspace_root),
+        "skills_root": str(skills_root),
+        "release_sha256": release_sha,
+        "local_prerequisites_ready": not local_blockers,
+        "live_session_ready": False,
+        "ready_to_read_source_material": False,
+        "local_blockers": local_blockers,
+        "live_probes_required": live_pending,
+        "checks": checks,
+        "truth_boundary": "clone-check proves local files and binaries only; login, registry visibility, account identity, Ardot file/root access and WeChat state require current Codex Desktop live probes",
+    }
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -757,6 +1129,9 @@ def _parser() -> argparse.ArgumentParser:
     verify_installed = subparsers.add_parser("verify-installed")
     verify_installed.add_argument("manifest", type=Path)
     verify_installed.add_argument("--skills-root", type=Path, required=True)
+    clone_check = subparsers.add_parser("clone-check")
+    clone_check.add_argument("--skills-root", type=Path, required=True)
+    clone_check.add_argument("--phase", choices=SUPPORTED_PHASES, default="full")
     return parser
 
 
@@ -771,6 +1146,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             result = stage_packages(args.destination)
         elif args.command == "install":
             result = install_packages(args.skills_root, args.manifest)
+        elif args.command == "clone-check":
+            result = clone_readiness(args.skills_root, phase=args.phase)
         else:
             result = verify_installed_packages(
                 args.skills_root,

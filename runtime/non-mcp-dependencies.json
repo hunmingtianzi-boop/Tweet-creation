@@ -4,6 +4,13 @@
   "truth_boundary": "inventory-and-installation-guidance-only; current host registry and live probes remain required",
   "dependencies": [
     {
+      "id": "codex-desktop-host",
+      "kind": "execution-host",
+      "required_for": ["migration", "bootstrap", "authoring", "delivery", "full"],
+      "detection": "the current task is opened in Codex Desktop and init-current-session-census binds the actual model-visible registry for this session",
+      "installation": "Open the exact clone as a local Codex Desktop task. This release does not support another LLM/harness; schema compatibility or a similarly named tool is not execution support."
+    },
+    {
       "id": "python-locked-runtime",
       "kind": "runtime",
       "required_for": ["migration", "bootstrap", "authoring", "delivery", "full"],
