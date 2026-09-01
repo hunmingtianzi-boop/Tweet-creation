@@ -12,6 +12,12 @@ from pathlib import Path
 from typing import Any
 
 from asset_quality import file_sha256, inspect_png
+from pack_assets import (
+    PackAssetResolutionError,
+    canonical_asset_location,
+    canonical_pack_root,
+    resolve_pack_asset,
+)
 
 
 SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -175,12 +181,86 @@ def read_json(path: Path) -> dict[str, Any]:
     return value
 
 
+def resolve_visual_review_evidence(
+    article_path: Path,
+    location: Any,
+    *,
+    label: str,
+    bundle_root: Path | None = None,
+) -> Path:
+    """Resolve one immutable visual-review file without path aliases.
+
+    Visual-review locations are serialized evidence, not general filesystem
+    inputs. The article root and its ``qa`` directory must therefore be real
+    lexical directories (no symlink in any existing component), the serialized
+    location must be canonical relative POSIX, and the final target must be a
+    strict regular non-symlink file inside the current article's canonical
+    ``qa`` directory. ``bundle_root`` additionally confines child evidence,
+    such as a rendered micro layer, to the directory of its authenticated node
+    export.
+    """
+
+    try:
+        article_root = canonical_pack_root(article_path.parent)
+        resolve_pack_asset(
+            article_root,
+            canonical_asset_location(article_path.name, label="article document"),
+            label="article document",
+        )
+        qa_root = canonical_pack_root(article_root / "qa")
+        serialized = canonical_asset_location(location, label=label)
+
+        containment_root = qa_root
+        article_relative = serialized
+        if bundle_root is not None:
+            canonical_bundle_root = canonical_pack_root(bundle_root)
+            canonical_bundle_root.relative_to(qa_root)
+            containment_root = canonical_bundle_root
+            bundle_relative = canonical_bundle_root.relative_to(article_root).as_posix()
+            article_relative = f"{bundle_relative}/{serialized}"
+
+        candidate = resolve_pack_asset(article_root, article_relative, label=label)
+        candidate.relative_to(qa_root)
+        candidate.relative_to(containment_root)
+        return candidate
+    except (OSError, ValueError) as exc:
+        raise ValueError(
+            f"{label} must be a canonical relative POSIX path to a regular "
+            "non-symlink file inside the current article qa directory"
+        ) from exc
+
+
 REQUIRED_SOURCE_ZERO_EXCLUSIONS = {
     "prior-article-layout",
     "prior-ardot-file",
     "prior-article-screenshot",
     "other-organization-visual-pack",
 }
+SOURCE_ZERO_VISUAL_INPUT_KINDS = {
+    "user-supplied",
+    "user-supplied-assets",
+    "user-supplied-document",
+    "official",
+    "official-assets",
+    "photographed",
+    "current-materials",
+    "current-materials-bundle",
+}
+SOURCE_ZERO_FORBIDDEN_LOCATOR_PARTS = {
+    "archive",
+    "archived",
+    "examples",
+    "experiments",
+    "history",
+    "legacy",
+    "old",
+    "other-org",
+    "other-organization",
+    "output",
+    "previous",
+    "prior",
+}
+SOURCE_ZERO_FORBIDDEN_LOCATOR_TERMS = {"旧稿", "历史", "往期", "成稿", "旧版"}
 
 ALLOWED_VISUAL_REFERENCE_POLICIES = {"source-zero", "explicit-style-grammar"}
 EXPLICIT_STYLE_REFERENCE_SCOPE = "abstract-visual-grammar-only"
@@ -236,6 +316,7 @@ WATERMARK_REPORT_FIELDS = {
     "purpose",
     "key_epoch",
     "carrier",
+    "carrier_derivation",
     "detection",
     "transport_simulation",
 }
@@ -253,6 +334,19 @@ WATERMARK_CARRIER_FIELDS = {
     "input_sha256",
     "input_bytes",
     "reason",
+}
+WATERMARK_CARRIER_DERIVATION_FIELDS = {
+    "schema_version",
+    "kind",
+    "applied",
+    "method",
+    "max_embed_pixels",
+    "source_sha256",
+    "source_width",
+    "source_height",
+    "carrier_sha256",
+    "carrier_width",
+    "carrier_height",
 }
 WATERMARK_DETECTION_FIELDS = {
     "schema_version",
@@ -292,6 +386,8 @@ WATERMARK_EVIDENCE_FIELDS = {
     "psnr_threshold_db",
     "source_location",
     "source_sha256",
+    "original_source_location",
+    "original_source_sha256",
     "marked_sha256",
     "local_verified",
     "report_location",
@@ -368,6 +464,13 @@ def _public_embed_report_schema_errors(
         required=WATERMARK_CARRIER_FIELDS,
         errors=errors,
     )
+    carrier_derivation = _strict_object_fields(
+        report.get("carrier_derivation"),
+        label="watermark report carrier_derivation",
+        allowed=WATERMARK_CARRIER_DERIVATION_FIELDS,
+        required=WATERMARK_CARRIER_DERIVATION_FIELDS,
+        errors=errors,
+    )
     detection = _strict_object_fields(
         report.get("detection"),
         label="watermark report detection",
@@ -398,6 +501,35 @@ def _public_embed_report_schema_errors(
         errors.append("watermark report carrier.input_sha256 does not match source pixels")
     if carrier.get("input_bytes") != source_bytes:
         errors.append("watermark report carrier.input_bytes does not match source file")
+    if carrier_derivation.get("schema_version") != 1 or carrier_derivation.get("kind") != "org-wechat-watermark-carrier-resize-v1":
+        errors.append("watermark carrier derivation schema/kind is invalid")
+    if carrier_derivation.get("carrier_sha256") != source_hash:
+        errors.append("watermark carrier derivation does not bind the registered source carrier")
+    if carrier_derivation.get("carrier_width") != carrier.get("width") or carrier_derivation.get("carrier_height") != carrier.get("height"):
+        errors.append("watermark carrier derivation dimensions do not match the embedded carrier")
+    if carrier_derivation.get("applied") is False:
+        if carrier_derivation.get("method") != "identity-within-max-embed-pixels-v1":
+            errors.append("unscaled watermark carrier requires the identity derivation method")
+        if carrier_derivation.get("source_sha256") != source_hash:
+            errors.append("identity watermark carrier derivation source hash must equal carrier hash")
+    elif carrier_derivation.get("applied") is True:
+        if carrier_derivation.get("method") != "lanczos-fit-max-embed-pixels-v1":
+            errors.append("scaled watermark carrier requires the deterministic Lanczos derivation method")
+        if not isinstance(carrier_derivation.get("source_sha256"), str) or not WATERMARK_HASH_PATTERN.fullmatch(carrier_derivation["source_sha256"]):
+            errors.append("scaled watermark carrier requires the original source SHA-256")
+        width_value = carrier_derivation.get("carrier_width")
+        height_value = carrier_derivation.get("carrier_height")
+        maximum_value = carrier_derivation.get("max_embed_pixels")
+        if (
+            not all(
+                isinstance(value, int) and not isinstance(value, bool) and value > 0
+                for value in (width_value, height_value, maximum_value)
+            )
+            or width_value * height_value > maximum_value
+        ):
+            errors.append("scaled watermark carrier still exceeds its declared embed ceiling")
+    else:
+        errors.append("watermark carrier derivation applied must be boolean")
     if detection.get("input_sha256") != marked_hash:
         errors.append("watermark report detection.input_sha256 does not match marked pixels")
     if detection.get("input_bytes") != marked_bytes:
@@ -707,6 +839,7 @@ def watermark_evidence_from_report(
     pack_dir: Path,
     source_path: Path,
     key_id: str,
+    original_source_path: Path | None = None,
 ) -> dict[str, Any]:
     """Validate an embed report and reduce it to safe public registry evidence."""
     errors: list[str] = []
@@ -732,6 +865,27 @@ def watermark_evidence_from_report(
         errors.append("watermark report must not contain private identifiers or secret material")
     errors.extend(_public_embed_report_schema_errors(raw_report, source_path, marked_path))
     report = raw_report if isinstance(raw_report, dict) else {}
+    carrier_derivation = (
+        report.get("carrier_derivation")
+        if isinstance(report.get("carrier_derivation"), dict)
+        else {}
+    )
+    if carrier_derivation.get("applied") is True:
+        if original_source_path is None:
+            errors.append("scaled watermark carrier requires the preserved original source path")
+        else:
+            try:
+                from provenance_watermark import validate_resized_carrier_derivation
+
+                errors.extend(
+                    validate_resized_carrier_derivation(
+                        original_source_path, source_path, carrier_derivation
+                    )
+                )
+            except (OSError, ValueError) as exc:
+                errors.append(f"scaled watermark carrier derivation cannot be verified: {exc}")
+    else:
+        original_source_path = source_path
     scheme = report.get("algorithm")
     source_sha256 = report.get("pre_sha256")
     marked_sha256 = report.get("post_sha256")
@@ -874,7 +1028,14 @@ def watermark_evidence_from_report(
 
     pack_root = pack_dir.resolve()
     relative_paths: dict[str, str] = {}
-    for label, path in (("source_location", source_path), ("report_location", report_path)):
+    for label, path in (
+        ("source_location", source_path),
+        ("original_source_location", original_source_path),
+        ("report_location", report_path),
+    ):
+        if path is None:
+            errors.append(f"watermark {label} is required")
+            continue
         try:
             relative_paths[label] = path.resolve().relative_to(pack_root).as_posix()
         except ValueError:
@@ -890,6 +1051,8 @@ def watermark_evidence_from_report(
         "psnr_threshold_db": WATERMARK_MIN_PSNR_DB,
         "source_location": relative_paths["source_location"],
         "source_sha256": source_sha256,
+        "original_source_location": relative_paths["original_source_location"],
+        "original_source_sha256": carrier_derivation.get("source_sha256"),
         "marked_sha256": marked_sha256,
         "local_verified": True,
         "report_location": relative_paths["report_location"],
@@ -967,7 +1130,12 @@ def validate_asset_watermark(
                 f"watermark.psnr.invalid: asset {asset.get('id')} psnr_threshold_db must be "
                 f"{WATERMARK_MIN_PSNR_DB:.1f}"
             )
-        for field in ("source_sha256", "marked_sha256", "report_sha256"):
+        for field in (
+            "source_sha256",
+            "original_source_sha256",
+            "marked_sha256",
+            "report_sha256",
+        ):
             value = evidence.get(field)
             if not isinstance(value, str) or not WATERMARK_HASH_PATTERN.fullmatch(value):
                 errors.append(
@@ -994,6 +1162,7 @@ def validate_asset_watermark(
         else:
             pack_root = pack_dir.resolve()
             source_location = evidence.get("source_location")
+            original_source_location = evidence.get("original_source_location")
             report_location = evidence.get("report_location")
             source_path = (
                 (pack_root / source_location).resolve()
@@ -1005,7 +1174,16 @@ def validate_asset_watermark(
                 if isinstance(report_location, str) and report_location
                 else None
             )
-            for label, path in (("source_location", source_path), ("report_location", report_path)):
+            original_source_path = (
+                (pack_root / original_source_location).resolve()
+                if isinstance(original_source_location, str) and original_source_location
+                else None
+            )
+            for label, path in (
+                ("source_location", source_path),
+                ("original_source_location", original_source_path),
+                ("report_location", report_path),
+            ):
                 if path is None:
                     errors.append(
                         f"watermark.path.invalid: asset {asset.get('id')} {label} is required"
@@ -1017,7 +1195,11 @@ def validate_asset_watermark(
                     errors.append(
                         f"watermark.path.outside_pack: asset {asset.get('id')} {label} leaves the organization pack"
                     )
-            if source_path is not None and report_path is not None:
+            if (
+                source_path is not None
+                and original_source_path is not None
+                and report_path is not None
+            ):
                 if not source_path.is_file():
                     errors.append(
                         f"watermark.source.missing: asset {asset.get('id')} preserved source is missing"
@@ -1025,6 +1207,16 @@ def validate_asset_watermark(
                 elif evidence.get("source_sha256") != file_sha256(source_path):
                     errors.append(
                         f"watermark.source_hash.mismatch: asset {asset.get('id')} source SHA-256 does not match"
+                    )
+                if not original_source_path.is_file():
+                    errors.append(
+                        f"watermark.source.missing: asset {asset.get('id')} preserved original source is missing"
+                    )
+                elif evidence.get("original_source_sha256") != file_sha256(
+                    original_source_path
+                ):
+                    errors.append(
+                        f"watermark.source_hash.mismatch: asset {asset.get('id')} original source SHA-256 does not match"
                     )
                 if asset_path is not None and source_path.resolve() == asset_path.resolve():
                     errors.append(
@@ -1048,6 +1240,7 @@ def validate_asset_watermark(
                             pack_dir=pack_root,
                             source_path=source_path,
                             key_id=str(expected_key_id or key_id or ""),
+                            original_source_path=original_source_path,
                         )
                     except ValueError as exc:
                         errors.append(
@@ -1081,7 +1274,11 @@ def validate_asset_watermark(
         public_evidence = {
             field: evidence.get(field) for field in WATERMARK_EVIDENCE_FIELDS
         }
-        for field in ("source_location", "report_location"):
+        for field in (
+            "source_location",
+            "original_source_location",
+            "report_location",
+        ):
             value = public_evidence.get(field)
             if isinstance(value, str):
                 location_path = Path(value)
@@ -1133,24 +1330,23 @@ def watermark_inventory(
             )
     raw_assets = assets_doc.get("assets", [])
     assets = raw_assets if isinstance(raw_assets, list) else []
-    pack_root = pack_dir.resolve()
     for asset in assets:
         if not isinstance(asset, dict):
             continue
         location = asset.get("location")
         asset_path = None
         location_error = None
-        if isinstance(location, str) and not re.match(r"^(?:https?://|data:)", location, re.I):
-            candidate = (pack_root / location).resolve()
-            try:
-                candidate.relative_to(pack_root)
-            except ValueError:
-                location_error = (
-                    f"watermark.path.outside_pack: asset {asset.get('id')} location leaves "
-                    "the organization pack"
-                )
-            else:
-                asset_path = candidate
+        try:
+            asset_path = resolve_pack_asset(
+                pack_dir,
+                location,
+                label=f"asset {asset.get('id')} location",
+            )
+        except PackAssetResolutionError as exc:
+            location_error = (
+                f"watermark.path.outside_pack: asset {asset.get('id')} has no safe local "
+                f"pack asset ({exc})"
+            )
         report = validate_asset_watermark(
             asset,
             asset_path,
@@ -1455,6 +1651,189 @@ def source_isolation_state(organization: dict[str, Any]) -> dict[str, Any]:
         "route_grammar_hashes": route_grammar_hashes,
         "blocking_reasons": reasons,
     }
+
+
+def source_content_sha256(path: Path) -> str:
+    """Return a deterministic content hash for one current-material file/tree.
+
+    Paths, file bytes, and file-vs-directory type are bound; mtimes and host
+    absolute paths are deliberately excluded.  Symlinks are rejected so an
+    approved source cannot later be redirected to an old article tree.
+    """
+
+    candidate = path.resolve(strict=True)
+    if path.is_symlink():
+        raise ValueError("source content path cannot be a symlink")
+    digest = hashlib.sha256()
+    if candidate.is_file():
+        digest.update(b"file\0")
+        digest.update(candidate.name.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(candidate.read_bytes())
+    elif candidate.is_dir():
+        digest.update(b"tree\0")
+        files: list[Path] = []
+        for child in candidate.rglob("*"):
+            if child.is_symlink():
+                raise ValueError("source content tree cannot contain symlinks")
+            if child.is_file():
+                files.append(child)
+            elif not child.is_dir():
+                raise ValueError("source content tree contains a non-regular entry")
+        if not files:
+            raise ValueError("source content tree must contain at least one regular file")
+        for child in sorted(files, key=lambda item: item.relative_to(candidate).as_posix()):
+            relative = child.relative_to(candidate).as_posix().encode("utf-8")
+            digest.update(relative)
+            digest.update(b"\0")
+            digest.update(child.read_bytes())
+            digest.update(b"\0")
+    else:
+        raise ValueError("source content path must be a regular file or directory")
+    return "sha256:" + digest.hexdigest()
+
+
+def validate_source_zero_inputs(
+    organization: dict[str, Any],
+    sources_document: dict[str, Any],
+    pack_dir: Path,
+) -> dict[str, Any]:
+    """Enforce source-zero against the actual selected source paths and bytes."""
+
+    provenance = organization.get("provenance")
+    if not isinstance(provenance, dict):
+        return {"ok": False, "errors": ["source-zero provenance is missing"], "sources": {}}
+    if provenance.get("visual_reference_policy") != "source-zero":
+        return {"ok": True, "errors": [], "sources": {}}
+
+    errors: list[str] = []
+    pack_root = pack_dir.resolve()
+    visual_ids = provenance.get("visual_input_source_ids")
+    selected_ids = visual_ids if isinstance(visual_ids, list) else []
+    has_selected_visual_inputs = bool(selected_ids)
+
+    def symlink_component(path: Path) -> Path | None:
+        """Return the first symlink in a lexical path below the pack root."""
+
+        try:
+            relative = path.relative_to(pack_root)
+        except ValueError:
+            return path
+        current = pack_root
+        for part in relative.parts:
+            current = current / part
+            if current.is_symlink():
+                return current
+        return None
+
+    raw_roots = provenance.get("visual_input_allowed_roots")
+    allowed_roots: list[Path] = []
+    if not isinstance(raw_roots, list) or not raw_roots:
+        errors.append("source-zero provenance requires visual_input_allowed_roots")
+    else:
+        for index, raw_root in enumerate(raw_roots):
+            if not isinstance(raw_root, str) or not raw_root.strip():
+                errors.append(f"visual_input_allowed_roots[{index}] must be a relative directory")
+                continue
+            root_path = Path(raw_root)
+            if root_path.is_absolute() or ".." in root_path.parts:
+                errors.append(f"visual_input_allowed_roots[{index}] must stay inside the organization pack")
+                continue
+            unresolved = pack_root / root_path
+            linked = symlink_component(unresolved)
+            if linked is not None:
+                errors.append(
+                    f"visual input allowed root cannot traverse a symlink: {raw_root}"
+                )
+                continue
+            try:
+                resolved = unresolved.resolve(strict=True)
+                resolved.relative_to(pack_root)
+            except (OSError, ValueError):
+                if has_selected_visual_inputs:
+                    errors.append(
+                        f"visual input allowed root is missing or outside the pack: {raw_root}"
+                    )
+                continue
+            if not resolved.is_dir():
+                errors.append(f"visual input allowed root must be a directory: {raw_root}")
+                continue
+            allowed_roots.append(resolved)
+
+    sources_raw = sources_document.get("sources")
+    sources = {
+        item.get("id"): item
+        for item in sources_raw
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    } if isinstance(sources_raw, list) else {}
+    reports: dict[str, Any] = {}
+    for source_id in selected_ids:
+        source = sources.get(source_id)
+        if not isinstance(source, dict):
+            continue
+        source_errors: list[str] = []
+        kind = str(source.get("kind", "")).strip().lower()
+        if kind in REQUIRED_SOURCE_ZERO_EXCLUSIONS or kind not in SOURCE_ZERO_VISUAL_INPUT_KINDS:
+            source_errors.append(
+                f"source kind is forbidden for source-zero visual input: {kind or 'missing'}"
+            )
+        locator = source.get("locator")
+        candidate: Path | None = None
+        if not isinstance(locator, str) or not locator.strip():
+            source_errors.append("source locator is required")
+        elif re.match(r"^(?:https?://|data:)", locator):
+            source_errors.append("source-zero visual input must be a local immutable material copy")
+        else:
+            locator_path = Path(locator)
+            lowered_parts = {
+                re.sub(r"[^a-z0-9]+", "-", part.lower()).strip("-")
+                for part in locator_path.parts
+            }
+            if any(
+                token == part or part.startswith(token + "-")
+                for part in lowered_parts
+                for token in SOURCE_ZERO_FORBIDDEN_LOCATOR_PARTS
+            ) or any(term in locator for term in SOURCE_ZERO_FORBIDDEN_LOCATOR_TERMS):
+                source_errors.append("source locator appears to reference legacy/example material")
+            if locator_path.is_absolute() or ".." in locator_path.parts:
+                source_errors.append("source locator must stay inside an allowed organization-pack root")
+            else:
+                unresolved = pack_root / locator_path
+                linked = symlink_component(unresolved)
+                if linked is not None:
+                    source_errors.append("source locator cannot traverse a symlink")
+                else:
+                    try:
+                        candidate = unresolved.resolve(strict=True)
+                        candidate.relative_to(pack_root)
+                    except (OSError, ValueError):
+                        source_errors.append("source locator is missing or escapes the organization pack")
+                        candidate = None
+                if candidate is not None and not any(
+                    candidate == root or root in candidate.parents for root in allowed_roots
+                ):
+                    source_errors.append("source locator is outside visual_input_allowed_roots")
+        declared_hash = source.get("content_sha256")
+        actual_hash: str | None = None
+        if not isinstance(declared_hash, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", declared_hash):
+            source_errors.append("source content_sha256 must be sha256:<64 lowercase hex>")
+        elif candidate is not None:
+            try:
+                actual_hash = source_content_sha256(candidate)
+            except (OSError, ValueError) as exc:
+                source_errors.append(f"source content cannot be hashed: {exc}")
+            else:
+                if declared_hash != actual_hash:
+                    source_errors.append("source content_sha256 does not match current material bytes")
+        reports[str(source_id)] = {
+            "kind": kind,
+            "locator": locator,
+            "declared_sha256": declared_hash,
+            "actual_sha256": actual_hash,
+            "errors": source_errors,
+        }
+        errors.extend(f"source-zero visual input {source_id}: {message}" for message in source_errors)
+    return {"ok": not errors, "errors": errors, "sources": reports}
 
 
 def background_family_state(
@@ -1998,21 +2377,23 @@ def validate_interaction_plan(
                 if not isinstance(screenshot, str) or not screenshot:
                     errors.append(f"{prefix} {state_name} state requires a local screenshot")
                     continue
-                if re.match(r"^https?://", screenshot):
-                    errors.append(f"{prefix} {state_name} screenshot must be a local immutable export")
-                    continue
                 if article_path is None:
                     errors.append(f"{prefix} cannot verify state screenshots without article_path")
                     continue
-                screenshot_path = (article_path.parent / screenshot).resolve()
+                try:
+                    screenshot_path = resolve_visual_review_evidence(
+                        article_path,
+                        screenshot,
+                        label=f"{prefix} {state_name} screenshot",
+                    )
+                except ValueError as exc:
+                    errors.append(str(exc))
+                    continue
                 if screenshot_path in state_paths or screenshot_path in evidence_paths:
                     errors.append(f"{prefix} reuses an interaction state screenshot: {screenshot}")
                     continue
                 state_paths.add(screenshot_path)
                 evidence_paths.add(screenshot_path)
-                if not screenshot_path.exists() or not screenshot_path.is_file():
-                    errors.append(f"{prefix} interaction state screenshot is missing: {screenshot}")
-                    continue
                 actual_hash = file_sha256(screenshot_path)
                 if declared_hash != actual_hash:
                     errors.append(f"{prefix} {state_name} screenshot sha256 does not match the file")
@@ -2248,25 +2629,31 @@ def validate_micro_component_layout(
     if not _is_iso_datetime(layout.get("measured_at")):
         errors.append("micro_component_layout.measured_at must be an ISO timestamp")
 
-    def load_evidence(location: Any, declared_hash: Any, label: str) -> dict[str, Any]:
+    def load_evidence(
+        location: Any,
+        declared_hash: Any,
+        label: str,
+    ) -> tuple[dict[str, Any], Path | None]:
         if not isinstance(location, str) or not location:
             errors.append(f"{label} requires a local JSON location")
-            return {}
-        if re.match(r"^https?://", location):
-            errors.append(f"{label} must be a local immutable Ardot node export")
-            return {}
-        candidate = (article_path.parent / location).resolve()
-        if not candidate.exists() or not candidate.is_file():
-            errors.append(f"{label} is missing: {location}")
-            return {}
+            return {}, None
+        try:
+            candidate = resolve_visual_review_evidence(
+                article_path,
+                location,
+                label=label,
+            )
+        except ValueError as exc:
+            errors.append(str(exc))
+            return {}, None
         actual_hash = file_sha256(candidate)
         if declared_hash != actual_hash:
             errors.append(f"{label} sha256 does not match the file")
         try:
-            return read_json(candidate)
+            return read_json(candidate), candidate
         except ValueError as exc:
             errors.append(f"{label} is not valid JSON: {exc}")
-            return {}
+            return {}, candidate
 
     def node_bounds(node: dict[str, Any], label: str) -> tuple[float, float, float, float] | None:
         bounds = node.get("bounds")
@@ -2359,7 +2746,7 @@ def validate_micro_component_layout(
             f"article.visual_kit is missing native component evidence for micro role: {role}"
         )
 
-    inventory = load_evidence(
+    inventory, _ = load_evidence(
         layout.get("inventory_file"),
         layout.get("inventory_sha256"),
         "micro component instance inventory",
@@ -2465,19 +2852,12 @@ def validate_micro_component_layout(
         else:
             composition_relations.add(relation)
 
-        properties = load_evidence(
+        properties, properties_path = load_evidence(
             placement.get("node_properties_file"),
             placement.get("node_properties_sha256"),
             f"{prefix} node properties",
         )
-        properties_location = placement.get("node_properties_file")
-        properties_bundle_dir: Path | None = None
-        if (
-            isinstance(properties_location, str)
-            and properties_location
-            and not re.match(r"^https?://", properties_location)
-        ):
-            properties_bundle_dir = (article_path.parent / properties_location).resolve().parent
+        properties_bundle_dir = properties_path.parent if properties_path is not None else None
         if properties.get("schema_version") != 1:
             errors.append(f"{prefix} node properties schema_version must be 1")
         if properties.get("source") != "ardot-node-properties":
@@ -2590,32 +2970,28 @@ def validate_micro_component_layout(
                             f"{node_label} requires a local rendered_asset_file inside the visual-review bundle"
                         )
                     else:
-                        rendered_candidate = (
-                            properties_bundle_dir / rendered_asset_file
-                        ).resolve()
                         try:
-                            rendered_candidate.relative_to(properties_bundle_dir)
+                            rendered_candidate = resolve_visual_review_evidence(
+                                article_path,
+                                rendered_asset_file,
+                                label=f"{node_label} rendered_asset_file",
+                                bundle_root=properties_bundle_dir,
+                            )
                         except ValueError:
                             error_codes.add("micro.component.rendered_asset_mismatch")
                             errors.append(
-                                f"{node_label} rendered_asset_file escapes the visual-review bundle"
+                                f"{node_label} rendered_asset_file must be canonical and stay inside the visual-review bundle"
                             )
                         else:
-                            if not rendered_candidate.is_file():
+                            actual_rendered_sha256 = file_sha256(rendered_candidate)
+                            if (
+                                rendered_asset_sha256 != actual_rendered_sha256
+                                or actual_rendered_sha256 != expected_asset_sha256
+                            ):
                                 error_codes.add("micro.component.rendered_asset_mismatch")
                                 errors.append(
-                                    f"{node_label} rendered_asset_file is missing"
+                                    f"{node_label} rendered layer pixels must hash exactly to the approved cutout"
                                 )
-                            else:
-                                actual_rendered_sha256 = file_sha256(rendered_candidate)
-                                if (
-                                    rendered_asset_sha256 != actual_rendered_sha256
-                                    or actual_rendered_sha256 != expected_asset_sha256
-                                ):
-                                    error_codes.add("micro.component.rendered_asset_mismatch")
-                                    errors.append(
-                                        f"{node_label} rendered layer pixels must hash exactly to the approved cutout"
-                                    )
             elif kind == "text":
                 text_entries.append((node, bounds))
             elif kind == "closed-shape":
@@ -2788,6 +3164,277 @@ def validate_micro_component_layout(
     }
 
 
+def _contrast_ratio(first: str, second: str) -> float:
+    def luminance(value: str) -> float:
+        if not isinstance(value, str) or not re.fullmatch(r"#[0-9A-Fa-f]{6}", value):
+            raise ValueError("contrast colors must use #RRGGBB")
+        channels = [int(value[index : index + 2], 16) / 255 for index in (1, 3, 5)]
+        linear = [channel / 12.92 if channel <= 0.04045 else ((channel + 0.055) / 1.055) ** 2.4 for channel in channels]
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+    left, right = luminance(first), luminance(second)
+    return (max(left, right) + 0.05) / (min(left, right) + 0.05)
+
+
+def derive_section_density_metrics(section: dict[str, Any]) -> dict[str, float]:
+    """Derive compact-editorial metrics from one complete Ardot section census."""
+
+    bounds = section.get("bounds") if isinstance(section.get("bounds"), dict) else {}
+    width = float(bounds.get("width", 0))
+    height = float(bounds.get("height", 0))
+    if width <= 0 or height <= 0:
+        raise ValueError("section bounds must have positive width and height")
+    nodes_raw = section.get("nodes")
+    nodes = [item for item in nodes_raw if isinstance(item, dict)] if isinstance(nodes_raw, list) else []
+    body = [item for item in nodes if item.get("kind") == "text" and item.get("role") == "body-copy"]
+    if not body:
+        raise ValueError("section census requires body-copy text nodes")
+
+    fonts = [float(item["font_size_px"]) for item in body]
+    line_ratios = [float(item["line_height_px"]) / float(item["font_size_px"]) for item in body]
+    letter_spacings = [float(item["letter_spacing_px"]) for item in body]
+    ordered_body = sorted(body, key=lambda item: float(item["bounds"]["y"]))
+    gaps = [
+        max(
+            0.0,
+            float(current["bounds"]["y"])
+            - (float(previous["bounds"]["y"]) + float(previous["bounds"]["height"])),
+        )
+        for previous, current in zip(ordered_body, ordered_body[1:])
+    ]
+    paragraph_gap = float(sorted(gaps)[len(gaps) // 2]) if gaps else 0.0
+    major_gap = max(gaps) if gaps else 0.0
+    contrasts = [
+        _contrast_ratio(str(item.get("text_color")), str(item.get("background_color")))
+        for item in body
+    ]
+
+    grid_width = 39
+    grid_height = max(1, round(grid_width * height / width))
+    occupied = [[False for _ in range(grid_width)] for _ in range(grid_height)]
+    visible_nodes = [
+        item
+        for item in nodes
+        if item.get("visible", True) is True
+        and item.get("kind") not in {"background", "section", "root"}
+        and isinstance(item.get("bounds"), dict)
+    ]
+    for node in visible_nodes:
+        node_bounds = node["bounds"]
+        x0 = max(0, min(grid_width, math.floor(float(node_bounds.get("x", 0)) / width * grid_width)))
+        x1 = max(x0 + 1, min(grid_width, math.ceil((float(node_bounds.get("x", 0)) + float(node_bounds.get("width", 0))) / width * grid_width)))
+        y0 = max(0, min(grid_height, math.floor(float(node_bounds.get("y", 0)) / height * grid_height)))
+        y1 = max(y0 + 1, min(grid_height, math.ceil((float(node_bounds.get("y", 0)) + float(node_bounds.get("height", 0))) / height * grid_height)))
+        for row in range(y0, y1):
+            for column in range(x0, x1):
+                occupied[row][column] = True
+    occupied_count = sum(int(value) for row in occupied for value in row)
+    empty = {(row, column) for row in range(grid_height) for column in range(grid_width) if not occupied[row][column]}
+    largest_empty = 0
+    while empty:
+        stack = [empty.pop()]
+        region = 0
+        while stack:
+            row, column = stack.pop()
+            region += 1
+            for neighbor in ((row - 1, column), (row + 1, column), (row, column - 1), (row, column + 1)):
+                if neighbor in empty:
+                    empty.remove(neighbor)
+                    stack.append(neighbor)
+        largest_empty = max(largest_empty, region)
+    total_cells = grid_width * grid_height
+    return {
+        "body_font_px": round(sum(fonts) / len(fonts), 3),
+        "body_line_height_ratio": round(sum(line_ratios) / len(line_ratios), 3),
+        "letter_spacing_px": round(sum(letter_spacings) / len(letter_spacings), 3),
+        "paragraph_gap_px": round(paragraph_gap, 3),
+        "major_gap_px": round(major_gap, 3),
+        "content_occupancy_ratio": round(occupied_count / total_cells, 4),
+        "largest_empty_region_ratio": round(largest_empty / total_cells, 4),
+        "body_text_contrast_ratio": round(min(contrasts), 3),
+    }
+
+
+def validate_ardot_article_census(
+    review: dict[str, Any],
+    article: dict[str, Any],
+    article_path: Path,
+    screenshot_hashes: dict[str, str],
+    ardot: dict[str, Any],
+    capture: dict[str, Any],
+) -> dict[str, Any]:
+    """Authenticate the local host export bundle and derive article-wide QA."""
+
+    errors: list[str] = []
+    def load_json(location: Any, declared_hash: Any, label: str) -> tuple[dict[str, Any], Path | None]:
+        if not isinstance(location, str) or not location:
+            errors.append(f"{label} requires a local JSON location")
+            return {}, None
+        try:
+            candidate = resolve_visual_review_evidence(
+                article_path,
+                location,
+                label=label,
+            )
+        except ValueError as exc:
+            errors.append(str(exc))
+            return {}, None
+        if declared_hash != file_sha256(candidate):
+            errors.append(f"{label} sha256 does not match current bytes")
+        try:
+            value = read_json(candidate)
+        except ValueError as exc:
+            errors.append(f"{label} is invalid: {exc}")
+            return {}, candidate
+        return value, candidate
+
+    census, census_path = load_json(
+        capture.get("node_census_file"), capture.get("node_census_sha256"), "Ardot article node census"
+    )
+    receipt, _ = load_json(
+        capture.get("host_export_receipt_file"),
+        capture.get("host_export_receipt_sha256"),
+        "Ardot host export receipt",
+    )
+    revision_hash = capture.get("revision_hash")
+    if census.get("schema_version") != 1 or census.get("source") != "ardot-article-node-census":
+        errors.append("Ardot node census schema/source is invalid")
+    if census.get("complete_descendant_census") is not True:
+        errors.append("Ardot node census must declare complete_descendant_census=true")
+    if census.get("article_root_node_id") != ardot.get("article_node_id"):
+        errors.append("Ardot node census root does not match the reviewed article")
+    if census.get("revision_hash") != revision_hash:
+        errors.append("Ardot node census must bind the current reviewed revision")
+    if census.get("article_width_px") != 390:
+        errors.append("Ardot node census article_width_px must be 390")
+    sections_raw = census.get("sections")
+    sections = [item for item in sections_raw if isinstance(item, dict)] if isinstance(sections_raw, list) else []
+    section_by_id = {item.get("node_id"): item for item in sections if isinstance(item.get("node_id"), str)}
+    if set(section_by_id) != set(screenshot_hashes):
+        errors.append("Ardot node census sections must exactly cover the reviewed screenshot nodes")
+    if census.get("visible_descendant_count") != sum(
+        len(item.get("nodes", [])) for item in sections if isinstance(item.get("nodes"), list)
+    ):
+        errors.append("Ardot node census visible_descendant_count does not match its full node list")
+
+    if receipt.get("schema_version") != 1 or receipt.get("kind") != "ardot-host-export-receipt-v1":
+        errors.append("Ardot host export receipt schema/kind is invalid")
+    assurance_level = receipt.get("assurance_level")
+    host_enforced = receipt.get("host_enforced")
+    if assurance_level != "current-session-host-trace" or host_enforced is not False:
+        errors.append(
+            "Ardot authoring receipt must declare current-session-host-trace and host_enforced=false; "
+            "host-enforced attestation belongs to the runtime delivery gate"
+        )
+    for field in ("provider", "session_id", "request_id", "tool_id"):
+        if not isinstance(receipt.get(field), str) or not receipt.get(field):
+            errors.append(f"Ardot host export receipt requires {field}")
+    if receipt.get("file_url") != ardot.get("file_url"):
+        errors.append("Ardot host export receipt file_url does not match the review")
+    if receipt.get("article_root_node_id") != ardot.get("article_node_id"):
+        errors.append("Ardot host export receipt root does not match the review")
+    if receipt.get("revision_hash") != revision_hash:
+        errors.append("Ardot host export receipt revision does not match the review")
+    if census_path is not None and receipt.get("node_census_sha256") != file_sha256(census_path):
+        errors.append("Ardot host export receipt does not bind the node census bytes")
+    receipt_screenshots = receipt.get("screenshot_sha256s")
+    if receipt_screenshots != sorted(screenshot_hashes.values()):
+        errors.append("Ardot host export receipt does not bind every screenshot byte hash")
+    if not _is_iso_datetime(receipt.get("exported_at")):
+        errors.append("Ardot host export receipt exported_at must be an ISO timestamp")
+
+    derived_density: dict[str, dict[str, float]] = {}
+    for node_id, section in section_by_id.items():
+        nodes = section.get("nodes")
+        if not isinstance(nodes, list) or section.get("visible_descendant_count") != len(nodes):
+            errors.append(f"Ardot census section {node_id} does not contain a complete node list")
+            continue
+        try:
+            derived_density[node_id] = derive_section_density_metrics(section)
+        except (KeyError, TypeError, ValueError) as exc:
+            errors.append(f"Ardot census section {node_id} density cannot be derived: {exc}")
+
+    ordered_sections = sorted(
+        sections,
+        key=lambda item: float(item.get("article_order", math.inf)),
+    )
+    boxed = [item.get("container_style") == "boxed" for item in ordered_sections]
+    boxed_ratio = sum(boxed) / len(boxed) if boxed else 1.0
+    consecutive_boxed = max(
+        (len(list(group)) for value, group in __import__("itertools").groupby(boxed) if value),
+        default=0,
+    )
+    asymmetric_sections: set[str] = set()
+    for section in sections:
+        for node in section.get("nodes", []):
+            bounds = node.get("bounds") if isinstance(node, dict) else None
+            if not isinstance(bounds, dict) or node.get("kind") in {"text", "background"}:
+                continue
+            x = float(bounds.get("x", 0))
+            width = float(bounds.get("width", 0))
+            center_offset = abs((x + width / 2) / 390 - 0.5)
+            if x < 0 or x + width > 390 or center_offset >= 0.16:
+                asymmetric_sections.add(str(section.get("node_id")))
+    if boxed_ratio > 0.20:
+        errors.append("article-wide closed/boxed section ratio exceeds 20%")
+    if consecutive_boxed > 1:
+        errors.append("article-wide layout contains consecutive boxed sections")
+    if len(asymmetric_sections) < 3:
+        errors.append("article-wide layout requires at least 3 geometry-derived asymmetric/edge-breaking sections")
+
+    node_index = {
+        node.get("node_id"): node
+        for section in sections
+        for node in section.get("nodes", [])
+        if isinstance(node, dict) and isinstance(node.get("node_id"), str)
+    }
+    typography_errors: list[str] = []
+    moments = article.get("typography", {}).get("moments", [])
+    for index, moment in enumerate(moments if isinstance(moments, list) else []):
+        if not isinstance(moment, dict):
+            continue
+        construction = moment.get("construction") if isinstance(moment.get("construction"), dict) else {}
+        native_ids = construction.get("native_text_node_ids", [])
+        accent_ids = construction.get("accent_node_ids", [])
+        native_nodes = [node_index.get(node_id) for node_id in native_ids]
+        accent_nodes = [node_index.get(node_id) for node_id in accent_ids]
+        if any(not isinstance(node, dict) or node.get("kind") != "text" or node.get("editable") is not True for node in native_nodes):
+            typography_errors.append(f"typography moment {index} native text nodes are absent or not editable")
+            continue
+        if any(not isinstance(node, dict) or node.get("kind") != "vector-accent" for node in accent_nodes):
+            typography_errors.append(f"typography moment {index} accent nodes are absent or not vector accents")
+        source_text = str(moment.get("source_text", ""))
+        if not any(str(node.get("plain_text", "")) == source_text for node in native_nodes if isinstance(node, dict)):
+            typography_errors.append(f"typography moment {index} census text does not match source_text")
+        techniques = set(construction.get("techniques", []))
+        fonts = [float(node.get("font_size_px", 0)) for node in native_nodes if isinstance(node, dict)]
+        actual_scale = max(fonts) / min(fonts) if fonts and min(fonts) > 0 else 1.0
+        if "scale-contrast" in techniques and actual_scale < float(construction.get("scale_ratio", 1.15)):
+            typography_errors.append(f"typography moment {index} census does not prove scale-contrast")
+        if "mixed-weight" in techniques and len({node.get("font_weight") for node in native_nodes if isinstance(node, dict)}) < 2:
+            typography_errors.append(f"typography moment {index} census does not prove mixed-weight")
+        if "color-contrast" in techniques and len({node.get("text_color") for node in native_nodes if isinstance(node, dict)}) < 2:
+            typography_errors.append(f"typography moment {index} census does not prove color-contrast")
+        if "intentional-line-break" in techniques and max(
+            [int(node.get("line_count", 1)) for node in native_nodes if isinstance(node, dict)] or [1]
+        ) < 2:
+            typography_errors.append(f"typography moment {index} census does not prove intentional-line-break")
+        if "vector-accent" in techniques and not accent_nodes:
+            typography_errors.append(f"typography moment {index} census does not prove vector-accent")
+    errors.extend(typography_errors)
+    return {
+        "ready": not errors,
+        "errors": errors,
+        "derived_density": derived_density,
+        "boxed_section_ratio": round(boxed_ratio, 4),
+        "maximum_consecutive_boxed_sections": consecutive_boxed,
+        "asymmetric_section_count": len(asymmetric_sections),
+        "typography_errors": typography_errors,
+        "receipt_assurance_level": assurance_level,
+        "receipt_host_enforced": host_enforced,
+    }
+
+
 def validate_visual_review(
     review: dict[str, Any],
     article: dict[str, Any],
@@ -2847,12 +3494,16 @@ def validate_visual_review(
         location = item.get("location")
         if not isinstance(location, str) or not location:
             errors.append(f"visual review screenshot {index} requires location")
-        elif re.match(r"^https?://", location):
-            errors.append("visual review screenshots must be local immutable exports, not URLs")
         else:
-            candidate = (article_path.parent / location).resolve()
-            if not candidate.exists() or not candidate.is_file():
-                errors.append(f"visual review screenshot is missing: {location}")
+            try:
+                candidate = resolve_visual_review_evidence(
+                    article_path,
+                    location,
+                    label=f"visual review screenshot {index}",
+                )
+            except ValueError as exc:
+                errors.append(str(exc))
+                continue
             else:
                 if candidate in screenshot_locations:
                     errors.append(f"visual review screenshot file is reused: {location}")
@@ -2883,6 +3534,15 @@ def validate_visual_review(
             errors.append(f"visual review screenshot {index} requires chapter_id")
     if len(node_ids) < 5:
         errors.append("visual review requires at least 5 distinct Ardot node screenshots")
+    census_validation = validate_ardot_article_census(
+        review,
+        article,
+        article_path,
+        screenshot_hashes,
+        ardot,
+        capture,
+    )
+    errors.extend(census_validation["errors"])
     density = review.get("density")
     if not isinstance(density, dict):
         density = {}
@@ -2908,6 +3568,7 @@ def validate_visual_review(
             density_node_ids.add(node_id)
             if sample.get("screenshot_sha256") != screenshot_hashes.get(node_id):
                 errors.append(f"density sample {index} screenshot_sha256 does not match its screenshot")
+        derived_sample = census_validation.get("derived_density", {}).get(node_id, {})
         if not isinstance(sample.get("chapter_id"), str) or not sample.get("chapter_id"):
             errors.append(f"density sample {index} requires chapter_id")
         elif isinstance(node_id, str) and sample.get("chapter_id") != screenshot_chapters.get(node_id):
@@ -2919,6 +3580,16 @@ def validate_visual_review(
             elif not minimum <= float(value) <= maximum:
                 errors.append(
                     f"density sample {index} {metric} must be between {minimum} and {maximum} for {density_mode}"
+                )
+            derived_value = derived_sample.get(metric)
+            if (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or not isinstance(derived_value, (int, float))
+                or abs(float(value) - float(derived_value)) > 0.02
+            ):
+                errors.append(
+                    f"density sample {index} {metric} is self-reported and does not match the Ardot node census"
                 )
         body_font_value = sample.get("body_font_px")
         if (
@@ -2936,6 +3607,11 @@ def validate_visual_review(
             errors.append(
                 f"density sample {index} content_occupancy_ratio must be between {occupancy_minimum} and 0.9"
             )
+        derived_occupancy = derived_sample.get("content_occupancy_ratio")
+        if not isinstance(derived_occupancy, (int, float)) or not isinstance(occupancy, (int, float)) or abs(float(occupancy) - float(derived_occupancy)) > 0.02:
+            errors.append(
+                f"density sample {index} content_occupancy_ratio does not match the Ardot node census"
+            )
         largest_empty = sample.get("largest_empty_region_ratio")
         empty_maximum = 0.40 if intentional else 0.20
         if not isinstance(largest_empty, (int, float)) or isinstance(largest_empty, bool):
@@ -2944,6 +3620,11 @@ def validate_visual_review(
             errors.append(
                 f"density sample {index} largest_empty_region_ratio must be at most {empty_maximum}"
             )
+        derived_empty = derived_sample.get("largest_empty_region_ratio")
+        if not isinstance(derived_empty, (int, float)) or not isinstance(largest_empty, (int, float)) or abs(float(largest_empty) - float(derived_empty)) > 0.02:
+            errors.append(
+                f"density sample {index} largest_empty_region_ratio does not match the Ardot node census"
+            )
         if intentional and not sample.get("intentional_whitespace_reason"):
             errors.append(f"density sample {index} intentional whitespace requires a reason")
         contrast = sample.get("body_text_contrast_ratio")
@@ -2951,6 +3632,11 @@ def validate_visual_review(
             errors.append(f"density sample {index} requires numeric body_text_contrast_ratio")
         elif float(contrast) < 4.5:
             errors.append(f"density sample {index} body_text_contrast_ratio must be at least 4.5")
+        derived_contrast = derived_sample.get("body_text_contrast_ratio")
+        if not isinstance(derived_contrast, (int, float)) or not isinstance(contrast, (int, float)) or abs(float(contrast) - float(derived_contrast)) > 0.05:
+            errors.append(
+                f"density sample {index} body_text_contrast_ratio does not match census text/background colors"
+            )
     if len(density_node_ids) < 5:
         errors.append("visual review requires density samples for at least 5 distinct screenshot nodes")
     micro_component_layout = validate_micro_component_layout(
@@ -2967,8 +3653,29 @@ def validate_visual_review(
         checks = {}
         errors.append("visual review checks must be an object")
     for check in sorted(REQUIRED_VISUAL_CHECKS):
-        if checks.get(check) != "pass":
+        evidence = checks.get(check)
+        if not isinstance(evidence, dict) or evidence.get("status") != "pass":
             errors.append(f"visual review check must pass: {check}")
+            continue
+        evidence_nodes = evidence.get("evidence_node_ids")
+        if not isinstance(evidence_nodes, list) or not evidence_nodes or any(
+            node_id not in screenshot_hashes for node_id in evidence_nodes
+        ):
+            errors.append(f"visual review check {check} requires current screenshot node evidence")
+            continue
+        expected_hashes = sorted(screenshot_hashes[node_id] for node_id in evidence_nodes)
+        if evidence.get("screenshot_sha256s") != expected_hashes:
+            errors.append(f"visual review check {check} does not bind current screenshot hashes")
+        reviewer = evidence.get("reviewer")
+        if (
+            not isinstance(reviewer, dict)
+            or reviewer.get("kind") not in {"human", "host-assisted-human"}
+            or not isinstance(reviewer.get("id"), str)
+            or not reviewer.get("id")
+        ):
+            errors.append(f"visual review subjective check {check} requires an identified human reviewer")
+        if not _is_iso_datetime(evidence.get("reviewed_at")):
+            errors.append(f"visual review check {check} reviewed_at must be an ISO timestamp")
     if review.get("status") != "approved":
         errors.append("visual review status must be approved")
     if not _is_iso_datetime(review.get("reviewed_at")):
@@ -2982,7 +3689,10 @@ def validate_visual_review(
         "density_mode": density_mode,
         "density_sample_count": len(sample_items),
         "micro_component_layout": micro_component_layout,
+        "ardot_article_census": census_validation,
         "passed_checks": sorted(
-            check for check in REQUIRED_VISUAL_CHECKS if checks.get(check) == "pass"
+            check
+            for check in REQUIRED_VISUAL_CHECKS
+            if isinstance(checks.get(check), dict) and checks[check].get("status") == "pass"
         ),
     }

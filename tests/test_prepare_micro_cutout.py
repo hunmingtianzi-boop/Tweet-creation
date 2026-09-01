@@ -5,25 +5,35 @@ import json
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
 from PIL import Image, ImageDraw
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from asset_quality import validate_micro_asset  # noqa: E402
+from ingest_browser_download import ingest_download  # noqa: E402
 from orgs import command_register_asset, validate_cutout_derivation_report  # noqa: E402
 from prepare_micro_cutout import (  # noqa: E402
     CutoutPreparationError,
     prepare_micro_cutout,
+    validate_acquisition_report,
 )
+from provider_acquisition_authority import (  # noqa: E402
+    article_request_metadata,
+    live_provider_acquisition_authority,
+)
+import provider_acquisition_authority as authority_module  # noqa: E402
 
 
 PROMPT_SHA = "sha256:" + "a" * 64
-ROUTE = "chatgpt-web/codex-with-chatgpt"
+ROUTE = "chatgpt-web-image-route-v1"
 KEY = (255, 0, 255)
 ARTICLE_ID = "current-article"
 ASSET_SLOT_ID = "kit.floating-spot"
@@ -104,16 +114,232 @@ def write_neutral_open_stroke_probe(path: Path) -> None:
 class PrepareMicroCutoutTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
+        self.live_authority = live_provider_acquisition_authority(lambda challenge: True)
+        self.live_authority.__enter__()
 
     def tearDown(self) -> None:
+        self.live_authority.__exit__(None, None, None)
         self.temp.cleanup()
+
+    def _runtime_binding(self) -> tuple[dict, str, str]:
+        runtime_root = self.root / "runtime"
+        runtime_root.mkdir(exist_ok=True)
+        adapter = ROOT / "runtime" / "adapters" / "codex-desktop.json"
+        adapter_sha = "sha256:" + hashlib.sha256(adapter.read_bytes()).hexdigest()
+        census = runtime_root / "registry-census.json"
+        if not census.exists():
+            census.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "kind": "org-wechat-host-registry-census-v1",
+                        "harness": {
+                            "session_id": "host-session",
+                            "adapter_sha256": adapter_sha,
+                        },
+                        "installed_release": {
+                            "release_sha256": "7" * 64,
+                        },
+                        "registry_digest": "sha256:" + "8" * 64,
+                    }
+                ),
+                encoding="utf-8",
+            )
+        census_sha = "sha256:" + hashlib.sha256(census.read_bytes()).hexdigest()
+        nonce = "N" * 32
+        digest = "sha256:" + "9" * 64
+        migration = runtime_root / "migration-current-session.json"
+        if not migration.exists():
+            migration.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "kind": "org-wechat-migration-current-session-report-v1",
+                        "binding_nonce": nonce,
+                        "binding_digest": digest,
+                        "ok": True,
+                        "operational_ready": True,
+                        "phase_ready": False,
+                        "assurance": "current-session-observed-path-not-portable-signed",
+                        "local": {
+                            "installed_registry_verified": True,
+                            "registry_census_sha256": census_sha,
+                            "installed_release_sha256": "7" * 64,
+                            "registry_digest": "sha256:" + "8" * 64,
+                        },
+                        "resolved_harness": {"adapter_sha256": adapter_sha},
+                        "resolved_capabilities": {
+                            "rgba_cutout_generation": {"generation_route_id": ROUTE}
+                        },
+                        "continuation": {
+                            "scope": "same-host-session-only",
+                            "provider_session_id": "test-session",
+                            "adapter_sha256": adapter_sha,
+                            "generation_route_id": ROUTE,
+                            "installed_release_sha256": "7" * 64,
+                            "registry_digest": "sha256:" + "8" * 64,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+        def binding(path: Path) -> dict[str, str]:
+            return {
+                "location": str(path),
+                "sha256": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest(),
+            }
+        return {
+            "adapter": binding(adapter),
+            "registry_census": binding(census),
+            "migration_result": binding(migration),
+        }, nonce, digest
 
     def _paths(self, stem: str = "micro") -> tuple[Path, Path, Path]:
         source = self.root / "assets" / "generated" / f"{stem}-source.png"
         output = self.root / "assets" / "derived" / f"{stem}.png"
         report = self.root / "assets" / "derived" / f"{stem}-cutout.json"
+        output.parent.mkdir(parents=True, exist_ok=True)
         return source, output, report
+
+    def _acquisition(
+        self,
+        source: Path,
+        *,
+        mode: str,
+        article_id: str = ARTICLE_ID,
+        asset_slot_id: str = ASSET_SLOT_ID,
+    ) -> Path:
+        path = source.with_name(source.stem.replace("-source", "") + "-acquisition.json")
+        if path.exists():
+            return path
+        runtime_binding, nonce, digest = self._runtime_binding()
+        provider_root = self.root / "provider-downloads"
+        provider_root.mkdir(exist_ok=True)
+        accepted_payload = source.read_bytes()
+        source.unlink()
+        completed_at = datetime.now(timezone.utc)
+        first_downloaded_at = completed_at - timedelta(minutes=2)
+        accepted_downloaded_at = completed_at - timedelta(minutes=1)
+        attempts = []
+        if mode == "controlled-key":
+            rejected_download = provider_root / f"{source.stem}-native.png"
+            rejected_download.write_bytes(b"\x89PNG\r\n\x1a\nrejected-native" + source.stem.encode())
+            rejected_target = source.with_name(source.stem + "-native-rejected.png")
+            rejected_ingestion = source.with_name(source.stem + "-native-ingestion.json")
+            rejected_metadata = article_request_metadata(
+                binding_nonce=nonce,
+                binding_digest=digest,
+                article_id=article_id,
+                asset_slot_id=asset_slot_id,
+                attempt_index=1,
+                acquisition_mode="native-alpha",
+                generation_route_id=ROUTE,
+                prompt_sha256=PROMPT_SHA,
+            )
+            rejected_metadata_sha = "sha256:" + hashlib.sha256(
+                json.dumps(rejected_metadata, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest()
+            ingest_download(
+                rejected_download,
+                rejected_target,
+                rejected_ingestion,
+                source.parent,
+                binding_nonce=nonce,
+                binding_digest=digest,
+                provider_session_id="test-session",
+                provider_request_id=f"{source.stem}-native-request",
+                observed_download_id=f"download-{source.stem}-native",
+                request_metadata_sha256=rejected_metadata_sha,
+            )
+            attempts.append(
+                {
+                    "attempt_index": 1,
+                    "mode": "native-alpha",
+                    "outcome": "rejected",
+                    "failure_code": "cutout.source.native_alpha_required",
+                    "provider_request_id": f"{source.stem}-native-request",
+                    "observed_download_id": f"download-{source.stem}-native",
+                    "request_metadata_sha256": rejected_metadata_sha,
+                    "download_ingestion": {
+                        "location": str(rejected_ingestion),
+                        "sha256": "sha256:" + hashlib.sha256(rejected_ingestion.read_bytes()).hexdigest(),
+                    },
+                    "downloaded_at": first_downloaded_at.isoformat(),
+                    "source_file_sha256": "sha256:" + hashlib.sha256(rejected_target.read_bytes()).hexdigest(),
+                }
+            )
+        accepted_index = len(attempts) + 1
+        accepted_download = provider_root / f"{source.stem}-{mode}.png"
+        accepted_download.write_bytes(accepted_payload)
+        accepted_ingestion = source.with_name(source.stem + "-accepted-ingestion.json")
+        accepted_metadata = article_request_metadata(
+            binding_nonce=nonce,
+            binding_digest=digest,
+            article_id=article_id,
+            asset_slot_id=asset_slot_id,
+            attempt_index=accepted_index,
+            acquisition_mode=mode,
+            generation_route_id=ROUTE,
+            prompt_sha256=PROMPT_SHA,
+        )
+        accepted_metadata_sha = "sha256:" + hashlib.sha256(
+            json.dumps(accepted_metadata, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        accepted_request_id = f"{source.stem}-{mode}-request"
+        accepted_download_id = f"download-{source.stem}-accepted"
+        ingest_download(
+            accepted_download,
+            source,
+            accepted_ingestion,
+            source.parent,
+            binding_nonce=nonce,
+            binding_digest=digest,
+            provider_session_id="test-session",
+            provider_request_id=accepted_request_id,
+            observed_download_id=accepted_download_id,
+            request_metadata_sha256=accepted_metadata_sha,
+        )
+        source_sha = "sha256:" + hashlib.sha256(source.read_bytes()).hexdigest()
+        attempts.append(
+            {
+                "attempt_index": accepted_index,
+                "mode": mode,
+                "outcome": "accepted",
+                "provider_request_id": accepted_request_id,
+                "observed_download_id": accepted_download_id,
+                "request_metadata_sha256": accepted_metadata_sha,
+                "download_ingestion": {
+                    "location": str(accepted_ingestion),
+                    "sha256": "sha256:" + hashlib.sha256(accepted_ingestion.read_bytes()).hexdigest(),
+                },
+                "downloaded_at": accepted_downloaded_at.isoformat(),
+                "source_file_sha256": source_sha,
+                **({"key_color": "#FF00FF"} if mode == "controlled-key" else {}),
+            }
+        )
+        path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 2,
+                    "kind": "org-wechat-provider-image-acquisition-v2",
+                    "article_id": article_id,
+                    "asset_slot_id": asset_slot_id,
+                    "prompt_sha256": PROMPT_SHA,
+                    "generation_route": ROUTE,
+                    "host_trace": {
+                        "provider": "test-chatgpt-web",
+                        "session_id": "test-session",
+                        "download_id": f"download-{source.stem}",
+                        "completed_at": completed_at.isoformat(),
+                    },
+                    "runtime_binding": runtime_binding,
+                    "attempts": attempts,
+                }
+            ),
+            encoding="utf-8",
+        )
+        return path
 
     def _prepare(self, stem: str = "micro") -> tuple[dict, Path, Path, Path]:
         source, output, report = self._paths(stem)
@@ -127,6 +353,7 @@ class PrepareMicroCutoutTests(unittest.TestCase):
             asset_slot_id=ASSET_SLOT_ID,
             prompt_sha256=PROMPT_SHA,
             generation_route=ROUTE,
+            acquisition_report_path=self._acquisition(source, mode="controlled-key"),
             key_color="#FF00FF",
         )
         return result, source, output, report
@@ -174,6 +401,7 @@ class PrepareMicroCutoutTests(unittest.TestCase):
             asset_slot_id=ASSET_SLOT_ID,
             prompt_sha256=PROMPT_SHA,
             generation_route=ROUTE,
+            acquisition_report_path=self._acquisition(source, mode="controlled-key"),
             key_color="#FF00FF",
         )
 
@@ -193,6 +421,7 @@ class PrepareMicroCutoutTests(unittest.TestCase):
             asset_slot_id=ASSET_SLOT_ID,
             prompt_sha256=PROMPT_SHA,
             generation_route=ROUTE,
+            acquisition_report_path=self._acquisition(source, mode="native-alpha"),
             require_native_alpha=True,
         )
 
@@ -213,6 +442,7 @@ class PrepareMicroCutoutTests(unittest.TestCase):
                 asset_slot_id=ASSET_SLOT_ID,
                 prompt_sha256=PROMPT_SHA,
                 generation_route=ROUTE,
+                acquisition_report_path=self._acquisition(source, mode="native-alpha"),
                 require_native_alpha=True,
             )
 
@@ -261,6 +491,122 @@ class PrepareMicroCutoutTests(unittest.TestCase):
         self.assertFalse(output.exists())
         self.assertFalse(report.exists())
 
+    def test_formal_cutout_fails_closed_without_acquisition_report(self) -> None:
+        source, output, report = self._paths("missing-acquisition")
+        write_native_rgba(source)
+        with self.assertRaises(CutoutPreparationError) as failure:
+            prepare_micro_cutout(
+                source,
+                output,
+                report,
+                role="floating-spot",
+                article_id=ARTICLE_ID,
+                asset_slot_id=ASSET_SLOT_ID,
+                prompt_sha256=PROMPT_SHA,
+                generation_route=ROUTE,
+                require_native_alpha=True,
+            )
+        self.assertEqual(failure.exception.code, "cutout.acquisition.report_required")
+        self.assertFalse(output.exists())
+        self.assertFalse(report.exists())
+
+    def test_controlled_key_fallback_rejects_relabelled_native_attempt(self) -> None:
+        source, output, report = self._paths("relabelled-fallback")
+        write_controlled_source(source)
+        acquisition = self._acquisition(source, mode="controlled-key")
+        payload = json.loads(acquisition.read_text(encoding="utf-8"))
+        payload["attempts"][0]["source_file_sha256"] = payload["attempts"][1][
+            "source_file_sha256"
+        ]
+        acquisition.write_text(json.dumps(payload), encoding="utf-8")
+        with self.assertRaises(CutoutPreparationError) as failure:
+            prepare_micro_cutout(
+                source,
+                output,
+                report,
+                role="floating-spot",
+                article_id=ARTICLE_ID,
+                asset_slot_id=ASSET_SLOT_ID,
+                prompt_sha256=PROMPT_SHA,
+                generation_route=ROUTE,
+                acquisition_report_path=acquisition,
+                key_color="#FF00FF",
+            )
+        self.assertEqual(failure.exception.code, "cutout.acquisition.invalid")
+        self.assertIn("newly generated source", str(failure.exception))
+        self.assertFalse(output.exists())
+        self.assertFalse(report.exists())
+
+    def test_acquisition_timestamps_require_timezone_freshness_and_order(self) -> None:
+        cases = ("naive", "future", "stale", "out-of-order")
+        for case in cases:
+            with self.subTest(case=case):
+                source, output, report = self._paths(f"timestamp-{case}")
+                write_controlled_source(source)
+                acquisition = self._acquisition(source, mode="controlled-key")
+                payload = json.loads(acquisition.read_text(encoding="utf-8"))
+                if case == "naive":
+                    payload["host_trace"]["completed_at"] = "2026-09-01T10:00:00"
+                    payload["attempts"][0]["downloaded_at"] = "2026-09-01T09:58:00"
+                    payload["attempts"][1]["downloaded_at"] = "2026-09-01T09:59:00"
+                elif case == "future":
+                    payload["host_trace"]["completed_at"] = (
+                        datetime.now(timezone.utc) + timedelta(days=1)
+                    ).isoformat()
+                elif case == "stale":
+                    stale = datetime.now(timezone.utc) - timedelta(days=8)
+                    payload["host_trace"]["completed_at"] = stale.isoformat()
+                    payload["attempts"][0]["downloaded_at"] = (
+                        stale - timedelta(minutes=2)
+                    ).isoformat()
+                    payload["attempts"][1]["downloaded_at"] = (
+                        stale - timedelta(minutes=1)
+                    ).isoformat()
+                else:
+                    payload["attempts"][0]["downloaded_at"], payload["attempts"][1][
+                        "downloaded_at"
+                    ] = (
+                        payload["attempts"][1]["downloaded_at"],
+                        payload["attempts"][0]["downloaded_at"],
+                    )
+                acquisition.write_text(json.dumps(payload), encoding="utf-8")
+                with self.assertRaises(CutoutPreparationError) as failure:
+                    prepare_micro_cutout(
+                        source,
+                        output,
+                        report,
+                        role="floating-spot",
+                        article_id=ARTICLE_ID,
+                        asset_slot_id=ASSET_SLOT_ID,
+                        prompt_sha256=PROMPT_SHA,
+                        generation_route=ROUTE,
+                        acquisition_report_path=acquisition,
+                        key_color="#FF00FF",
+                    )
+                self.assertEqual(failure.exception.code, "cutout.acquisition.invalid")
+                self.assertFalse(output.exists())
+                self.assertFalse(report.exists())
+
+    def test_key_route_rejects_native_rgba_instead_of_dead_end_keying(self) -> None:
+        source, output, report = self._paths("native-on-key-route")
+        write_native_rgba(source)
+        with self.assertRaises(CutoutPreparationError) as failure:
+            prepare_micro_cutout(
+                source,
+                output,
+                report,
+                role="floating-spot",
+                article_id=ARTICLE_ID,
+                asset_slot_id=ASSET_SLOT_ID,
+                prompt_sha256=PROMPT_SHA,
+                generation_route=ROUTE,
+                acquisition_report_path=self._acquisition(source, mode="controlled-key"),
+                key_color="#FF00FF",
+            )
+        self.assertEqual(failure.exception.code, "cutout.source.route_mismatch_native_rgba")
+        self.assertFalse(output.exists())
+        self.assertFalse(report.exists())
+
     def test_neutral_open_stroke_migration_probe_passes_native_gate(self) -> None:
         source, output, report = self._paths("neutral-open-stroke-probe")
         write_neutral_open_stroke_probe(source)
@@ -280,6 +626,12 @@ class PrepareMicroCutoutTests(unittest.TestCase):
             asset_slot_id="migration.rgba-route-probe",
             prompt_sha256=PROMPT_SHA,
             generation_route=ROUTE,
+            acquisition_report_path=self._acquisition(
+                source,
+                mode="native-alpha",
+                article_id="migration-route-probe",
+                asset_slot_id="migration.rgba-route-probe",
+            ),
             require_native_alpha=True,
         )
 
@@ -305,6 +657,7 @@ class PrepareMicroCutoutTests(unittest.TestCase):
                 asset_slot_id=ASSET_SLOT_ID,
                 prompt_sha256=PROMPT_SHA,
                 generation_route=ROUTE,
+                acquisition_report_path=self._acquisition(source, mode="controlled-key"),
                 key_color="#FF00FF",
             )
         self.assertIn(
@@ -326,6 +679,7 @@ class PrepareMicroCutoutTests(unittest.TestCase):
                 asset_slot_id=ASSET_SLOT_ID,
                 prompt_sha256=PROMPT_SHA,
                 generation_route=ROUTE,
+                acquisition_report_path=self._acquisition(source, mode="controlled-key"),
                 key_color="#FF00FF",
             )
         self.assertEqual(failure.exception.code, "cutout.source.background_not_uniform")
@@ -348,6 +702,7 @@ class PrepareMicroCutoutTests(unittest.TestCase):
                 asset_slot_id=ASSET_SLOT_ID,
                 prompt_sha256=PROMPT_SHA,
                 generation_route=ROUTE,
+                acquisition_report_path=self._acquisition(source, mode="controlled-key"),
                 key_color="#FF00FF",
             )
         self.assertIn(
@@ -369,6 +724,7 @@ class PrepareMicroCutoutTests(unittest.TestCase):
                 asset_slot_id=ASSET_SLOT_ID,
                 prompt_sha256=PROMPT_SHA,
                 generation_route=ROUTE,
+                acquisition_report_path=self._acquisition(source, mode="controlled-key"),
                 key_color="#FF00FF",
             )
         self.assertEqual(failure.exception.code, "cutout.output.create_once")
@@ -388,6 +744,70 @@ class PrepareMicroCutoutTests(unittest.TestCase):
                 key_color="#FF00FF",
             )
         self.assertEqual(failure.exception.code, "cutout.path.symlink_forbidden")
+
+    def test_source_output_and_report_parent_symlinks_fail_before_any_write(self) -> None:
+        real_source_parent = self.root / "real-source-parent"
+        real_source_parent.mkdir()
+        real_source = real_source_parent / "source.png"
+        write_native_rgba(real_source)
+        source_parent_link = self.root / "source-parent-link"
+        source_parent_link.symlink_to(real_source_parent, target_is_directory=True)
+        acquisition = self._acquisition(real_source, mode="native-alpha")
+        output = self.root / "source-parent-output.png"
+        report = self.root / "source-parent-report.json"
+        with self.assertRaises(CutoutPreparationError) as failure:
+            prepare_micro_cutout(
+                source_parent_link / "source.png",
+                output,
+                report,
+                role="floating-spot",
+                article_id=ARTICLE_ID,
+                asset_slot_id=ASSET_SLOT_ID,
+                prompt_sha256=PROMPT_SHA,
+                generation_route=ROUTE,
+                acquisition_report_path=acquisition,
+                require_native_alpha=True,
+            )
+        self.assertEqual(failure.exception.code, "cutout.path.symlink_forbidden")
+        self.assertFalse(output.exists())
+        self.assertFalse(report.exists())
+
+        for symlinked_target in ("output", "report"):
+            with self.subTest(symlinked_target=symlinked_target):
+                real_parent = self.root / f"real-{symlinked_target}-parent"
+                real_parent.mkdir()
+                parent_link = self.root / f"{symlinked_target}-parent-link"
+                parent_link.symlink_to(real_parent, target_is_directory=True)
+                safe_output = self.root / f"safe-{symlinked_target}.png"
+                safe_report = self.root / f"safe-{symlinked_target}.json"
+                candidate_output = (
+                    parent_link / "derived.png"
+                    if symlinked_target == "output"
+                    else safe_output
+                )
+                candidate_report = (
+                    parent_link / "derivation.json"
+                    if symlinked_target == "report"
+                    else safe_report
+                )
+                with self.assertRaises(CutoutPreparationError) as blocked:
+                    prepare_micro_cutout(
+                        real_source,
+                        candidate_output,
+                        candidate_report,
+                        role="floating-spot",
+                        article_id=ARTICLE_ID,
+                        asset_slot_id=ASSET_SLOT_ID,
+                        prompt_sha256=PROMPT_SHA,
+                        generation_route=ROUTE,
+                        acquisition_report_path=acquisition,
+                        require_native_alpha=True,
+                    )
+                self.assertEqual(
+                    blocked.exception.code, "cutout.path.symlink_forbidden"
+                )
+                self.assertFalse(candidate_output.exists())
+                self.assertFalse(candidate_report.exists())
 
     def test_report_verifier_binds_source_output_config_and_current_inspection(self) -> None:
         _, source, output, report = self._prepare("verify")
@@ -440,6 +860,7 @@ class PrepareMicroCutoutTests(unittest.TestCase):
             asset_slot_id=ASSET_SLOT_ID,
             prompt_sha256=PROMPT_SHA,
             generation_route=ROUTE,
+            acquisition_report_path=self._acquisition(native_source, mode="native-alpha"),
             require_native_alpha=True,
         )
         native_payload = json.loads(native_report.read_text(encoding="utf-8"))
@@ -528,6 +949,353 @@ class PrepareMicroCutoutTests(unittest.TestCase):
         legacy["origin"] = "generated-illustrative"
         with self.assertRaisesRegex(SystemExit, "origin=derived"):
             command_register_asset(type("Args", (), legacy)())
+
+    def test_serialized_callback_claim_cannot_upgrade_current_session_assurance(self) -> None:
+        source, output, report = self._paths("serialized-callback")
+        write_native_rgba(source)
+        acquisition = self._acquisition(source, mode="native-alpha")
+        payload = json.loads(acquisition.read_text(encoding="utf-8"))
+        payload["live_authority_callback"] = {
+            "authorized": True,
+            "mode": "current-session-nonportable",
+        }
+        acquisition.write_text(json.dumps(payload), encoding="utf-8")
+        token = authority_module._LIVE_AUTHORITY.set(None)
+        try:
+            result = prepare_micro_cutout(
+                source,
+                output,
+                report,
+                role="floating-spot",
+                article_id=ARTICLE_ID,
+                asset_slot_id=ASSET_SLOT_ID,
+                prompt_sha256=PROMPT_SHA,
+                generation_route=ROUTE,
+                acquisition_report_path=acquisition,
+                require_native_alpha=True,
+            )
+        finally:
+            authority_module._LIVE_AUTHORITY.reset(token)
+        generation = result["generation"]
+        self.assertEqual(
+            generation["authority_scope_at_creation"],
+            "current-session-operator-harness-trusted",
+        )
+        self.assertEqual(
+            generation["acquisition_assurance"],
+            "operator-harness-trusted-current-session",
+        )
+        self.assertFalse(generation["host_attested"])
+        self.assertFalse(generation["portable"])
+        self.assertFalse(generation["portable_host_receipt_verified"])
+        self.assertFalse(generation["policy_hook_evaluated"])
+
+    def test_plain_true_callback_does_not_create_attestation_or_portability(self) -> None:
+        result, _, _, _ = self._prepare("plain-true-hook")
+        generation = result["generation"]
+        self.assertTrue(generation["policy_hook_evaluated"])
+        self.assertFalse(generation["host_attested"])
+        self.assertFalse(generation["portable"])
+        self.assertFalse(generation["portable_host_receipt_verified"])
+        self.assertEqual(
+            generation["acquisition_assurance"],
+            "operator-harness-trusted-current-session",
+        )
+
+    def test_false_policy_hook_blocks_current_session_acquisition(self) -> None:
+        source, output, report = self._paths("policy-denied")
+        write_native_rgba(source)
+        acquisition = self._acquisition(source, mode="native-alpha")
+        with live_provider_acquisition_authority(lambda challenge: False):
+            with self.assertRaisesRegex(CutoutPreparationError, "policy hook denied"):
+                prepare_micro_cutout(
+                    source,
+                    output,
+                    report,
+                    role="floating-spot",
+                    article_id=ARTICLE_ID,
+                    asset_slot_id=ASSET_SLOT_ID,
+                    prompt_sha256=PROMPT_SHA,
+                    generation_route=ROUTE,
+                    acquisition_report_path=acquisition,
+                    require_native_alpha=True,
+                )
+        self.assertFalse(output.exists())
+        self.assertFalse(report.exists())
+
+    def test_legacy_v1_and_operator_selected_generation_route_are_rejected(self) -> None:
+        for stem, mutate, route in (
+            (
+                "legacy-v1",
+                lambda payload: payload.update(
+                    {
+                        "schema_version": 1,
+                        "kind": "org-wechat-provider-image-acquisition-v1",
+                    }
+                ),
+                ROUTE,
+            ),
+            (
+                "fake-route",
+                lambda payload: payload.update(
+                    {"generation_route": "synthetic-offline-provider-v1"}
+                ),
+                "synthetic-offline-provider-v1",
+            ),
+        ):
+            with self.subTest(stem=stem):
+                source, output, report = self._paths(stem)
+                write_native_rgba(source)
+                acquisition = self._acquisition(source, mode="native-alpha")
+                payload = json.loads(acquisition.read_text(encoding="utf-8"))
+                mutate(payload)
+                acquisition.write_text(json.dumps(payload), encoding="utf-8")
+                with self.assertRaises(CutoutPreparationError) as failure:
+                    prepare_micro_cutout(
+                        source,
+                        output,
+                        report,
+                        role="floating-spot",
+                        article_id=ARTICLE_ID,
+                        asset_slot_id=ASSET_SLOT_ID,
+                        prompt_sha256=PROMPT_SHA,
+                        generation_route=route,
+                        acquisition_report_path=acquisition,
+                        require_native_alpha=True,
+                    )
+                self.assertEqual(failure.exception.code, "cutout.acquisition.invalid")
+
+    def test_ingestion_raw_bytes_are_revalidated_before_preparation(self) -> None:
+        source, output, report = self._paths("ingestion-tamper")
+        write_native_rgba(source)
+        acquisition = self._acquisition(source, mode="native-alpha")
+        acquisition_payload = json.loads(acquisition.read_text(encoding="utf-8"))
+        ingestion_ref = acquisition_payload["attempts"][0]["download_ingestion"]
+        ingestion_path = Path(ingestion_ref["location"])
+        ingestion_payload = json.loads(ingestion_path.read_text(encoding="utf-8"))
+        ingestion_payload["target"]["byte_length"] += 1
+        ingestion_path.write_text(json.dumps(ingestion_payload), encoding="utf-8")
+        ingestion_ref["sha256"] = "sha256:" + hashlib.sha256(
+            ingestion_path.read_bytes()
+        ).hexdigest()
+        acquisition.write_text(json.dumps(acquisition_payload), encoding="utf-8")
+        with self.assertRaisesRegex(CutoutPreparationError, "exact raw bytes"):
+            prepare_micro_cutout(
+                source,
+                output,
+                report,
+                role="floating-spot",
+                article_id=ARTICLE_ID,
+                asset_slot_id=ASSET_SLOT_ID,
+                prompt_sha256=PROMPT_SHA,
+                generation_route=ROUTE,
+                acquisition_report_path=acquisition,
+                require_native_alpha=True,
+            )
+
+    def test_real_portable_signature_can_attach_without_hash_cycle(self) -> None:
+        source, output, report = self._paths("portable")
+        write_native_rgba(source)
+        acquisition = self._acquisition(source, mode="native-alpha")
+        acquisition_payload = json.loads(acquisition.read_text(encoding="utf-8"))
+        migration_ref = acquisition_payload["runtime_binding"]["migration_result"]
+        migration_path = Path(migration_ref["location"])
+        migration = json.loads(migration_path.read_text(encoding="utf-8"))
+        private_key = Ed25519PrivateKey.generate()
+        public_key = private_key.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw,
+        )
+        migration_issued = datetime.now(timezone.utc)
+        continuation_expires = migration_issued + timedelta(hours=1)
+        migration_receipt_unsigned = {
+            "schema_version": 1,
+            "kind": "org-wechat-migration-probe-host-receipt-v1",
+            "receipt_id": "migration-receipt-test",
+            "issued_at": migration_issued.isoformat(),
+            "expires_at": (migration_issued + timedelta(minutes=5)).isoformat(),
+            "continuation_expires_at": continuation_expires.isoformat(),
+            "binding": {
+                "binding_nonce": migration["binding_nonce"],
+                "binding_digest": migration["binding_digest"],
+                "installed_release_sha256": migration["local"]["installed_release_sha256"],
+                "registry_digest": migration["local"]["registry_digest"],
+                "registry_census_sha256": migration["local"]["registry_census_sha256"],
+                "adapter_sha256": migration["resolved_harness"]["adapter_sha256"],
+                "generation_route_id": migration["resolved_capabilities"][
+                    "rgba_cutout_generation"
+                ]["generation_route_id"],
+            },
+            "replay_protection": {
+                "single_use": True,
+                "host_nonce_consumed": True,
+                "host_ledger_id": "test-host-ledger",
+            },
+            "host": {
+                "capability": "host.migration.finalize",
+                "provider": "test-host",
+                "session_id": "test-host-session",
+                "request_id": "test-migration-request",
+            },
+        }
+        migration_signature = private_key.sign(
+            json.dumps(
+                migration_receipt_unsigned,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        )
+        migration_receipt = dict(migration_receipt_unsigned)
+        migration_receipt["signature"] = {
+            "algorithm": "ed25519",
+            "key_id": "test-provider-key",
+            "value_base64": __import__("base64").b64encode(migration_signature).decode("ascii"),
+        }
+        migration.update(
+            {
+                "kind": "org-wechat-migration-final-report-v1",
+                "phase_ready": True,
+                "host_attestation": "migration-host-receipt-verified",
+                "migration_host_receipt": migration_receipt,
+                "migration_selftest": {"receipt_id": "migration-receipt-test"},
+            }
+        )
+        migration["continuation"].update(
+            {
+                "receipt_id": "migration-receipt-test",
+                "expires_at": continuation_expires.isoformat(),
+            }
+        )
+        migration.pop("assurance", None)
+        migration_path.write_text(json.dumps(migration), encoding="utf-8")
+        migration_ref["sha256"] = "sha256:" + hashlib.sha256(
+            migration_path.read_bytes()
+        ).hexdigest()
+        acquisition.write_text(json.dumps(acquisition_payload), encoding="utf-8")
+
+        token = authority_module._LIVE_AUTHORITY.set(None)
+        try:
+            structural = validate_acquisition_report(
+                acquisition,
+                source,
+                article_id=ARTICLE_ID,
+                asset_slot_id=ASSET_SLOT_ID,
+                prompt_sha256=PROMPT_SHA,
+                generation_route=ROUTE,
+                expected_mode="native-alpha",
+                key_color=None,
+                require_authority=False,
+            )
+        finally:
+            authority_module._LIVE_AUTHORITY.reset(token)
+        self.assertTrue(structural["ok"], structural["errors"])
+        challenge = structural["authority"]["challenge"]
+        issued = datetime.now(timezone.utc)
+        receipt_unsigned = {
+            "schema_version": 1,
+            "kind": "org-wechat-provider-image-host-receipt-v1",
+            "issued_at": issued.isoformat(),
+            "expires_at": (issued + timedelta(minutes=5)).isoformat(),
+            "binding": challenge,
+            "host": {
+                "capability": "host.receipt.attest",
+                "provider": "test-host",
+                "session_id": "test-host-session",
+                "request_id": "test-host-request",
+            },
+        }
+        signature = private_key.sign(
+            json.dumps(
+                receipt_unsigned,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        )
+        receipt = dict(receipt_unsigned)
+        receipt["signature"] = {
+            "algorithm": "ed25519",
+            "key_id": "test-provider-key",
+            "value_base64": __import__("base64").b64encode(signature).decode("ascii"),
+        }
+        receipt_path = source.with_name("portable-host-receipt.json")
+        receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+        acquisition_payload = json.loads(acquisition.read_text(encoding="utf-8"))
+        acquisition_payload["portable_host_receipt"] = {
+            "location": str(receipt_path),
+            "sha256": "sha256:" + hashlib.sha256(receipt_path.read_bytes()).hexdigest(),
+        }
+        acquisition.write_text(json.dumps(acquisition_payload), encoding="utf-8")
+
+        token = authority_module._LIVE_AUTHORITY.set(None)
+        try:
+            with mock.patch(
+                "provider_acquisition_authority._load_protected_keys",
+                return_value={"test-provider-key": public_key},
+            ):
+                result = prepare_micro_cutout(
+                    source,
+                    output,
+                    report,
+                    role="floating-spot",
+                    article_id=ARTICLE_ID,
+                    asset_slot_id=ASSET_SLOT_ID,
+                    prompt_sha256=PROMPT_SHA,
+                    generation_route=ROUTE,
+                    acquisition_report_path=acquisition,
+                    portable_trust_store=self.root / "protected-trust-store.json",
+                    require_native_alpha=True,
+                )
+        finally:
+            authority_module._LIVE_AUTHORITY.reset(token)
+        self.assertEqual(result["generation"]["authority_scope_at_creation"], "portable-signed")
+        self.assertTrue(result["generation"]["portable_host_receipt_verified"])
+        tampered_migration = json.loads(json.dumps(migration))
+        tampered_migration["migration_host_receipt"]["binding"]["registry_digest"] = (
+            "sha256:" + "0" * 64
+        )
+        with mock.patch(
+            "provider_acquisition_authority._load_protected_keys",
+            return_value={"test-provider-key": public_key},
+        ):
+            migration_errors = authority_module._verify_embedded_migration_receipt(
+                tampered_migration,
+                trust_store=self.root / "protected-trust-store.json",
+                now=datetime.now(timezone.utc),
+            )
+        self.assertTrue(migration_errors)
+        self.assertTrue(
+            any("registry_digest" in error or "verification failed" in error for error in migration_errors),
+            migration_errors,
+        )
+        missing_receipt = json.loads(json.dumps(migration))
+        missing_receipt.pop("migration_host_receipt")
+        self.assertTrue(
+            any(
+                "lacks its embedded signed migration_host_receipt" in error
+                for error in authority_module._verify_embedded_migration_receipt(
+                    missing_receipt,
+                    trust_store=self.root / "protected-trust-store.json",
+                    now=datetime.now(timezone.utc),
+                )
+            )
+        )
+        missing_continuation = json.loads(json.dumps(migration))
+        missing_continuation.pop("continuation")
+        with mock.patch(
+            "provider_acquisition_authority._load_protected_keys",
+            return_value={"test-provider-key": public_key},
+        ):
+            continuation_errors = authority_module._verify_embedded_migration_receipt(
+                missing_continuation,
+                trust_store=self.root / "protected-trust-store.json",
+                now=datetime.now(timezone.utc),
+            )
+        self.assertTrue(
+            any("continuation" in error for error in continuation_errors),
+            continuation_errors,
+        )
 
 
 if __name__ == "__main__":

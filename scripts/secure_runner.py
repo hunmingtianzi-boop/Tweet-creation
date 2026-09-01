@@ -1,9 +1,18 @@
 #!/usr/bin/env python3
 """Run a locked workflow CLI with isolated Python and copied dependencies.
 
-Invoke only as::
+Run a locked entrypoint as::
 
     python3 -I -S scripts/secure_runner.py scripts/ENTRYPOINT.py [args...]
+
+Before a locked runtime exists on a new platform, the standard-library-only
+audit modes remain available::
+
+    python3 -I -S scripts/secure_runner.py --platform-audit
+    python3 -I -S scripts/secure_runner.py --dependency-candidate OUTPUT.json
+
+Candidate output is review material only.  It is never merged into the release
+lock or trusted by this runner automatically.
 
 The runner itself uses only the standard library.  It discovers candidate
 Pillow/cryptography distributions without importing them, validates their
@@ -26,6 +35,7 @@ import site
 import sys
 import sysconfig
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -250,6 +260,148 @@ def find_locked_distribution(
     return matches[0]
 
 
+def find_candidate_distribution(
+    name: str,
+    version: str,
+    roots: list[Path],
+) -> tuple[Path, list[tuple[str, str, int, Path]]]:
+    """Locate one exact-version distribution without treating it as trusted."""
+
+    matches: list[tuple[Path, list[tuple[str, str, int, Path]]]] = []
+    normalized = name.lower().replace("-", "_")
+    for root in roots:
+        for distribution in importlib.metadata.distributions(path=[str(root)]):
+            actual_name = str(distribution.metadata.get("Name", "")).lower().replace("-", "_")
+            if actual_name != normalized or distribution.version != version:
+                continue
+            matches.append((root, distribution_rows(distribution, root)))
+    if len(matches) != 1:
+        fail(
+            f"candidate {name}=={version} must resolve to exactly one distribution for "
+            f"{platform_key()}; found {len(matches)}"
+        )
+    return matches[0]
+
+
+def platform_audit(lock: dict[str, Any], lock_sha: str) -> int:
+    key = platform_key()
+    platforms = lock.get("platforms")
+    selected = platforms.get(key) if isinstance(platforms, dict) else None
+    supported = isinstance(selected, dict) and isinstance(selected.get("distributions"), dict)
+    result: dict[str, Any] = {
+        "schema_version": 1,
+        "kind": "org-wechat-python-platform-audit",
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "platform_key": key,
+        "python_version": platform.python_version(),
+        "python_executable": str(Path(sys.executable).resolve()),
+        "dependency_lock_sha256": lock_sha,
+        "supported_platform_keys": sorted(platforms) if isinstance(platforms, dict) else [],
+        "supported": supported,
+        "target_execution_allowed": False,
+        "distribution_lock_verified": False,
+    }
+    if supported:
+        roots = candidate_roots()
+        verified: dict[str, Any] = {}
+        for name, expected in sorted(selected["distributions"].items()):
+            if not isinstance(expected, dict):
+                fail(f"lock entry for {name} is invalid")
+            root, rows = find_locked_distribution(name, expected, roots)
+            verified[name] = {
+                "version": expected.get("version"),
+                "file_count": len(rows),
+                "aggregate_sha256": rows_digest(rows),
+                "site_root_sha256": "sha256:"
+                + hashlib.sha256(str(root).encode("utf-8")).hexdigest(),
+            }
+        result["verified_distributions"] = verified
+        result["distribution_lock_verified"] = True
+        result["target_execution_allowed"] = True
+    else:
+        result["blocking_reason"] = (
+            "current platform/Python key is absent from the reviewed release lock"
+        )
+        result["next_step"] = (
+            "run --dependency-candidate to create review-only evidence, then review and "
+            "commit a new lock entry through the release process"
+        )
+    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if supported else 2
+
+
+def _candidate_output_path(raw: str) -> Path:
+    candidate = Path(raw).expanduser().absolute()
+    if candidate.is_symlink() or candidate.exists():
+        fail("dependency candidate output must be a new non-symlink file")
+    try:
+        relative = candidate.relative_to(WORKSPACE_ROOT)
+    except ValueError:
+        return candidate
+    allowed_root = Path("output/runtime/dependency-candidates")
+    if relative != allowed_root and allowed_root not in relative.parents:
+        fail(
+            "workspace-local dependency candidates must stay under "
+            "output/runtime/dependency-candidates"
+        )
+    cursor = WORKSPACE_ROOT
+    for part in relative.parts:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            fail("dependency candidate output path must not contain symlinks")
+    return candidate
+
+
+def write_dependency_candidate(lock: dict[str, Any], lock_sha: str, raw_output: str) -> int:
+    requirements = lock.get("required_distributions")
+    if not isinstance(requirements, dict) or not requirements:
+        fail("dependency lock is missing required_distributions")
+    roots = candidate_roots()
+    if not roots:
+        fail("no candidate dependency roots are available")
+    proposed: dict[str, Any] = {}
+    for name, version in sorted(requirements.items()):
+        if not isinstance(name, str) or not isinstance(version, str):
+            fail("required distribution entries must map names to exact versions")
+        root, rows = find_candidate_distribution(name, version, roots)
+        proposed[name] = {
+            "version": version,
+            "file_count": len(rows),
+            "aggregate_sha256": rows_digest(rows),
+            "site_root_sha256": "sha256:"
+            + hashlib.sha256(str(root).encode("utf-8")).hexdigest(),
+        }
+    payload = {
+        "schema_version": 1,
+        "kind": "org-wechat-python-dependency-lock-candidate",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "platform_key": platform_key(),
+        "python_version": platform.python_version(),
+        "source_lock_sha256": lock_sha,
+        "review_required": True,
+        "trusted": False,
+        "automatic_lock_upgrade_allowed": False,
+        "proposed_platform_entry": {"distributions": proposed},
+    }
+    output = _candidate_output_path(raw_output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("x", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+    print(
+        json.dumps(
+            {
+                "created": str(output),
+                "platform_key": payload["platform_key"],
+                "review_required": True,
+                "trusted": False,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
 def copy_snapshot(
     snapshot: Path,
     distributions: dict[str, dict[str, Any]],
@@ -313,6 +465,14 @@ def main() -> int:
         fail("target entrypoint is required")
     lock, lock_sha = load_lock()
     validate_scripts_census(lock)
+    if sys.argv[1] == "--platform-audit":
+        if len(sys.argv) != 2:
+            fail("--platform-audit accepts no additional arguments")
+        return platform_audit(lock, lock_sha)
+    if sys.argv[1] == "--dependency-candidate":
+        if len(sys.argv) != 3:
+            fail("--dependency-candidate requires exactly one output path")
+        return write_dependency_candidate(lock, lock_sha, sys.argv[2])
     key = platform_key()
     platforms = lock.get("platforms")
     selected = platforms.get(key) if isinstance(platforms, dict) else None

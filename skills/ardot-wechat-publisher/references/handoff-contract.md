@@ -1,6 +1,9 @@
 # Ardot handoff contract
 
 Use this contract only after the user has completed human review in Ardot.
+Resolve `ORG_WECHAT_RUNTIME_ROOT` and the external session artifact root exactly
+as specified in [runtime-location.md](runtime-location.md) before using any
+command below.
 
 ## Contract shape
 
@@ -151,7 +154,6 @@ the exporter must materialize the full current-root layer census and all hashes:
       "path": "assets/cover.png",
       "sha256": "...",
       "role": "cover",
-      "wechat_thumb_media_id": "target-account-thumb-media-id-required-before-final-compile",
       "watermark": {
         "scheme": "org-wechat-dct-v1",
         "payload_fingerprint": "<64 lowercase hex characters>",
@@ -177,19 +179,25 @@ Equivalent tool-native data is acceptable while authoring, but final transport r
 
 The transport revision is the SHA-256 of canonical JSON for the entire export with `revision_hash` omitted. It therefore changes when chapter order, geometry, text style, background, cutout, or interaction state changes even if the visible wording stays identical.
 
-Choose one assurance mode. Without a host signer, use `current-session-draft`: the active host trace must show the exact Ardot reread, candidate compilation, real WeChat draft write, reopen, and chapter readback. It produces only `wechat-candidate.html` and `candidate-report.json`; `portable_audit_verified`, `delivery_eligible`, and `finalization_verified` remain false. Run:
+Choose one assurance mode. Without a host signer, use `current-session-live`: the active host trace must show the exact account probe, Ardot reread, SHA-bound uploads, candidate compilation, real WeChat draft write/update, reopen, and chapter readback. It produces `wechat-candidate.html`, both dynamic/static payloads, and `candidate-report.json`; `portable_audit_verified`, `delivery_eligible`, and `finalization_verified` remain false. First create `delivery/upload-map.json` through `wechat_publisher.py prepare-uploads`, then run:
 
 ```bash
-python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py handoff.json \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/validate_transport_fidelity.py" handoff.json \
   --intended-html delivery/wechat-candidate.html \
   --live-root-export qa/live-current-root.json \
+  --upload-map delivery/upload-map.json --require-upload-map \
   --require-live-root --session-draft
-python3 -I -S scripts/secure_runner.py scripts/compile_wechat.py --transport-fidelity handoff.json \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/compile_wechat.py" --transport-fidelity handoff.json \
   --live-root-export qa/live-current-root.json \
+  --upload-map delivery/upload-map.json \
   --session-draft --output delivery --check
-python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py handoff.json \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/validate_transport_fidelity.py" handoff.json \
   --html delivery/wechat-candidate.html \
   --live-root-export qa/live-current-root.json \
+  --upload-map delivery/upload-map.json --require-upload-map \
   --compile-report delivery/candidate-report.json --require-compile-report \
   --session-draft
 ```
@@ -197,19 +205,24 @@ python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py ha
 With a real host attestor, `portable-signed-audit` retains both Ed25519 receipts and the terminal `wechat.html` / `compile-report.json` chain. Run:
 
 ```bash
-python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py handoff.json \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/validate_transport_fidelity.py" handoff.json \
   --intended-html delivery/wechat.html \
   --live-root-export qa/live-current-root.json \
   --live-root-receipt qa/live-current-root-receipt.json \
-  --require-live-root
-python3 -I -S scripts/secure_runner.py scripts/compile_wechat.py --transport-fidelity handoff.json \
+  --upload-map delivery/upload-map.json --require-upload-map --require-live-root
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/compile_wechat.py" --transport-fidelity handoff.json \
   --live-root-export qa/live-current-root.json \
   --live-root-receipt qa/live-current-root-receipt.json \
+  --upload-map delivery/upload-map.json \
   --output delivery --check
-python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py handoff.json \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/validate_transport_fidelity.py" handoff.json \
   --html delivery/wechat.html \
   --live-root-export qa/live-current-root.json \
   --live-root-receipt qa/live-current-root-receipt.json \
+  --upload-map delivery/upload-map.json --require-upload-map \
   --compile-report delivery/compile-report.json --require-compile-report
 ```
 
@@ -291,36 +304,36 @@ sidecar with this exact field set:
 }
 ```
 
-The bound `wechat-saved-draft-readback-v1` has the same exact title, digest,
-`cover_asset_id`, and `thumb_media_id`. Its `cover_hosted_derivative` contains
-only `url`, `downloaded_path`, `downloaded_sha256`, and
-`downloaded_byte_length`; the URL must be the actual HTTPS
-`mmbiz.qpic.cn` object from the reopened draft, and the local non-symlink file
-must reproduce both the declared hash and byte length. The cover ID must name
-exactly one `role: "cover"` handoff asset and match
-`handoff.article.cover_asset_id`. The receipt repeats these values and also
-signs the complete readback bytes.
+The bound `wechat-saved-draft-readback-v2` has the same exact title, digest,
+`cover_asset_id`, and `thumb_media_id`. It binds the actual raw `draft/get` or
+editor-DOM response, raw content bytes, HTTP request/status/headers/time,
+download receipts for every exact upload-map URL and cover derivative, pixel
+similarity to frozen sources, one fresh 390 px chapter screenshot compared to
+the Ardot reference, and the complete watermark-carrier census. A source file
+or copied source path cannot masquerade as a CDN download. The receipt repeats
+these values and signs the complete readback bytes.
 
-For a newly uploaded cover, upload the cover material before the compile that
-will be used for the draft write. Write the returned target-account
-`thumb_media_id` into that exact `role: "cover"` asset, then regenerate the
-handoff SHA, take a new fresh live-root capture, and regenerate the selected
-candidate/report chain. A provisional chain compiled while
-`wechat_thumb_media_id` was null or empty is invalid and must never be pasted;
-the validator does not accept an arbitrary readback thumb ID to fill that gap.
+For a newly uploaded cover, upload the permanent material before the compile
+used for the draft write. Bind its `media_id` to the frozen cover SHA inside
+the exact-account upload map; do not mutate and rehash the Ardot handoff merely
+to add a transport credential. A compile without that map and non-empty
+`thumb_media_id` is invalid, and no later HTML/readback substitution can fill
+the gap.
 
 For current-session readback, use the candidate chain and do not invent either receipt:
 
 ```bash
-python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py handoff.json \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/validate_transport_fidelity.py" handoff.json \
   --html delivery/wechat-candidate.html \
   --live-root-export qa/live-current-root.json \
+  --upload-map delivery/upload-map.json --require-upload-map \
   --compile-report delivery/candidate-report.json --require-compile-report \
   --expected-target-account 'exact-account-ref-from-delivery-preflight' \
   --readback saved-draft-readback.json --require-readback --session-draft
 ```
 
-Require `session_readback_structural_match: true` and `portable_audit_verified: false`, plus the active host trace showing the actual account, draft write, reopen, and export. For portable readback, use final `wechat.html`, final `compile-report.json`, the original live receipt, and `--readback-receipt saved-draft-readback-receipt.json`. Neither path authorizes formal publication or group-send.
+Require `session_readback_structural_match: true`, `current_session_publication_preflight_eligible: true`, and `portable_audit_verified: false`, plus the active host trace showing the actual account, draft write, reopen, and export. The checked-in Codex adapter can obtain current-session screenshots through its distinct `wechat.current-session-readback` route: publisher `capture-raw`, Browser/Computer Use reopen of the exact account/draft and actual 390 px chapter PNG capture, create-once `ingest_wechat_readback_capture.py`, then publisher `capture-readback --capture-bundle`. The bundle strictly binds installed release/census/profile/session, target/revision/raw API bytes/request, credential-free observed URL, chapter bytes/times/events and a store-wide one-time nonce; it always says `host_attested=false`, `portable=false`, and `publication_authority=false`. A path/hash JSON, portable screenshot manifest, copied Ardot reference, or ordinary repository Python object cannot substitute for that chain. API publication remains available only through an isolated embedding harness's independent non-cryptographic `CurrentSessionHostAuthority` publication policy hook, which the checked-in Codex adapter does not expose; use its declared UI live publication route after fresh confirmation or the portable signed route. For portable readback, use final `wechat.html`, final `compile-report.json`, the original live receipt, and the independent `--screenshots` host manifest plus `--readback-receipt saved-draft-readback-receipt.json`. Portable publication additionally requires a separately Ed25519-signed `wechat-host-publication-confirmation-receipt-v1` bound to the exact account/revision/draft payload/compile report/readback/user event/nonce/expiry; neither transport receipt nor the current-session bundle proves user consent. Either publication path calls immediate `draft/get` equality checking before submit and treats only authoritative `freepublish/get` terminal status as the outcome. Group send always remains separate.
 
 The frozen chapters use `article-root-390-v1` geometry and cover the current Ardot artboard continuously: first `y=0`, every next `y` equals the previous bottom, and the final bottom equals `artboard.height_px`. A height sum alone cannot prove this because gaps and overlaps may cancel.
 
@@ -328,7 +341,9 @@ For final delivery, every background must be the complete `1170 x (chapter_heigh
 
 Every `mode: "svg"` interaction additionally requires `ardot_state_export` (`ardot-interaction-state-export-v1`) as a local hash-bound JSON file, plus `fallback_key`, `fallback_semantic_sha256`, and `fallback_asset`. Its `ardot_states` object has exactly `closed`, `open`, and `fallback`; each carries a non-empty, mutually distinct `node_id` and a `sha256:<64 hex>` canonical `tree_sha256`. The state export repeats these three records in that order and binds the current file/root/section/source node plus `svg_structure_sha256`. The validator recomputes that structure hash from the actual frozen SVG and again from compiled/saved-draft SVG bytes; state names or a supplied SVG hash alone never count as proof.
 
-Every compiled top-level layer carries a canonical render signature over its source-node layer ID, tag, role, source hash, geometry, z-index, exact inline style, and interaction mode. HTML postflight checks the complete per-chapter layer sequence, strict allowed subtree grammar and exact image occurrence/parent order, and rehashes copied image bytes. Text layers allow characters only; interaction wrappers allow exactly one SVG or one fallback image. `compile-report.json.artifact_binding.wechat_html` then binds the final path-identity hash, device/inode, SHA-256, byte length, handoff SHA and transport revision, and must be rechecked immediately before upload/paste.
+Every `mode: "horizontal-swipe"` interaction uses the same Ardot closed/open/fallback state evidence and binds `interaction_structure_sha256` to one canonical, balanced, policy-valid HTML fragment. It must contain exactly one `data-interaction="horizontal-swipe"`, inline horizontal overflow, a visible `data-swipe-cue`, and matching fallback key/hash. Final compilation embeds that exact fragment for dynamic and the information-equivalent fallback asset for static.
+
+Every compiled top-level layer carries a canonical render signature over its source-node layer ID, tag, role, source hash, geometry, z-index, exact inline style, and interaction mode. HTML postflight checks the complete per-chapter layer sequence, strict allowed subtree grammar and exact image occurrence/parent order, and rehashes copied image bytes. Text layers allow characters only; interaction wrappers allow exactly one canonical SVG, one canonical horizontal-swipe subtree, or one fallback image. Compile reports bind both dynamic/static payloads, the selected payload, upload map, path identity, device/inode, SHA-256, byte length, handoff SHA, and transport revision, and must be rechecked immediately before any draft mutation.
 
 The article-JSON adapter is authoring-only. It requires the explicit `--authoring-preview` flag, emits no delivery `wechat.html`, and must never be pasted into the official-account editor.
 
@@ -404,14 +419,16 @@ even when both JSON files repeat the same stale string.
 Run the executable gate before delivery:
 
 ```bash
-python3 scripts/validate_workflow_attribution.py handoff.json \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/validate_workflow_attribution.py" handoff.json \
   --report workflow-attribution-preflight.json
 ```
 
 After saving and reopening the draft, export its actual visible body text to a UTF-8 text file and rerun the gate. The readback must come from WeChat, not the source HTML:
 
 ```bash
-python3 scripts/validate_workflow_attribution.py handoff.json \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/validate_workflow_attribution.py" handoff.json \
   --saved-draft-visible-text saved-draft-visible-text.txt \
   --require-readback \
   --report workflow-attribution-readback.json
@@ -424,7 +441,7 @@ Exit `0` passes, `1` is a blocking attribution mismatch, and `2` is an unreadabl
 - Recompute `ardot-root-revision-v1` from normalized extracted text, complete component order, exact transport section/layer/source/style/body-asset census, current asset hashes, file/design ID, and root node ID; never accept two matching self-reported revision strings without recomputation.
 - Schema v5 is mandatory. Resolve `workflow_attribution` from the current Ardot root export: its node belongs to that root, is a visible native editable `TEXT` node, contains the exact fixed text, and is last in normalized visible reading order. Include its node, text, and order in the content revision; bind the full layer export to the independent transport revision. The Boolean fields are summaries, not self-authenticating evidence. Every older bundle must be refrozen from the current root.
 - Regenerate the bundle after any Ardot edit. Never patch a previously compiled HTML file and continue calling it the same revision.
-- Immediately before compilation, capture the same root again through the active Ardot-capable host into a separate file and pass it with `--live-root-export ...`. Its timezone-aware `captured_at` must be strictly later than the frozen export, its bytes must differ, and it must not be the same file or a hard link. The fresh text/section/layer/style/source/asset snapshot must equal the frozen root revision. In `current-session-draft`, the same observable host session must retain the real reread trace, bind the exact live export/candidate HTML/candidate report, write the WeChat draft, reopen it, and validate every chapter with `--session-draft --require-readback`; this mode can create and verify a draft but cannot claim portable audit or publication. In `portable-signed-audit`, a real `host.receipt.attest` callable additionally issues and Ed25519-signs `ardot-host-live-read-receipt-v1`; the protected trust store verifies the receipt and the secure final chain. The current Codex Desktop adapter declares the attestor unavailable, so it uses current-session draft mode rather than blocking delivery/full outright.
+- Immediately before compilation, capture the same root again through the active Ardot-capable host into a separate file and pass it with `--live-root-export ...`. Its timezone-aware `captured_at` must be strictly later than the frozen export, its bytes must differ, and it must not be the same file or a hard link. The fresh text/section/layer/style/source/asset snapshot must equal the frozen root revision. In the `current-session-live` route, the same observable host session must retain the real reread trace, bind the exact upload map/live export/candidate HTML/report, write or update the WeChat draft, reopen it, and validate every chapter with v2 raw readback; it may publish only after the strict live publication gate and fresh confirmation, while always reporting `portable_audit_verified=false`. In `portable-signed-audit`, a real `host.receipt.attest` callable additionally issues and Ed25519-signs both receipts; the protected trust store verifies the portable chain. Missing signing support therefore downgrades audit portability, not functional draft/publish capability.
 - Native text uses an explicit supported WeChat system family and exact allowlisted style. Every raster layer declares source node and complete supported `render_style`; unknown visual properties, fonts, rotation, blend or mask must be resolved in Ardot rather than silently dropped.
 - The title and digest must come from named Ardot fields or an explicit delivery-settings node. If either is absent, ask only for that missing delivery metadata; do not reopen upstream writing.
 - A cover may be a designated Ardot frame or a current asset. Do not infer a cover from an older article.

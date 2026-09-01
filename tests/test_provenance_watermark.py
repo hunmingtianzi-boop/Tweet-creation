@@ -33,6 +33,7 @@ from provenance_watermark import (  # noqa: E402
     WatermarkError,
     assess_carrier,
     detect_watermark,
+    derive_resized_carrier,
     embed_watermark,
     file_sha256,
     measure_psnr,
@@ -47,12 +48,23 @@ FIXED_WM_ID = bytes.fromhex("0011223344556677")
 _RESAMPLING = getattr(Image, "Resampling", Image)
 
 
-def write_textured_png(path: Path, width: int = 640, height: int = 800, *, rgba: bool = False) -> None:
+def write_textured_png(
+    path: Path,
+    width: int = 640,
+    height: int = 800,
+    *,
+    rgba: bool = False,
+    texture_scale: int = 1,
+) -> None:
     pixels: list[tuple[int, ...]] = []
     for y in range(height):
         for x in range(width):
-            wave = int(19 * math.sin(x / 7.3) + 15 * math.cos(y / 10.1) + 9 * math.sin((x + y) / 4.7))
-            grain = ((x * 37 + y * 61 + (x * y) % 29) % 23) - 11
+            wave = texture_scale * int(
+                19 * math.sin(x / 7.3)
+                + 15 * math.cos(y / 10.1)
+                + 9 * math.sin((x + y) / 4.7)
+            )
+            grain = texture_scale * (((x * 37 + y * 61 + (x * y) % 29) % 23) - 11)
             red = max(8, min(247, 78 + (x * 107 // width) + wave + grain))
             green = max(8, min(247, 56 + (y * 136 // height) - wave // 2 + grain))
             blue = max(8, min(247, 142 + ((x + y) * 57 // (width + height)) + wave // 3 - grain))
@@ -254,6 +266,57 @@ class ProvenanceWatermarkTests(unittest.TestCase):
             oversized_assessment["reason_codes"],
         )
 
+    def test_common_1024x1536_source_uses_create_once_resize_lineage(self) -> None:
+        original = self.root / "portrait-1024x1536.png"
+        resized = self.root / "portrait-embed-carrier.png"
+        marked = self.root / "portrait-watermarked.png"
+        write_textured_png(original, 1024, 1536, texture_scale=2)
+        original_hash = file_sha256(original)
+        report = embed_watermark(
+            original,
+            marked,
+            resized_carrier_path=resized,
+            key=TEST_KEY,
+            key_epoch=11,
+            wm_id=bytes.fromhex("1122334455667788"),
+        )
+        lineage = report["carrier_derivation"]
+        self.assertTrue(lineage["applied"])
+        self.assertEqual(lineage["source_sha256"], original_hash)
+        self.assertEqual(lineage["carrier_sha256"], file_sha256(resized))
+        self.assertLessEqual(
+            lineage["carrier_width"] * lineage["carrier_height"],
+            watermark_module.MAX_EMBED_PIXELS,
+        )
+        self.assertLess(
+            abs(
+                (lineage["carrier_width"] / lineage["carrier_height"])
+                / (1024 / 1536)
+                - 1
+            ),
+            0.002,
+        )
+        self.assertEqual(file_sha256(original), original_hash)
+        self.assertTrue(detect_watermark(marked, key=TEST_KEY)["authenticated"])
+        self.assertAlmostEqual(measure_psnr(resized, marked), report["psnr_db"], places=4)
+        with self.assertRaises(WatermarkError):
+            embed_watermark(
+                original,
+                self.root / "portrait-second-watermarked.png",
+                resized_carrier_path=resized,
+                key=TEST_KEY,
+            )
+
+    def test_resize_rejects_extreme_aspect_sources_without_distortion(self) -> None:
+        for width, height in ((10_000, 100), (100, 10_000)):
+            with self.subTest(width=width, height=height):
+                source = self.root / f"extreme-{width}x{height}.png"
+                output = self.root / f"extreme-{width}x{height}-carrier.png"
+                Image.new("RGB", (width, height), (60, 90, 120)).save(source, format="PNG")
+                with self.assertRaises(WatermarkError):
+                    derive_resized_carrier(source, output)
+                self.assertFalse(output.exists())
+
     def test_payload_fingerprint_is_one_way_and_stable(self) -> None:
         fingerprint = self.report["payload_fingerprint"]
         self.assertEqual(len(fingerprint), hashlib.sha256().digest_size * 2)
@@ -426,6 +489,56 @@ class ProvenanceWatermarkTests(unittest.TestCase):
             self.assertEqual(result.returncode, 2, result.stderr)
             self.assertNotIn("Traceback", result.stderr)
             self.assertFalse(os.path.lexists(output))
+
+    def test_output_and_private_record_ancestor_symlinks_are_rejected(self) -> None:
+        real = self.root / "real-watermark-output"
+        nested = real / "nested"
+        nested.mkdir(parents=True)
+        alias = self.root / "watermark-output-alias"
+        alias.symlink_to(real, target_is_directory=True)
+
+        with self.assertRaisesRegex(WatermarkError, r"symlink"):
+            embed_watermark(
+                self.master,
+                alias / "nested" / "marked.png",
+                key=TEST_KEY,
+            )
+        self.assertFalse((nested / "marked.png").exists())
+
+        oversized = self.root / "ancestor-resize-source.png"
+        write_textured_png(oversized, 1024, 1536, texture_scale=2)
+        with self.assertRaisesRegex(WatermarkError, r"symlink"):
+            derive_resized_carrier(
+                oversized,
+                alias / "nested" / "carrier.png",
+            )
+        self.assertFalse((nested / "carrier.png").exists())
+
+        encoded_key = "base64:" + __import__("base64").b64encode(TEST_KEY).decode("ascii")
+        environment = os.environ.copy()
+        environment["TEST_WATERMARK_KEY"] = encoded_key
+        environment["PROVENANCE_WATERMARK_PRIVATE_ROOT"] = str(alias)
+        result = subprocess.run(
+            [
+                *SECURE_RUNNER,
+                str(ROOT / "scripts" / "provenance_watermark.py"),
+                "detect",
+                str(self.derivative),
+                "--key-env",
+                "TEST_WATERMARK_KEY",
+                "--report",
+                str(alias / "nested" / "public.json"),
+                "--private-record",
+                str(alias / "nested" / "private.json"),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=environment,
+        )
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertFalse((nested / "public.json").exists())
+        self.assertFalse((nested / "private.json").exists())
 
     def test_atomic_commit_does_not_overwrite_racing_destination(self) -> None:
         raced_output = self.root / "raced-output.png"

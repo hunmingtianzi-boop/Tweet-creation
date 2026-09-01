@@ -16,7 +16,7 @@ organization-pack/
     └── derived/        # Hash-bound crops, compressed copies, and RGBA cutouts
 ```
 
-Run `python3 scripts/orgs.py validate PACK_DIR` after every material edit.
+Run `python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" "$ORG_WECHAT_RUNTIME_ROOT/scripts/orgs.py" validate PACK_DIR` after every material edit.
 
 ## `organization.json`
 
@@ -122,6 +122,8 @@ public evidence:
     "key_epoch": 1,
     "source_location": "assets/generated/background-raw.png",
     "source_sha256": "<sha256>",
+    "original_source_location": "assets/generated/background-raw.png",
+    "original_source_sha256": "<sha256>",
     "marked_sha256": "<sha256>",
     "local_verified": true,
     "report_location": "assets/derived/background-watermark.json",
@@ -133,6 +135,9 @@ public evidence:
 ```
 
 Both paths remain inside the pack; the source and final files are distinct.
+For an oversized source, `source_location` is the deterministic embed carrier,
+while `original_source_location` preserves the pre-resize original; validation
+recomputes the carrier bytes from the original and rejects a substituted resize.
 The source normally lives under the Git-ignored
 `assets/generated/unwatermarked-masters/` directory and must be restored from
 the organization's private asset store on a new machine. Validation rehashes
@@ -156,10 +161,17 @@ Generate an article-type asset plan with `scripts/orgs.py asset-plan`, then prep
 
 The ChatGPT/provider download is a **raw generation source**. Keep its original bytes under `assets/generated/`. Attempt 1 must request native transparency and run with `--require-native-alpha`; provider/file-extension claims are never trusted, and an RGB8 or all-opaque file fails without background removal. Only after that strict failure may attempt 2 download an RGB8 source on the plan's uniform chroma-key fallback. The raw file is normally not a standalone `assets[]` entry. It must never carry `visual_role: article-micro`, a visual-kit `role`, or be placed in Ardot as the final component image.
 
-Create a separate output and report with the actual processor CLI. All three paths are create-once and distinct; replace the example prompt hash with the SHA-256 of the exact generation prompt. `--require-native-alpha` is mandatory for the preferred route. Only the single fallback replaces it with `--key-color`; the two flags are mutually exclusive.
+Every formal cutout also requires `org-wechat-provider-image-acquisition-v2` passed as `--acquisition-report`. In addition to article/slot/prompt, ordered attempts, distinct provider requests, SHA and timezone-aware timestamps, v2 binds the verified installed-release registry census; exact adapter bytes and the adapter-declared `generation_route_id`; the same-session current migration result or host-finalized portable migration result; canonical per-attempt request metadata; and one create-once Browser ingestion report per downloaded raw source. The validator reopens every ingestion report and raw target, recomputes SHA-256 and byte length, and requires the accepted target to be the processor's exact source path. Native mode has exactly one accepted attempt. Fallback mode has exactly two attempts: a rejected native Alpha/pixel gate followed by one newly generated controlled-key source with a different source hash. Attempts are strictly time-ordered, the completion timestamp follows the accepted download, and at preparation time evidence older than seven days or implausibly in the future is rejected.
+
+Current-session v2 acquisition is operationally accepted after the completed same-session migration, canonical request, create-once ingestion, exact raw bytes, and RGBA pixel chain all validate. It must remain `current-session-operator-harness-trusted`, `host_attested=false`, and `portable=false`; these serialized files do not become independent host attestation. Preparation, registration, pack validation, and ready-for-layout each revalidate the complete chain. The compatibility callback is only an optional trusted-harness veto policy: `True` cannot upgrade assurance, while `False` or an exception blocks. A copied v1 ledger, handwritten `authorized/callback/host_trace`, or arbitrary generation route cannot unlock layout. A portable asset instead requires both the signed migration receipt and a separate `host.receipt.attest` Ed25519 provider signature verified against a protected external public-key store; the provider receipt reference is excluded from the signed acquisition core to avoid a hash cycle, while every runtime/attempt/ingestion/raw SHA and byte length remains bound. See [provider-acquisition-authority.md](provider-acquisition-authority.md).
+
+Create a separate output and report with the actual processor. All three paths are create-once and distinct; replace the example prompt hash with the SHA-256 of the exact generation prompt. `--require-native-alpha` is mandatory for the preferred route. Only the single fallback replaces it with `--key-color`; the two flags are mutually exclusive. The standalone CLI example below shows the stronger portable-signed form. For normal current-session operation, omit `--portable-trust-store`; the same complete migration/request/ingestion/raw/RGBA chain remains mandatory and the result stays non-attested and non-portable.
+
+Run this only inside the canonical current organization pack created by `orgs.py init`. Its `assets/generated/` and `assets/derived/` directories must already exist as real, non-symlink directories; the processor intentionally never creates parent directories. Keep the raw source and acquisition report under that pack's existing `assets/generated/`, and choose new, non-existing derivative and report paths under its existing `assets/derived/`. Do not use recursive directory creation at cutout time, redirect either parent through a symlink, or reuse an existing output/report path.
 
 ```bash
-python3 -I -S scripts/secure_runner.py scripts/prepare_micro_cutout.py \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/prepare_micro_cutout.py" \
   organizations/new-account-id/assets/generated/article-object-raw.png \
   organizations/new-account-id/assets/derived/article-object-cutout.png \
   --report organizations/new-account-id/assets/derived/article-object-cutout.json \
@@ -168,6 +180,8 @@ python3 -I -S scripts/secure_runner.py scripts/prepare_micro_cutout.py \
   --asset-slot-id kit.floating-spot \
   --prompt-sha256 sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
   --generation-route chatgpt-web-image-route-v1 \
+  --acquisition-report organizations/new-account-id/assets/generated/article-object-acquisition.json \
+  --portable-trust-store /PROTECTED/HOST-PUBLIC-KEYS.json \
   --require-native-alpha
 ```
 
@@ -179,10 +193,11 @@ green key for the whole visual kit.
 
 The create-once `org-wechat-micro-cutout-derivation-v1` report binds the raw and final locations and file/pixel hashes; article ID, slot ID and role; generation route and prompt hash; processor script/config hashes and method; background/mask/edge assessment; black/white composite probes; and the final RGBA inspection. The validator resolves both files relative to the report, requires the source under `assets/generated/` and the output under `assets/derived/`, and re-computes the hashes and current pixel inspection. A copied report or an `approved: true` claim cannot substitute for those bytes.
 
-Register only the derivative. These are the actual `register-asset` arguments for a new micro illustration:
+Register only the derivative. These are the standalone `register-asset` arguments for a micro illustration; portable use additionally supplies the protected trust store, while current-session use retains the operator/harness-trusted boundary:
 
 ```bash
-python3 scripts/orgs.py register-asset organizations/new-account-id \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/orgs.py" register-asset organizations/new-account-id \
   --id spot.article-object \
   --kind illustration \
   --title "Article object spot" \
@@ -192,6 +207,7 @@ python3 scripts/orgs.py register-asset organizations/new-account-id \
   --use recruitment \
   --role floating-spot \
   --cutout-report assets/derived/article-object-cutout.json \
+  --portable-trust-store /PROTECTED/HOST-PUBLIC-KEYS.json \
   --generated-for article-slug \
   --visual-role article-micro
 ```
@@ -215,17 +231,22 @@ python3 scripts/orgs.py register-asset organizations/new-account-id \
     "asset_slot_id": "kit.floating-spot",
     "prompt_sha256": "sha256:<exact-prompt>",
     "generation_route": "chatgpt-web-image-route-v1",
+    "authority_binding_sha256": "sha256:<canonical-authority-challenge>",
+    "authority_scope_at_creation": "current-session-operator-harness-trusted",
+    "acquisition_assurance": "operator-harness-trusted-current-session",
+    "host_attested": false,
+    "portable": false,
     "processor_script_sha256": "sha256:<processor-bytes>",
     "config_sha256": "sha256:<canonical-config>"
   }
 }
 ```
 
-Direct registration of a ChatGPT original as `article-micro` is forbidden, even if it looks transparent or its mode says RGBA. New micro registration with a role fails unless `origin=derived` and `--cutout-report` verifies. The derivative must also be deterministically decodable RGBA8 with real transparent pixels, robust Alpha geometry, a tight subject crop, no clipped substantive pixels, no halo/debris, and no rectangular/rounded/near-solid matte. Spacing belongs in Ardot, not in a large transparent PNG canvas. Every article gets a fresh visual-kit plan and four different derivatives for the four roles before layout. Logos and QR codes always remain official or user-supplied assets.
+Direct registration of a ChatGPT original as `article-micro` is forbidden, even if it looks transparent or its mode says RGBA. New micro registration with a role fails unless `origin=derived` and `--cutout-report` verifies. Its slot must be exactly `kit.<role>`. The derivative must also be deterministically decodable RGBA8 with real transparent pixels, robust Alpha geometry, a tight subject crop, no clipped substantive pixels, no halo/debris, and no rectangular/rounded/near-solid matte. Spacing belongs in Ardot, not in a large transparent PNG canvas. Every article gets a fresh visual-kit plan and four different derivatives for the four roles before layout. The ready gate separately requires four distinct accepted provider-original SHA values, provider request IDs, acquisition authority bindings, and output SHA values, so a copied or recropped raw cannot fill several roles. Logos and QR codes always remain official or user-supplied assets.
 
 ## Visual-reference provenance
 
-The default mode is source-zero. `organization.provenance` declares `visual_reference_policy: source-zero`, current `visual_input_source_ids`, `isolation_reviewed_at`, and all four excluded kinds: `prior-article-layout`, `prior-ardot-file`, `prior-article-screenshot`, `other-organization-visual-pack`. These fields make the isolation claim executable instead of leaving it in notes.
+The default mode is source-zero. `organization.provenance` declares `visual_reference_policy: source-zero`, current `visual_input_source_ids`, explicit pack-relative `visual_input_allowed_roots`, `isolation_reviewed_at`, and all four excluded kinds: `prior-article-layout`, `prior-ardot-file`, `prior-article-screenshot`, `other-organization-visual-pack`. Every selected `sources.json` item also declares an allowed kind, a pack-relative locator, and `content_sha256`. Validation rehashes the current file/tree, rejects every symlink component, and rejects legacy/example/output/other-organization paths (including common Chinese old-draft directory names) even when they sit below an allowed root. This is fail-closed content isolation without claiming an unavailable host filesystem lease.
 
 When the user explicitly selects a reviewed style grammar, provenance may instead use `visual_reference_policy: explicit-style-grammar`. It additionally requires:
 

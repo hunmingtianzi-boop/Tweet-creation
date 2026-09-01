@@ -33,57 +33,116 @@
   },
   "local": {
     "authoring_skill": {
+      "package": "org-wechat-studio",
       "path": "SKILL.md",
       "purpose": "canonical generalized authoring skill"
     },
     "publisher_skill": {
-      "path": "skills/ardot-wechat-publisher/SKILL.md",
-      "purpose": "canonical last-mile publisher skill"
+      "package": "ardot-wechat-publisher",
+      "path": "SKILL.md",
+      "purpose": "same-release sibling last-mile publisher skill"
     },
     "runtime_contract": {
+      "package": "org-wechat-studio",
       "path": "references/runtime-preflight.md",
       "purpose": "startup capability and probe contract"
     },
     "secure_runner": {
+      "package": "org-wechat-studio",
       "path": "scripts/secure_runner.py",
       "purpose": "isolated no-site launcher for every security-sensitive Python CLI"
     },
+    "browser_download_ingestor": {
+      "package": "org-wechat-studio",
+      "path": "scripts/ingest_browser_download.py",
+      "purpose": "create-once current-session copy and byte-hash binding for a Browser-observed absolute download path"
+    },
+    "wechat_readback_ingestor": {
+      "package": "org-wechat-studio",
+      "path": "scripts/ingest_wechat_readback_capture.py",
+      "purpose": "create-once nonportable binding for exact-draft Browser/Computer Use 390px chapter captures"
+    },
+    "migration_probe_processor": {
+      "package": "org-wechat-studio",
+      "path": "scripts/prepare_migration_probe.py",
+      "purpose": "migration-only neutral RGBA processor with non-registerable lineage"
+    },
+    "ardot_handoff_exporter": {
+      "package": "org-wechat-studio",
+      "path": "scripts/export_ardot_handoff.py",
+      "purpose": "freeze the reviewed current Ardot root into a delivery handoff"
+    },
+    "wechat_publisher": {
+      "package": "org-wechat-studio",
+      "path": "scripts/wechat_publisher.py",
+      "purpose": "verified local WeChat draft API client; credentials are execution-time only"
+    },
     "python_dependency_lock": {
+      "package": "org-wechat-studio",
       "path": "runtime/python-dependency-lock.json",
       "purpose": "platform-specific aggregate hashes for verified dependency snapshots"
     },
+    "platform_support": {
+      "package": "org-wechat-studio",
+      "path": "runtime/platform-support.json",
+      "purpose": "reviewed OS/Python support matrix"
+    },
+    "non_mcp_dependencies": {
+      "package": "org-wechat-studio",
+      "path": "runtime/non-mcp-dependencies.json",
+      "purpose": "complete binary, Skill and host-callable dependency census"
+    },
+    "host_registry_census_contract": {
+      "package": "org-wechat-studio",
+      "path": "runtime/host-registry-census-contract.json",
+      "purpose": "machine-readable host tool and installed-Skill census contract"
+    },
+    "migration_host_receipt_contract": {
+      "package": "org-wechat-studio",
+      "path": "runtime/migration-host-receipt-contract.json",
+      "purpose": "signed migration probe finalization and anti-replay contract"
+    },
     "codex_adapter": {
+      "package": "org-wechat-studio",
       "path": "runtime/adapters/codex-desktop.json",
       "purpose": "Codex Desktop semantic capability routing; presence is not live proof"
     },
     "chatgpt_image_route_skill": {
-      "path": "skills/chatgpt-web-image-route/SKILL.md",
-      "purpose": "reviewed wrapper for the default Codex Desktop transparent-image route"
+      "package": "chatgpt-web-image-route",
+      "path": "SKILL.md",
+      "purpose": "same-release sibling wrapper for the default Codex Desktop transparent-image route"
     },
     "chatgpt_image_route_contract": {
-      "path": "skills/chatgpt-web-image-route/references/image-generation-contract.md",
+      "package": "chatgpt-web-image-route",
+      "path": "references/image-generation-contract.md",
       "purpose": "provider-neutral original-download and RGBA cutout evidence contract"
     },
     "cutout_processor": {
+      "package": "org-wechat-studio",
       "path": "scripts/prepare_micro_cutout.py",
       "purpose": "deterministic micro-asset background removal and RGBA validation processor"
     },
     "cutout_inspector": {
+      "package": "org-wechat-studio",
       "path": "scripts/inspect_asset.py",
       "purpose": "locked final RGBA8 pixel and role inspection"
     },
     "usage": {
+      "package": "org-wechat-studio",
       "path": "references/使用说明.md",
       "purpose": "operator workflow"
     },
     "qa": {
+      "package": "org-wechat-studio",
       "path": "references/qa.md",
       "purpose": "final workflow gates"
     }
   },
   "semantic_capabilities": [
+    "host.registry.export",
     "image.generate.opaque",
     "image.generate.rgba",
+    "image.provider.acquire.authority",
     "image.inspect",
     "chatgpt.session",
     "ardot.create",
@@ -92,8 +151,13 @@
     "ardot.export",
     "browser.control",
     "computer.use",
+    "browser.download.ingest",
     "wechat.draft",
+    "wechat.current-session-readback",
+    "wechat.current-session-authority",
     "host.receipt.attest",
+    "host.migration.finalize",
+    "filesystem.access.lease",
     "secret.resolve"
   ]
 }

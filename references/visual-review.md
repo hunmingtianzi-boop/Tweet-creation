@@ -10,6 +10,8 @@
 
 独立 review JSON 使用 `schema_version: 3`，需要 Ardot 文件、页面、文章根节点，以及 `capture.source: ardot-node-export`、导出时间和相同 article root。每张截图必须是本地 390 px PNG，并记录节点 ID、章节 ID、SHA-256、实际宽高；远程 URL、重复文件或哈希不符均失败。
 
+`capture` 还必须指向当前 article `qa/` 内的完整 `ardot-article-node-census` 和 `ardot-host-export-receipt-v1`，两者的文件 SHA 必须匹配。Census 绑定当前 revision/root/390 px，完整覆盖五个截图 section，并使 `visible_descendant_count` 与全部 nodes 数量一致。Receipt 绑定 provider/session/request/tool、census SHA 和全部截图 SHA。当前作者层只允许如实声明 `assurance_level: current-session-host-trace` 与 `host_enforced: false`；它不依赖当前 Codex Desktop 未提供的 filesystem lease，也不得伪称是宿主签名证据。需要 portable host-enforced assurance 时由 runtime/delivery 另行验签。
+
 当文章有 interaction modules 时，`ardot.article_node_id` 还必须等于 `interaction_plan.article_root_node_id`，`capture.revision_hash` 必须等于 `interaction_plan.ardot_revision_hash`，review 与交互 group components 也必须属于当前组织的同一 Ardot 文件。这防止把旧截图与新 revision 字段拼接成伪证据。
 
 还要为这五个节点记录 `density.mode`、`measured_from: ardot-node-properties-and-screenshot`、测量时间与密度样本。每个样本用 `screenshot_sha256` 绑定对应截图，并包含 `major_gap_px` 与实测 `body_text_contrast_ratio >= 4.5`；字段见 [information-density.md](information-density.md)。
@@ -94,8 +96,11 @@ Inventory 与逐实例文件的最小规范：
 
 四个新增 micro checks 不是独立的人工通行证：只要 inventory、node export、截图哈希或派生几何/字号失败，整个 review 仍失败，即使 `checks` 中写了 `pass`。
 
+不再接受字符串 `"pass"`。每个主观项是证据对象：`status: pass`、当前 `evidence_node_ids`、精确对应的 `screenshot_sha256s`、`reviewer.kind/id` 和带时区 `reviewed_at`。字号、行高、字距、段距、major gap、占用率、最大空洞和对比度从 census 节点重算；全篇无框/错落和艺术字也从全量 node census 而非手填 ratio 验收。
+
 ```bash
-python3 scripts/build_visual_review.py visual-review.json --article article.json
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/build_visual_review.py" visual-review.json --article article.json
 ```
 
 把 review 文件路径写入 `article.visual_review_file`。作者层门禁会重新校验文章 ID、组织 ID、5 类节点证据、密度范围与全部视觉项。通过后还必须冻结 handoff v5 完整 current-root/layer export，并在编译前通过当前宿主真实重读 live root。无 signer 时使用带 `--session-draft` 的 gate/compiler，只生成精确绑定的 `wechat-candidate.html` / `candidate-report.json`，并在同一宿主中完成微信写入、重开和逐章 readback；其 `portable_audit_verified` 必须为 false。有 Ed25519 attestor 时才可进入 `portable-signed-audit`，使用两份 receipt 和终态 `wechat.html` / `compile-report.json` 链。视觉验收本身不授权正式发表或群发。

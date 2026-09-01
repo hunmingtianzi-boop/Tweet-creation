@@ -1,0 +1,495 @@
+{
+  "schema": "org-wechat-skill-release-v1",
+  "release_sha256": "e896aaaf3143568973b185decb3622096d4f2df65dd51f50e521827945297917",
+  "packages": [
+    {
+      "package": "ardot-wechat-publisher",
+      "source": "skills/ardot-wechat-publisher",
+      "bundle_sha256": "7e62d37d13d65f0dd3e0e52b9ceff917c3e76ba64cddc55d9b0ff794ea5b5ce4",
+      "file_count": 6,
+      "files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "73640688f7a0dc51d2d4e907e4a81d6bfb8f8c5c4eb88a612577b9bf8828ed56",
+          "byte_length": 33399
+        },
+        {
+          "path": "agents/openai.yaml",
+          "sha256": "e4ed227d565b6cfc1dac4d54537249a364da557f225567d096d24880295434ed",
+          "byte_length": 1014
+        },
+        {
+          "path": "references/handoff-contract.md",
+          "sha256": "b5cc8b2cf9de6f938e93eef85f1f9797ef0486ae5ea49346997920460fbcdff1",
+          "byte_length": 31548
+        },
+        {
+          "path": "references/runtime-location.md",
+          "sha256": "63706bd30753502249309409c1eb016116105d4bbc6d5e4f0a66adfe42d800a6",
+          "byte_length": 2332
+        },
+        {
+          "path": "references/wechat-api-delivery.md",
+          "sha256": "339e1192ca0f1b89d0b910a70a24d858cf6ff9ca4e15d7cba65d8930fac83722",
+          "byte_length": 11824
+        },
+        {
+          "path": "references/wechat-interaction-capability.md",
+          "sha256": "8010d77dd1040a7bc10c4db4e9b1915ec534574f0746df1d9267b9d56514fa25",
+          "byte_length": 8460
+        }
+      ]
+    },
+    {
+      "package": "chatgpt-web-image-route",
+      "source": "skills/chatgpt-web-image-route",
+      "bundle_sha256": "fa36d88c3edc3c52d0b684bf3b95b3df5b6d7aada96c01e4ec9b405c549ebcb2",
+      "file_count": 5,
+      "files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "38048cb24b500e7d54f6e0982bcf42b1a900d88083d3125e9ce2149f2dae6da4",
+          "byte_length": 7102
+        },
+        {
+          "path": "agents/openai.yaml",
+          "sha256": "7e698428a6f26787bc747fa340fa171d9d47628de7ca3e702c3823322948342e",
+          "byte_length": 1179
+        },
+        {
+          "path": "references/image-generation-contract.md",
+          "sha256": "2d45720262a296b17a9610193ae9d710cc0f694b96dd874c3a0f0f2fbe504704",
+          "byte_length": 15834
+        },
+        {
+          "path": "references/provider-acquisition-authority.md",
+          "sha256": "a8480c33d141be637c5e32150e0030629de95691cd13c898b7a3f517b7a77ff8",
+          "byte_length": 1370
+        },
+        {
+          "path": "references/runtime-location.md",
+          "sha256": "6b93d4990fe158858318c6cb035eae699577b77b465bc73213699bb3d696eb55",
+          "byte_length": 1986
+        }
+      ]
+    },
+    {
+      "package": "org-wechat-studio",
+      "source": ".",
+      "bundle_sha256": "23c35563e60e36d333d8705536b418ad934a3b6933600b8814a14240cadc94c8",
+      "file_count": 82,
+      "files": [
+        {
+          "path": ".gitignore",
+          "sha256": "82dba7f962bdca9b99d5154f9861ac8ed305e3cbe1254c2ca5b272b218c69222",
+          "byte_length": 338
+        },
+        {
+          "path": "README.md",
+          "sha256": "d1e533a2b9d8d29e59a7f0cd6c0d4e1f98441567ba86a7df7c8d996abcf0b001",
+          "byte_length": 38383
+        },
+        {
+          "path": "SKILL.md",
+          "sha256": "357286dcecfc8c1afee6cced51c5a6eaca08828a1c3afc2ce298ae5b6f2ded6f",
+          "byte_length": 56026
+        },
+        {
+          "path": "agents/openai.yaml",
+          "sha256": "6ec5164850232fe13fc8a24f21a89be764dc6f1997415767ac311c6cbe09d53a",
+          "byte_length": 1711
+        },
+        {
+          "path": "references/ardot-transport-fidelity.md",
+          "sha256": "547066e44a450136d3fc6eb23a4d094900b1350b23995b834997d257dde567fe",
+          "byte_length": 13350
+        },
+        {
+          "path": "references/ardot-workflow.md",
+          "sha256": "bc97fc79380b9fe87845acf341a195012d81a3193933bdc5c351e2cbd16d7f5b",
+          "byte_length": 12118
+        },
+        {
+          "path": "references/article-schema.md",
+          "sha256": "84b6865514719acfa90adafa20d4c8b06a65fa667a6389fd96405ae584912cb5",
+          "byte_length": 17054
+        },
+        {
+          "path": "references/component-design.md",
+          "sha256": "ee62d16023bef95c21c5a449df709d9051a7e8c01d7efcaac519f85a1dfa99f1",
+          "byte_length": 6809
+        },
+        {
+          "path": "references/end-to-end-breakpoint-matrix.md",
+          "sha256": "accafee77d07a11bcffe1804ff906ea8f8e8b1509ca6eb0c207268e14bbf2028",
+          "byte_length": 10335
+        },
+        {
+          "path": "references/expressive-typography.md",
+          "sha256": "ee4a861466d8da8451b1611b45c409ec87357432c78c51fe4bc626471fe6f936",
+          "byte_length": 5461
+        },
+        {
+          "path": "references/information-density.md",
+          "sha256": "25bfafe5246b5f51bcd318a6a4dace0675089779c43319f09fb4cef94f9b785d",
+          "byte_length": 3824
+        },
+        {
+          "path": "references/interaction-composition.md",
+          "sha256": "c9d4912984c39c179233b0cc107d13c387e44ab3db387b19b8c95b36c9f0204c",
+          "byte_length": 4827
+        },
+        {
+          "path": "references/onboarding.md",
+          "sha256": "253d55367a01f3a07a2e5300de04e17522fffffe1b6c02232ea263d67d8615cd",
+          "byte_length": 4031
+        },
+        {
+          "path": "references/org-pack-schema.md",
+          "sha256": "fa093ebcf2af90e2ca58139a6811e86fb9eb7b36436ab7095bf965d7f7615d2e",
+          "byte_length": 20718
+        },
+        {
+          "path": "references/organic-layout.md",
+          "sha256": "b902a0c0ec2595ba65099aebca8d55ab96cc30b03c4e0e02386b22e01737b2c1",
+          "byte_length": 8585
+        },
+        {
+          "path": "references/organization-pack-migration.md",
+          "sha256": "b495e90ae56f97f09535faa67c06887d97c5a1a408757a0b3228f28834ca1c01",
+          "byte_length": 13072
+        },
+        {
+          "path": "references/provenance-watermark.md",
+          "sha256": "37f2a2b70caab95918a5b4bee413657114b12bf76488fc4e3d5fffb5562e7db4",
+          "byte_length": 12877
+        },
+        {
+          "path": "references/provider-acquisition-authority.md",
+          "sha256": "69985e3271d019b2a265161e98a8f922cfd744244a50e1111707ec6d69ae2856",
+          "byte_length": 4060
+        },
+        {
+          "path": "references/qa.md",
+          "sha256": "1a833c40206842435f4cea0906dae9dfa042f823f55b555938fb422e6c08fb25",
+          "byte_length": 13402
+        },
+        {
+          "path": "references/runtime-preflight.md",
+          "sha256": "f6eecf8a64829c93fe8857336f6d67a66686a4849edd0b5ccfac5d6cabae76f8",
+          "byte_length": 22049
+        },
+        {
+          "path": "references/source-zero-audit.md",
+          "sha256": "01367f26473abcee7668ec0c4eeb28163d45286e867757d096762b3b3f3bc5b7",
+          "byte_length": 13734
+        },
+        {
+          "path": "references/storyboard.md",
+          "sha256": "e934663c3805dd9a733c8e3eac3c753467c7a0bb37071169954da1734defe0c3",
+          "byte_length": 2021
+        },
+        {
+          "path": "references/style-options.md",
+          "sha256": "99735b2eec05132c59b166a256fc8a478387dfaaa6d2bb1dfc0133bfb8a480ed",
+          "byte_length": 4723
+        },
+        {
+          "path": "references/visual-calibration.md",
+          "sha256": "7dc78f245425bc3d3dfc08352002175f604cafd4580e0f536a9bfa0860efe707",
+          "byte_length": 3371
+        },
+        {
+          "path": "references/visual-review.md",
+          "sha256": "cd238bc5ebd724f1b18ffe6e07fdf676738d38b186c91430d5197b79ef6a87fd",
+          "byte_length": 9262
+        },
+        {
+          "path": "references/使用说明.md",
+          "sha256": "12b6a09c3225252af1ec48b979ac731528b54d59fc9faba9f03aaa784f467769",
+          "byte_length": 44756
+        },
+        {
+          "path": "requirements.txt",
+          "sha256": "03c99d49618d8b8dd675d1e0ff0aab8ee9338437b959f94fbff74b2e627fe541",
+          "byte_length": 64
+        },
+        {
+          "path": "runtime/adapters/codex-desktop.json",
+          "sha256": "feb76b803b631c66eab490fcda6fed82756bd6beafca8208a5caf2696acc75e2",
+          "byte_length": 6606
+        },
+        {
+          "path": "runtime/host-registry-census-contract.json",
+          "sha256": "1fe8013a28e248ebb572ed6aa0c7e724c80813271633f0a38aad67c3bfa877da",
+          "byte_length": 5349
+        },
+        {
+          "path": "runtime/migration-host-receipt-contract.json",
+          "sha256": "ae7234fd9f6fccc4e74f99388e562f5d4c6562215b20f3dc33a1048209380ad5",
+          "byte_length": 1617
+        },
+        {
+          "path": "runtime/non-mcp-dependencies.json",
+          "sha256": "4972075c9309cedc825c7c4f8351922dbc65c4b5cc667fa2c39baffb29da1a81",
+          "byte_length": 12169
+        },
+        {
+          "path": "runtime/platform-support.json",
+          "sha256": "8f9d4413c7ba0ac9de942a9bb087038c7b8bf4f53550b26bcda51377b8505b95",
+          "byte_length": 562
+        },
+        {
+          "path": "runtime/python-dependency-lock.json",
+          "sha256": "4b0baa3aaf400ec44ca6e9a32bde44f5e3fbb8be46a413b2f00bcd394b3c5c61",
+          "byte_length": 4614
+        },
+        {
+          "path": "runtime/setup-links.json",
+          "sha256": "dabcfa408c918cf5fd27056ca656e3adbc12be0f9c69114d15cad5d9e5636caa",
+          "byte_length": 5933
+        },
+        {
+          "path": "scripts/asset_quality.py",
+          "sha256": "6ffb9e4890df6a3602f1f7b58b47d18ce0ebf9e596070d973a0c32405ede21d9",
+          "byte_length": 44590
+        },
+        {
+          "path": "scripts/asset_role_policy.py",
+          "sha256": "fb8f43ad441616576e76e2e5e7c15b38cc53411789db410456904d743feb7ed5",
+          "byte_length": 6572
+        },
+        {
+          "path": "scripts/build_ardot_manifest.py",
+          "sha256": "56897f168679213721e06715daa85c766779c14ab2abe0e30f1524a5abf58707",
+          "byte_length": 25645
+        },
+        {
+          "path": "scripts/build_storyboard.py",
+          "sha256": "f20bfbda93faa5cc8a5f1a7dd64d815d4f6d20fc727f2e5745add6f1de89a884",
+          "byte_length": 7405
+        },
+        {
+          "path": "scripts/build_visual_directions.py",
+          "sha256": "c8a74c76e989f03347a3c129d606efefc9ac5c984a851805bf373c76bc7efacd",
+          "byte_length": 11542
+        },
+        {
+          "path": "scripts/build_visual_kit.py",
+          "sha256": "f142f42870bcb6cb5b164fa77d47f66ba64482719afc82c4e302f7ae25480f02",
+          "byte_length": 32111
+        },
+        {
+          "path": "scripts/build_visual_review.py",
+          "sha256": "165c0393e920aea38674e0b91c0ee07540dfd75a2725d3bad2274d0273fab9ba",
+          "byte_length": 2704
+        },
+        {
+          "path": "scripts/compile_wechat.py",
+          "sha256": "e92c6a445ddb3c052ba4247d23f40add23f1cd7c344560917ebad46819897f99",
+          "byte_length": 97890
+        },
+        {
+          "path": "scripts/export_ardot_handoff.py",
+          "sha256": "4895ef1e396072cf8514c985fea72f6cf26d1e2ad7349af67340ce56d1566220",
+          "byte_length": 30414
+        },
+        {
+          "path": "scripts/ingest_browser_download.py",
+          "sha256": "c1ba0f038cd50ae4865e8deb13972893a388e7ab30b49abf2d9462ef95119005",
+          "byte_length": 9512
+        },
+        {
+          "path": "scripts/ingest_wechat_readback_capture.py",
+          "sha256": "2378571d11ddfe4349052e41bfff744455187cb3f2c0c5e4d2edf95cd31417e3",
+          "byte_length": 37362
+        },
+        {
+          "path": "scripts/inspect_asset.py",
+          "sha256": "22d6c1d5fcf1e5988da278e2557486b8a455e91947a58b391a9fa58498ceb5c8",
+          "byte_length": 840
+        },
+        {
+          "path": "scripts/orgs.py",
+          "sha256": "5b80f19d8dae846f86b987c88e33e89b4ba0e30f4a6432d535adc8d71d3d4bfa",
+          "byte_length": 105574
+        },
+        {
+          "path": "scripts/pack_assets.py",
+          "sha256": "df423ba022b84d943d8cbbca997c6138c3a4fdd289ddc8b89c394e5b806ecf41",
+          "byte_length": 5255
+        },
+        {
+          "path": "scripts/prepare_micro_cutout.py",
+          "sha256": "7f1c917e83641c2d23ca167a69fceb4925adcbe23ea9816a8af87856a91f64d5",
+          "byte_length": 50948
+        },
+        {
+          "path": "scripts/prepare_migration_probe.py",
+          "sha256": "83ced893daeb992778e37dcdc2fe2e10ffcd9792ca47d5d671f4efe6c373379d",
+          "byte_length": 25249
+        },
+        {
+          "path": "scripts/provenance_watermark.py",
+          "sha256": "a65e75245e9b342a28366ae69fd7ec7e0174305b0afa2b6fa744507cef5a2988",
+          "byte_length": 59791
+        },
+        {
+          "path": "scripts/provider_acquisition_authority.py",
+          "sha256": "2dfc0bc40aeb300a8838e20b0edb4613be550d3babc0cfca547222e9d3e83fa5",
+          "byte_length": 33917
+        },
+        {
+          "path": "scripts/release_skills.py",
+          "sha256": "a816356f1155c8b83ce3d413c6d8a39cf3aa3199fef2e4199cd28f112f991cbe",
+          "byte_length": 31719
+        },
+        {
+          "path": "scripts/runtime_preflight.py",
+          "sha256": "f6a1f9a9a239252215d1fd2f26de92c375ba3650db75ca5a9b78291b6b33b608",
+          "byte_length": 308485
+        },
+        {
+          "path": "scripts/safe_paths.py",
+          "sha256": "b26ca5234bcb68bc7c166fac03374194862d33b65c6b75f1725b121512fabd8d",
+          "byte_length": 7323
+        },
+        {
+          "path": "scripts/secure_runner.py",
+          "sha256": "9cca904e986cd369b5ca58e4167f118e46b2e1df9a2e9c02ff2996f44be69e26",
+          "byte_length": 20748
+        },
+        {
+          "path": "scripts/secure_runtime.py",
+          "sha256": "73410783da7cdc77b40a3a8cd0e34d24b9b1241f3ccad6ee3c9db199228af903",
+          "byte_length": 14924
+        },
+        {
+          "path": "scripts/transport_fidelity.py",
+          "sha256": "21500dfc86959912b49a114cee4a24b9f1ea5adc458b3d30391d561680ded5ec",
+          "byte_length": 239189
+        },
+        {
+          "path": "scripts/validate_transport_fidelity.py",
+          "sha256": "1aee071d034077d0bc10a5299281bc572e0a51c0d1eca25f92804666006d0bee",
+          "byte_length": 4381
+        },
+        {
+          "path": "scripts/validate_workflow_attribution.py",
+          "sha256": "260ea99516de935c5721b1578bfc906e737f77982d75813cbfba136012ce28db",
+          "byte_length": 19839
+        },
+        {
+          "path": "scripts/wechat_interaction_policy.py",
+          "sha256": "754f6e3444f3a7c4613ac1faeac76d53e3820a701c5fdcf8711df547e26c63ec",
+          "byte_length": 39952
+        },
+        {
+          "path": "scripts/wechat_publisher.py",
+          "sha256": "b0d0031d60e659f6b7980745a269e8a229dca1f36551500b6441ef434077b52a",
+          "byte_length": 148364
+        },
+        {
+          "path": "scripts/workflow_quality.py",
+          "sha256": "c093e28565ee530798cfa78b17a286e7e736346dc9579912fe61cb8f372b3b8b",
+          "byte_length": 174377
+        },
+        {
+          "path": "style-presets/prismatic-paper-editorial.json",
+          "sha256": "b4d9ea13dbb017b2f0a5ad4045cc9df06b5c1df2def00ed9035451b26b65818b",
+          "byte_length": 3397
+        },
+        {
+          "path": "tests/fixtures/host-enabled-adapter.json",
+          "sha256": "bb8a8beea1f1e923700bc930bc55d435b0feebc8742ea418352726f3fe00c5fc",
+          "byte_length": 3251
+        },
+        {
+          "path": "tests/fixtures/wechat-capability/probe-v2-readback.json",
+          "sha256": "eb34d5350d7d59cc50bfdc3755c9eea6d9eb31e08b072d63c70655bb7dd89570",
+          "byte_length": 1327
+        },
+        {
+          "path": "tests/fixtures/wechat-capability/probe-v2-source.html",
+          "sha256": "6b8abcb8b0699f9d4fb3fbfabc8745e99d646194dee05da595200bb0b63781bb",
+          "byte_length": 5016
+        },
+        {
+          "path": "tests/test_cutout_gate.py",
+          "sha256": "10aa9e2688e6cd0fc46b45c14693910e2c9b5eb9c3452f8664ab495dff757765",
+          "byte_length": 9242
+        },
+        {
+          "path": "tests/test_download_ingestion.py",
+          "sha256": "21d08e1766b273802d2e4a0f4b95846b45c0ab01137fbead989d9d1c411ee325",
+          "byte_length": 3206
+        },
+        {
+          "path": "tests/test_export_ardot_handoff.py",
+          "sha256": "49e39292e45806cefcb603998c9e00e0ff6af2390076d3905efed9d543c7ad75",
+          "byte_length": 21651
+        },
+        {
+          "path": "tests/test_interaction_mvp.py",
+          "sha256": "5a083465490804261febaa04bfc53213da3077941ef092f711c796eba3847580",
+          "byte_length": 20526
+        },
+        {
+          "path": "tests/test_platform_support_contract.py",
+          "sha256": "c050dcbf14625f865cb15535020d0fe30db4889e3af4c31309b26992b40be2be",
+          "byte_length": 1877
+        },
+        {
+          "path": "tests/test_prepare_micro_cutout.py",
+          "sha256": "6223a396755d671a9284c572ead163ad75a5702421c43b1e359843802916f478",
+          "byte_length": 57242
+        },
+        {
+          "path": "tests/test_provenance_watermark.py",
+          "sha256": "a15e79fcb0eeab85bbb8d8b874731f278bcdb3dc9c6e026b1dec12ca724eff69",
+          "byte_length": 31192
+        },
+        {
+          "path": "tests/test_release_skills.py",
+          "sha256": "b046e2d7d6f6ea1d82bb19e373d7b3f49746c6a505752175c5f905ae8726912e",
+          "byte_length": 26295
+        },
+        {
+          "path": "tests/test_runtime_preflight.py",
+          "sha256": "e545cf48be4a7c03a22019c57fec265ea1fae8917aa0b02f866b78fbd96bb8e5",
+          "byte_length": 142225
+        },
+        {
+          "path": "tests/test_safe_paths.py",
+          "sha256": "6656a700cc13841482a5050f05bb65b9bc27581e1b4e47fab6ace5d4067fa4bf",
+          "byte_length": 3732
+        },
+        {
+          "path": "tests/test_secure_runner.py",
+          "sha256": "ecbda6ef54deed49891ff21dae49261b5528a404a18779ee1f843a262b039854",
+          "byte_length": 26020
+        },
+        {
+          "path": "tests/test_transport_fidelity.py",
+          "sha256": "bea7d016d691e0dad03d0a3620f5c46b700cfc3ff17d2bd38847baf0da402099",
+          "byte_length": 96147
+        },
+        {
+          "path": "tests/test_wechat_publisher.py",
+          "sha256": "e6c0e6086e908a08570ae80c74e9c8f42fb4977c56b8c7110f6154c68d5bcc3c",
+          "byte_length": 75751
+        },
+        {
+          "path": "tests/test_workflow.py",
+          "sha256": "dbf3b2afb8d07590530baf3b28790ea00ea3e204a9889983a79ba985076aa640",
+          "byte_length": 168637
+        },
+        {
+          "path": "tests/test_workflow_attribution.py",
+          "sha256": "609e6002bcda244f651eb32c7f614e81b429d97b6178c536c1c9e617ac65167f",
+          "byte_length": 12945
+        }
+      ]
+    }
+  ]
+}

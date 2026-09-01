@@ -12,6 +12,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+if __name__ == "__main__":
+    from secure_runtime import require_secure_runtime
+
+    require_secure_runtime("scripts/orgs.py")
+
 from asset_quality import (
     MICRO_CUTOUT_EVIDENCE_FIELDS,
     file_sha256,
@@ -19,6 +24,10 @@ from asset_quality import (
     validate_background_family_assets,
     validate_micro_asset,
 )
+from asset_role_policy import validate_asset_role
+from pack_assets import PackAssetResolutionError, canonical_pack_root, resolve_pack_asset
+from prepare_micro_cutout import validate_acquisition_report
+from provider_acquisition_authority import LiveAuthorityCallback
 from workflow_quality import (
     ALLOWED_VISUAL_REFERENCE_POLICIES,
     ALLOWED_ART_TYPE_TREATMENTS,
@@ -35,7 +44,21 @@ from workflow_quality import (
     watermark_evidence_from_report,
     watermark_inventory,
     watermark_policy,
+    validate_source_zero_inputs,
 )
+
+try:
+    from safe_paths import (
+        SafePathError,
+        new_file_path,
+        write_text_create_once,
+    )
+except ImportError:  # pragma: no cover - package import fallback
+    from .safe_paths import (  # type: ignore
+        SafePathError,
+        new_file_path,
+        write_text_create_once,
+    )
 
 
 HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
@@ -81,6 +104,7 @@ VISUAL_ASSET_ROLES = {
     "identity",
     "functional",
 }
+RUNTIME_ROOT = Path(__file__).resolve().parent.parent
 SOURCE_ZERO_EXCLUSIONS = {
     "prior-article-layout",
     "prior-ardot-file",
@@ -184,6 +208,9 @@ def validate_cutout_derivation_report(
     report_path: Path,
     final_path: Path,
     role: str,
+    *,
+    live_authority: LiveAuthorityCallback | None = None,
+    portable_trust_store: Path | None = None,
 ) -> dict[str, Any]:
     """Verify a create-once RGB/native-RGBA -> approved cutout lineage report."""
 
@@ -218,6 +245,11 @@ def validate_cutout_derivation_report(
         r"[a-z0-9][a-z0-9._-]{1,127}", report_slot_id
     ):
         errors.append("cutout report asset_slot_id must be a stable lowercase slot ID")
+    expected_slot_id = f"kit.{role}"
+    if report_slot_id != expected_slot_id:
+        errors.append(
+            f"cutout report asset_slot_id must be {expected_slot_id} for role {role}"
+        )
     if report.get("location_base") != "report-parent":
         errors.append("cutout report location_base must be report-parent")
 
@@ -322,6 +354,126 @@ def validate_cutout_derivation_report(
                 "chroma-matted cutout report requires one explicit controlled key color"
             )
 
+    accepted_provider_request_id: str | None = None
+    accepted_observed_download_id: str | None = None
+    validated_authority_binding_sha256: str | None = None
+    acquisition_file = _resolve_cutout_report_location(
+        pack_root,
+        report_file,
+        generation.get("acquisition_report_location"),
+        "cutout acquisition report",
+        errors,
+    )
+    if acquisition_file is not None:
+        relative_acquisition = acquisition_file.relative_to(pack_root).as_posix()
+        if not relative_acquisition.startswith("assets/generated/"):
+            errors.append("cutout acquisition report must remain under assets/generated")
+        if generation.get("acquisition_report_sha256") != _prefixed_file_sha256(
+            acquisition_file
+        ):
+            errors.append("cutout acquisition report SHA-256 does not match current bytes")
+        if source_file is not None and isinstance(config, dict):
+            acquisition_validation = validate_acquisition_report(
+                acquisition_file,
+                source_file,
+                article_id=str(report_article_id),
+                asset_slot_id=str(report_slot_id),
+                prompt_sha256=str(generation.get("prompt_sha256")),
+                generation_route=str(generation.get("route")),
+                expected_mode=(
+                    "native-alpha"
+                    if processor.get("method") == "native-rgba-normalize-v1"
+                    else "controlled-key"
+                ),
+                key_color=config.get("key_color"),
+                enforce_current_freshness=False,
+                live_authority=live_authority,
+                portable_trust_store=portable_trust_store,
+                require_authority=True,
+            )
+            errors.extend(
+                f"cutout acquisition lineage: {message}"
+                for message in acquisition_validation["errors"]
+            )
+            if generation.get("attempt_count") != acquisition_validation.get("attempt_count"):
+                errors.append("cutout attempt_count does not match acquisition ledger")
+            if generation.get("accepted_attempt_index") != acquisition_validation.get(
+                "accepted_attempt_index"
+            ):
+                errors.append("cutout accepted_attempt_index does not match acquisition ledger")
+            authority = acquisition_validation.get("authority")
+            if not isinstance(authority, dict):
+                errors.append("cutout acquisition authority result is missing")
+            else:
+                validated_authority_binding_sha256 = authority.get("binding_sha256")
+                if generation.get("authority_binding_sha256") != authority.get(
+                    "binding_sha256"
+                ):
+                    errors.append("cutout authority binding does not match the current acquisition chain")
+                if generation.get("authority_scope_at_creation") not in {
+                    "current-session-operator-harness-trusted",
+                    "portable-signed",
+                }:
+                    errors.append("cutout authority scope at creation is invalid")
+                if generation.get("authority_scope_at_creation") != authority.get(
+                    "authority_mode"
+                ):
+                    errors.append(
+                        "cutout authority scope at creation does not match current validation"
+                    )
+                if generation.get("acquisition_assurance") != authority.get("assurance"):
+                    errors.append("cutout acquisition assurance does not match current validation")
+                if generation.get("operationally_accepted") is not True:
+                    errors.append("cutout acquisition was not operationally accepted at creation")
+                if authority.get("authority_mode") == "current-session-operator-harness-trusted":
+                    if generation.get("host_attested") is not False:
+                        errors.append("current-session cutout cannot claim host attestation")
+                    if generation.get("portable") is not False:
+                        errors.append("current-session cutout cannot claim portable assurance")
+                    if generation.get("requires_live_authority_revalidation") is not False:
+                        errors.append(
+                            "current-session cutout cannot claim a Python live-authority requirement"
+                        )
+                    if (
+                        generation.get("requires_current_session_chain_revalidation")
+                        is not True
+                    ):
+                        errors.append(
+                            "current-session cutout must require complete chain revalidation"
+                        )
+                    if generation.get("portable_host_receipt_verified") is not False:
+                        errors.append("current-session cutout cannot claim portable receipt verification")
+                elif authority.get("authority_mode") == "portable-signed":
+                    if generation.get("host_attested") is not True:
+                        errors.append("portable cutout must record host attestation")
+                    if generation.get("portable") is not True:
+                        errors.append("portable cutout must record portable assurance")
+                    if generation.get("portable_host_receipt_verified") is not True:
+                        errors.append("portable cutout must record verified host receipt at creation")
+            acquisition_payload = acquisition_validation.get("report")
+            acquisition_attempts = (
+                acquisition_payload.get("attempts")
+                if isinstance(acquisition_payload, dict)
+                and isinstance(acquisition_payload.get("attempts"), list)
+                else []
+            )
+            accepted_attempts = [
+                item
+                for item in acquisition_attempts
+                if isinstance(item, dict) and item.get("outcome") == "accepted"
+            ]
+            if len(accepted_attempts) == 1:
+                accepted_provider_request_id = accepted_attempts[0].get(
+                    "provider_request_id"
+                )
+                accepted_observed_download_id = accepted_attempts[0].get(
+                    "observed_download_id"
+                )
+                if not isinstance(accepted_provider_request_id, str):
+                    errors.append("cutout accepted provider_request_id is missing")
+                if not isinstance(accepted_observed_download_id, str):
+                    errors.append("cutout accepted observed_download_id is missing")
+
     background = (
         report.get("background_assessment")
         if isinstance(report.get("background_assessment"), dict)
@@ -387,14 +539,29 @@ def validate_cutout_derivation_report(
             "asset_slot_id": report_slot_id,
             "prompt_sha256": generation.get("prompt_sha256"),
             "generation_route": generation.get("route"),
+            "acquisition_report_location": (
+                acquisition_file.relative_to(pack_root).as_posix()
+                if acquisition_file is not None
+                else None
+            ),
+            "acquisition_report_sha256": generation.get("acquisition_report_sha256"),
+            "attempt_count": generation.get("attempt_count"),
+            "accepted_attempt_index": generation.get("accepted_attempt_index"),
+            "accepted_provider_request_id": accepted_provider_request_id,
+            "accepted_observed_download_id": accepted_observed_download_id,
             "processor_script_sha256": processor.get("script_sha256"),
             "config_sha256": processor.get("config_sha256"),
+            "authority_binding_sha256": validated_authority_binding_sha256,
+            "authority_scope_at_creation": generation.get("authority_scope_at_creation"),
+            "acquisition_assurance": generation.get("acquisition_assurance"),
+            "host_attested": generation.get("host_attested"),
+            "portable": generation.get("portable"),
         }
     return {"ok": not errors, "errors": errors, "report": report, "lineage": lineage}
 
 
 def load_pack(pack_dir: Path) -> dict[str, Any]:
-    pack_dir = pack_dir.resolve()
+    pack_dir = canonical_pack_root(pack_dir)
     return {
         "path": pack_dir,
         "organization": read_json(pack_dir / "organization.json"),
@@ -424,10 +591,24 @@ def duplicate_ids(items: list[Any]) -> list[str]:
     return sorted({item_id for item_id in ids if ids.count(item_id) > 1})
 
 
-def validate_pack(pack_dir: Path) -> dict[str, Any]:
+def validate_pack(
+    pack_dir: Path,
+    *,
+    live_authority: LiveAuthorityCallback | None = None,
+    portable_trust_store: Path | None = None,
+) -> dict[str, Any]:
     errors: list[str] = []
     warnings: list[str] = []
     background_quality: dict[str, Any] | None = None
+    try:
+        pack_dir = canonical_pack_root(pack_dir)
+    except PackAssetResolutionError as exc:
+        return {
+            "ok": False,
+            "path": str(pack_dir),
+            "errors": [str(exc)],
+            "warnings": warnings,
+        }
     for filename in PACK_FILES:
         if not (pack_dir / filename).exists():
             errors.append(f"missing file: {filename}")
@@ -707,6 +888,7 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
                 errors.append(f"recommendations.{article_type} references unknown component: {component_id}")
 
     assets = require_list(assets_doc.get("assets"), "assets.assets", errors)
+    resolved_asset_paths: dict[str, Path] = {}
     for duplicate in duplicate_ids(assets):
         errors.append(f"duplicate asset id: {duplicate}")
     for asset in assets:
@@ -721,12 +903,18 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
             not isinstance(value, str) or not value.strip() for value in uses
         ):
             errors.append(f"asset {asset_id}.uses must be a list of non-empty strings")
-        if asset.get("kind") in {"logo", "qr"} and asset.get("origin") not in SAFE_IDENTITY_ORIGINS:
-            errors.append(f"asset {asset_id} is {asset.get('kind')} but origin is not official/user-supplied")
+        errors.extend(
+            f"asset {asset_id} {message}" for message in validate_asset_role(asset, "registry")
+        )
         location = asset.get("location")
-        if isinstance(location, str) and location and not re.match(r"^(?:https?://|data:)", location):
-            if not (pack_dir / location).resolve().exists():
-                errors.append(f"missing local asset: {asset_id} -> {location}")
+        try:
+            resolved_asset_paths[str(asset_id)] = resolve_pack_asset(
+                pack_dir,
+                location,
+                label=f"asset {asset_id} location",
+            )
+        except PackAssetResolutionError as exc:
+            errors.append(str(exc))
         source_id = asset.get("source_id")
         if source_id and source_id not in source_ids:
             errors.append(f"asset {asset_id} references unknown source: {source_id}")
@@ -770,12 +958,8 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
                 errors.append(
                     f"article-micro asset {asset_id} lacks stored P0 cutout verification"
                 )
-            if (
-                isinstance(location, str)
-                and location
-                and not re.match(r"^(?:https?://|data:)", location)
-            ):
-                candidate = (pack_dir / location).resolve()
+            candidate = resolved_asset_paths.get(str(asset_id))
+            if candidate is not None:
                 if candidate.is_file():
                     for role in role_items:
                         current = validate_micro_asset(candidate, role)
@@ -816,10 +1000,29 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
                                 f"derived article-micro asset {asset_id} requires cutout lineage"
                             )
                         else:
-                            report_candidate = pack_dir / report_location
-                            lineage_report = validate_cutout_derivation_report(
-                                pack_dir, report_candidate, candidate, role_items[0]
+                            try:
+                                report_candidate = resolve_pack_asset(
+                                    pack_dir,
+                                    report_location,
+                                    label=f"derived article-micro asset {asset_id} cutout report",
+                                )
+                            except PackAssetResolutionError as exc:
+                                errors.append(str(exc))
+                                report_candidate = None
+                            lineage_report = (
+                                validate_cutout_derivation_report(
+                                    pack_dir,
+                                    report_candidate,
+                                    candidate,
+                                    role_items[0],
+                                    live_authority=live_authority,
+                                    portable_trust_store=portable_trust_store,
+                                )
+                                if report_candidate is not None
+                                else None
                             )
+                            if lineage_report is None:
+                                continue
                             errors.extend(
                                 f"derived article-micro asset {asset_id} lineage: {message}"
                                 for message in lineage_report["errors"]
@@ -870,15 +1073,19 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
                     f"background family asset {asset_id} must declare background_variant={expected_variant}"
                 )
         family_assets: list[tuple[str, Path]] = []
+        family_lineage: dict[str, dict[str, Any]] = {}
         for asset_id in [master_id, *companion_ids]:
             asset = asset_registry.get(asset_id)
-            location = asset.get("location") if isinstance(asset, dict) else None
-            if not isinstance(location, str) or re.match(r"^(?:https?://|data:)", location):
-                errors.append(f"background family requires a local PNG for tonal analysis: {asset_id}")
-                continue
-            candidate = (pack_dir / location).resolve()
-            if candidate.exists():
+            candidate = resolved_asset_paths.get(str(asset_id))
+            if candidate is not None:
                 family_assets.append((asset_id, candidate))
+                lineage = asset.get("background_family_lineage")
+                if not isinstance(lineage, dict):
+                    errors.append(
+                        f"background family asset {asset_id} requires background_family_lineage"
+                    )
+                    lineage = {}
+                family_lineage[asset_id] = lineage
         if len(family_assets) == 1 + len(companion_ids):
             background_quality = validate_background_family_assets(
                 family_assets,
@@ -887,6 +1094,7 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
                 body_text_color=background_family.get("body_text_color", ""),
                 minimum_contrast_ratio=background_family.get("minimum_contrast_ratio", 4.5),
                 maximum_copy_safe_stddev=background_family.get("maximum_copy_safe_stddev", 0.10),
+                family_lineage=family_lineage,
             )
             errors.extend(background_quality["errors"])
 
@@ -1022,6 +1230,8 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
         warnings.append(
             "organization lacks a valid visual reference policy; full article production is blocked"
         )
+    source_zero_report = validate_source_zero_inputs(org, sources_doc, pack_dir)
+    errors.extend(source_zero_report["errors"])
 
     ardot_status = ardot_doc.get("status")
     if ardot_status not in {"not-linked", "linked"}:
@@ -1052,6 +1262,7 @@ def validate_pack(pack_dir: Path) -> dict[str, Any]:
             "background_family_quality": background_quality,
         },
         "provenance_watermark": watermark_status,
+        "source_zero_inputs": source_zero_report,
         "counts": {
             "routes": len(routes),
             "article_types": len(article_types),
@@ -1156,6 +1367,7 @@ def scaffold(org_id: str, name: str) -> dict[str, Any]:
             "notes": "待完成首次组织调研",
             "visual_reference_policy": "source-zero",
             "visual_input_source_ids": [],
+            "visual_input_allowed_roots": ["inputs/current"],
             "excluded_visual_reference_kinds": [
                 "prior-article-layout",
                 "prior-ardot-file",
@@ -1268,6 +1480,7 @@ def command_init(args: argparse.Namespace) -> None:
     ]
     for directory in asset_directories:
         directory.mkdir(parents=True, exist_ok=True)
+    (destination / "inputs" / "current").mkdir(parents=True, exist_ok=True)
     print(
         json.dumps(
             {
@@ -1304,7 +1517,10 @@ def command_list(args: argparse.Namespace) -> None:
 
 
 def command_validate(args: argparse.Namespace) -> None:
-    report = validate_pack(args.pack)
+    report = validate_pack(
+        args.pack,
+        portable_trust_store=getattr(args, "portable_trust_store", None),
+    )
     print(json.dumps(report, ensure_ascii=False, indent=2))
     if not report["ok"]:
         raise SystemExit(1)
@@ -1376,6 +1592,17 @@ def command_search(args: argparse.Namespace) -> None:
     results: list[dict[str, Any]] = []
     for registry_name in ("components", "assets"):
         for item in pack[registry_name][registry_name]:
+            if registry_name == "assets":
+                try:
+                    resolve_pack_asset(
+                        pack["path"],
+                        item.get("location") if isinstance(item, dict) else None,
+                        label=f"asset {item.get('id', '<missing-id>')} location"
+                        if isinstance(item, dict)
+                        else "asset location",
+                    )
+                except PackAssetResolutionError:
+                    continue
             haystack = searchable_text(item)
             if all(term in haystack for term in terms):
                 results.append({"registry": registry_name, **item})
@@ -1388,6 +1615,14 @@ def matching_assets(
     matches: list[dict[str, Any]] = []
     for item in pack["assets"].get("assets", []):
         if not isinstance(item, dict) or item.get("kind") not in kinds:
+            continue
+        try:
+            resolve_pack_asset(
+                pack["path"],
+                item.get("location"),
+                label=f"asset {item.get('id', '<missing-id>')} location",
+            )
+        except PackAssetResolutionError:
             continue
         uses = item.get("uses", [])
         if article_type in uses or "all" in uses or item.get("kind") in {"logo", "qr"}:
@@ -1692,13 +1927,31 @@ def build_asset_plan(pack_dir: Path, article_type: str) -> dict[str, Any]:
 
 
 def command_asset_plan(args: argparse.Namespace) -> None:
-    plan = build_asset_plan(args.pack, args.article_type)
     if args.output:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        write_json(args.output, plan)
+        try:
+            output = new_file_path(
+                args.output,
+                label="asset plan output",
+                forbidden_root=RUNTIME_ROOT,
+            )
+        except SafePathError as exc:
+            raise SystemExit(str(exc)) from exc
+    else:
+        output = None
+    plan = build_asset_plan(args.pack, args.article_type)
+    if output is not None:
+        try:
+            write_text_create_once(
+                output,
+                json.dumps(plan, ensure_ascii=False, indent=2) + "\n",
+                label="asset plan output",
+                forbidden_root=RUNTIME_ROOT,
+            )
+        except SafePathError as exc:
+            raise SystemExit(str(exc)) from exc
         print(
             json.dumps(
-                {"created": str(args.output.resolve()), "slots": len(plan["slots"])},
+                {"created": str(output), "slots": len(plan["slots"])},
                 ensure_ascii=False,
                 indent=2,
             )
@@ -1711,12 +1964,14 @@ def command_register_asset(args: argparse.Namespace) -> None:
     if args.kind in {"logo", "qr"} and args.origin not in SAFE_IDENTITY_ORIGINS:
         raise SystemExit("logo and QR assets must be official or user-supplied")
     location = args.location
-    if not re.match(r"^(?:https?://|data:)", location):
-        candidate = (args.pack / location).resolve()
-        if not candidate.exists() or not candidate.is_file():
-            raise SystemExit(f"asset file does not exist: {candidate}")
-    else:
-        candidate = None
+    try:
+        candidate = resolve_pack_asset(
+            args.pack,
+            location,
+            label="registered asset location",
+        )
+    except PackAssetResolutionError as exc:
+        raise SystemExit(str(exc)) from exc
     roles = getattr(args, "role", None) or []
     cutout_report_arg = getattr(args, "cutout_report", None)
     cutout_lineage: dict[str, Any] | None = None
@@ -1738,7 +1993,11 @@ def command_register_asset(args: argparse.Namespace) -> None:
         if not report_candidate.is_absolute():
             report_candidate = args.pack / report_candidate
         derivation = validate_cutout_derivation_report(
-            args.pack.resolve(), report_candidate, candidate, roles[0]
+            args.pack.resolve(),
+            report_candidate,
+            candidate,
+            roles[0],
+            portable_trust_store=getattr(args, "portable_trust_store", None),
         )
         if not derivation["ok"]:
             raise SystemExit("micro-visual cutout lineage failed: " + "; ".join(derivation["errors"]))
@@ -1810,9 +2069,13 @@ def command_register_asset(args: argparse.Namespace) -> None:
     if background_family_id:
         item["background_family_id"] = background_family_id
         item["background_variant"] = background_variant
+    role_errors = validate_asset_role(item, "registry")
+    if role_errors:
+        raise SystemExit("asset duty policy failed: " + "; ".join(role_errors))
     watermark_requirement = asset_watermark_requirement(item, candidate)
     watermark_report_path = getattr(args, "watermark_report", None)
     watermark_source_path = getattr(args, "watermark_source", None)
+    watermark_original_source_path = getattr(args, "watermark_original_source", None)
     if watermark_requirement["in_scope"] and not watermark_requirement["eligible"]:
         reasons = ", ".join(watermark_requirement.get("reasons", []))
         raise SystemExit(
@@ -1847,9 +2110,17 @@ def command_register_asset(args: argparse.Namespace) -> None:
         if not watermark_source_path.is_absolute():
             watermark_source_path = pack_root / watermark_source_path
         watermark_source_path = watermark_source_path.resolve()
+        if watermark_original_source_path is not None:
+            watermark_original_source_path = Path(watermark_original_source_path)
+            if not watermark_original_source_path.is_absolute():
+                watermark_original_source_path = pack_root / watermark_original_source_path
+            watermark_original_source_path = watermark_original_source_path.resolve()
+        else:
+            watermark_original_source_path = watermark_source_path
         for label, path in (
             ("marked asset", candidate),
             ("watermark source", watermark_source_path),
+            ("watermark original source", watermark_original_source_path),
             ("watermark report", watermark_report_path),
         ):
             try:
@@ -1867,6 +2138,7 @@ def command_register_asset(args: argparse.Namespace) -> None:
                 pack_dir=pack_root,
                 source_path=watermark_source_path,
                 key_id=str(policy["key_id"]),
+                original_source_path=watermark_original_source_path,
             )
             from provenance_watermark import detect_watermark
 
@@ -1888,14 +2160,21 @@ def command_register_asset(args: argparse.Namespace) -> None:
                 "watermark evidence validation failed: "
                 + "; ".join(watermark_check["errors"])
             )
-    elif watermark_report_path is not None or watermark_source_path is not None:
+    elif (
+        watermark_report_path is not None
+        or watermark_source_path is not None
+        or watermark_original_source_path is not None
+    ):
         raise SystemExit(
-            "--watermark-source/--watermark-report are only valid for eligible local opaque "
+            "watermark source/original/report options are only valid for eligible local opaque "
             "generated backgrounds or generated covers"
         )
     items.append(item)
     write_json(assets_path, document)
-    report = validate_pack(args.pack)
+    report = validate_pack(
+        args.pack,
+        portable_trust_store=getattr(args, "portable_trust_store", None),
+    )
     if not report["ok"]:
         items.pop()
         write_json(assets_path, document)
@@ -1927,6 +2206,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     validate_parser = subparsers.add_parser("validate", help="Validate an organization pack")
     validate_parser.add_argument("pack", type=Path)
+    validate_parser.add_argument(
+        "--portable-trust-store",
+        type=Path,
+        help="Protected host trust store for portable-signed provider receipts",
+    )
     validate_parser.set_defaults(func=command_validate)
 
     show_parser = subparsers.add_parser("show", help="Show organization identity and routes")
@@ -1969,6 +2253,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Create-once org-wechat-micro-cutout-derivation-v1 report for a derived micro asset",
     )
     register_parser.add_argument(
+        "--portable-trust-store",
+        type=Path,
+        help="Protected host trust store for portable-signed provider receipts; current-session authority is adapter-only",
+    )
+    register_parser.add_argument(
         "--generated-for",
         action="append",
         help="Article slug this illustration was freshly generated for",
@@ -1980,7 +2269,12 @@ def build_parser() -> argparse.ArgumentParser:
     register_parser.add_argument(
         "--watermark-source",
         type=Path,
-        help="Pack-local unwatermarked master used to create the marked derivative",
+        help="Pack-local unwatermarked embed carrier used to create the marked derivative",
+    )
+    register_parser.add_argument(
+        "--watermark-original-source",
+        type=Path,
+        help="Pack-local original before deterministic carrier resize; omit for an identity carrier",
     )
     register_parser.add_argument(
         "--watermark-report",

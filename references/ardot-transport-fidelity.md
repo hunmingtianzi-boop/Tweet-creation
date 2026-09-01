@@ -34,7 +34,8 @@
 `article.json` 模板适配器只能显式用于作者调试：
 
 ```bash
-python3 -I -S scripts/secure_runner.py scripts/compile_wechat.py article.json \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/compile_wechat.py" article.json \
   --org organizations/<organization-id> \
   --authoring-preview \
   --output output/<organization-id>/<slug>/authoring
@@ -50,19 +51,25 @@ python3 -I -S scripts/secure_runner.py scripts/compile_wechat.py article.json \
 `current-session-draft` 命令：
 
 ```bash
-python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py handoff.json \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/validate_transport_fidelity.py" handoff.json \
   --intended-html output/<organization-id>/<slug>/delivery/wechat-candidate.html \
   --live-root-export qa/live-current-root.json \
+  --upload-map delivery/upload-map.json --require-upload-map \
   --require-live-root --session-draft
-python3 -I -S scripts/secure_runner.py scripts/compile_wechat.py \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/compile_wechat.py" \
   --transport-fidelity handoff.json \
   --live-root-export qa/live-current-root.json \
+  --upload-map delivery/upload-map.json \
   --session-draft \
   --output output/<organization-id>/<slug>/delivery \
   --check
-python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py handoff.json \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/validate_transport_fidelity.py" handoff.json \
   --html output/<organization-id>/<slug>/delivery/wechat-candidate.html \
   --live-root-export qa/live-current-root.json \
+  --upload-map delivery/upload-map.json --require-upload-map \
   --compile-report output/<organization-id>/<slug>/delivery/candidate-report.json \
   --require-compile-report --session-draft
 ```
@@ -70,21 +77,27 @@ python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py ha
 `portable-signed-audit` 命令：
 
 ```bash
-python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py handoff.json \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/validate_transport_fidelity.py" handoff.json \
   --intended-html output/<organization-id>/<slug>/delivery/wechat.html \
   --live-root-export qa/live-current-root.json \
   --live-root-receipt qa/live-current-root-receipt.json \
+  --upload-map delivery/upload-map.json --require-upload-map \
   --require-live-root
-python3 -I -S scripts/secure_runner.py scripts/compile_wechat.py \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/compile_wechat.py" \
   --transport-fidelity handoff.json \
   --live-root-export qa/live-current-root.json \
   --live-root-receipt qa/live-current-root-receipt.json \
+  --upload-map delivery/upload-map.json \
   --output output/<organization-id>/<slug>/delivery \
   --check
-python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py handoff.json \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/validate_transport_fidelity.py" handoff.json \
   --html output/<organization-id>/<slug>/delivery/wechat.html \
   --live-root-export qa/live-current-root.json \
   --live-root-receipt qa/live-current-root-receipt.json \
+  --upload-map delivery/upload-map.json --require-upload-map \
   --compile-report output/<organization-id>/<slug>/delivery/compile-report.json \
   --require-compile-report
 ```
@@ -110,7 +123,8 @@ python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py ha
 `current-session-draft` 回读命令：
 
 ```bash
-python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py handoff.json \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/validate_transport_fidelity.py" handoff.json \
   --html delivery/wechat-candidate.html \
   --live-root-export qa/live-current-root.json \
   --compile-report delivery/candidate-report.json --require-compile-report \
@@ -121,7 +135,8 @@ python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py ha
 `portable-signed-audit` 回读命令：
 
 ```bash
-python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py handoff.json \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/validate_transport_fidelity.py" handoff.json \
   --html delivery/wechat.html \
   --live-root-export qa/live-current-root.json \
   --live-root-receipt qa/live-current-root-receipt.json \

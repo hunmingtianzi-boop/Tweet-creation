@@ -9,9 +9,16 @@ import re
 from pathlib import Path
 from typing import Any
 
+if __name__ == "__main__":
+    from secure_runtime import require_secure_runtime
+
+    require_secure_runtime("scripts/build_visual_kit.py")
+
 from asset_quality import validate_micro_asset
 from build_storyboard import build_storyboard_plan
-from orgs import load_pack, validate_pack
+from orgs import load_pack, validate_cutout_derivation_report, validate_pack
+from pack_assets import PackAssetResolutionError, resolve_pack_asset
+from provider_acquisition_authority import LiveAuthorityCallback
 from workflow_quality import (
     ALLOWED_COMPOSITION_ROLES,
     article_texts,
@@ -19,6 +26,26 @@ from workflow_quality import (
     concrete_subject_is_specific,
     source_text_is_grounded,
 )
+
+try:
+    from safe_paths import (
+        SafePathError,
+        existing_directory,
+        existing_regular_file,
+        new_file_path,
+        write_text_create_once,
+    )
+except ImportError:  # pragma: no cover - package import fallback
+    from .safe_paths import (  # type: ignore
+        SafePathError,
+        existing_directory,
+        existing_regular_file,
+        new_file_path,
+        write_text_create_once,
+    )
+
+
+RUNTIME_ROOT = Path(__file__).resolve().parent.parent
 
 
 KIT_ROLES = (
@@ -118,8 +145,18 @@ def visual_kit_assets(article: dict[str, Any]) -> list[dict[str, Any]]:
     return [item for item in assets if isinstance(item, dict)] if isinstance(assets, list) else []
 
 
-def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
-    report = validate_pack(org_dir)
+def build_visual_kit_plan(
+    article_path: Path,
+    org_dir: Path,
+    *,
+    live_authority: LiveAuthorityCallback | None = None,
+    portable_trust_store: Path | None = None,
+) -> dict[str, Any]:
+    report = validate_pack(
+        org_dir,
+        live_authority=live_authority,
+        portable_trust_store=portable_trust_store,
+    )
     if not report["ok"]:
         raise ValueError("invalid organization pack: " + "; ".join(report["errors"]))
     article = read_json(article_path)
@@ -192,8 +229,11 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
     composition_roles: set[str] = set()
     registered_generated_ids: set[str] = set()
     native_component_node_ids: set[str] = set()
+    validated_lineage_entries: list[dict[str, str]] = []
     for slot_index, definition in enumerate(KIT_ROLES):
         role = definition["role"]
+        validated_lineage: dict[str, Any] | None = None
+        acquisition_assurance: dict[str, Any] | None = None
         fallback_key_color = key_backgrounds[slot_index % len(key_backgrounds)]
         approved = by_role.get(role)
         asset_id = approved.get("id") if approved else None
@@ -221,11 +261,11 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
         expected_component_name = f"WeChat/Ornament/{''.join(part.title() for part in role.split('-'))}/{pack['ardot']['variable_mode']}"
         ready = bool(
             registered_asset
-            # New registrations are always `derived` and carry a verified
-            # raw-source -> cutout lineage.  Keep legacy generated entries
-            # readable so existing organization packs can be migrated, while
-            # `orgs.py register-asset` prevents creating new legacy micros.
-            and registered_asset.get("origin") in {"derived", "generated-illustrative"}
+            # Legacy generated micros remain readable as migration inputs, but
+            # they can never unlock a current article layout without verified
+            # provider acquisition and raw -> derived cutout lineage.
+            and registered_asset.get("origin") == "derived"
+            and isinstance(registered_asset.get("cutout"), dict)
             and article_id in (registered_asset.get("generated_for_articles") or [])
         )
         if registered_asset:
@@ -236,18 +276,62 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
                 semantic_errors.append(f"visual role {role} asset {asset_id} must declare visual_role=article-micro")
                 ready = False
             location = registered_asset.get("location")
-            if not isinstance(location, str) or re.match(r"^(?:https?://|data:)", location):
-                semantic_errors.append(f"visual role {role} requires a local PNG for alpha verification")
+            try:
+                asset_path = resolve_pack_asset(
+                    org_dir,
+                    location,
+                    label=f"visual role {role} registered asset location",
+                )
+            except PackAssetResolutionError as exc:
+                semantic_errors.append(str(exc))
                 ready = False
                 alpha_report = {"ok": False, "errors": ["local PNG required"]}
             else:
-                alpha_report = validate_micro_asset((org_dir / location).resolve(), role)
+                alpha_report = validate_micro_asset(asset_path, role)
                 if not alpha_report["ok"]:
                     semantic_errors.extend(
                         f"visual role {role} alpha/shape check: {error}"
                         for error in alpha_report["errors"]
                     )
                     ready = False
+                lineage = registered_asset.get("cutout")
+                report_location = (
+                    lineage.get("report_location") if isinstance(lineage, dict) else None
+                )
+                if not isinstance(report_location, str) or not report_location:
+                    semantic_errors.append(
+                        f"visual role {role} asset {asset_id} lacks revalidatable acquisition lineage"
+                    )
+                    ready = False
+                else:
+                    try:
+                        report_path = resolve_pack_asset(
+                            org_dir,
+                            report_location,
+                            label=f"visual role {role} cutout report location",
+                        )
+                    except PackAssetResolutionError as exc:
+                        semantic_errors.append(str(exc))
+                        lineage_validation = None
+                    else:
+                        lineage_validation = validate_cutout_derivation_report(
+                            org_dir,
+                            report_path,
+                            asset_path,
+                            role,
+                            live_authority=live_authority,
+                            portable_trust_store=portable_trust_store,
+                        )
+                    if lineage_validation is None:
+                        ready = False
+                    elif not lineage_validation["ok"]:
+                        semantic_errors.extend(
+                            f"visual role {role} acquisition/derivative revalidation: {error}"
+                            for error in lineage_validation["errors"]
+                        )
+                        ready = False
+                    elif isinstance(lineage_validation.get("lineage"), dict):
+                        validated_lineage = lineage_validation["lineage"]
                 stored_quality = registered_asset.get("quality")
                 actual_inspection = alpha_report.get("inspection", {})
                 if (
@@ -297,7 +381,91 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
         else:
             alpha_report = {"ok": False, "errors": ["asset is not registered"]}
         if ready and asset_id:
-            registered_generated_ids.add(asset_id)
+            authority_scope = (
+                validated_lineage.get("authority_scope_at_creation")
+                if isinstance(validated_lineage, dict)
+                else None
+            )
+            authority_assurance = (
+                validated_lineage.get("acquisition_assurance")
+                if isinstance(validated_lineage, dict)
+                else None
+            )
+            host_attested = (
+                validated_lineage.get("host_attested")
+                if isinstance(validated_lineage, dict)
+                else None
+            )
+            portable = (
+                validated_lineage.get("portable")
+                if isinstance(validated_lineage, dict)
+                else None
+            )
+            if authority_scope == "current-session-operator-harness-trusted":
+                if (
+                    authority_assurance
+                    != "operator-harness-trusted-current-session"
+                    or host_attested is not False
+                    or portable is not False
+                ):
+                    semantic_errors.append(
+                        f"visual role {role} current-session acquisition overclaims assurance"
+                    )
+                    ready = False
+            elif authority_scope == "portable-signed":
+                if (
+                    authority_assurance != "portable-ed25519-double-signed"
+                    or host_attested is not True
+                    or portable is not True
+                ):
+                    semantic_errors.append(
+                        f"visual role {role} portable acquisition assurance is incomplete"
+                    )
+                    ready = False
+            else:
+                semantic_errors.append(
+                    f"visual role {role} lacks an accepted acquisition assurance mode"
+                )
+                ready = False
+            acquisition_assurance = {
+                "mode": authority_scope,
+                "assurance": authority_assurance,
+                "host_attested": host_attested,
+                "portable": portable,
+            }
+            required_lineage = {
+                "source_sha256": (
+                    validated_lineage.get("source_sha256")
+                    if isinstance(validated_lineage, dict)
+                    else None
+                ),
+                "authority_binding_sha256": (
+                    validated_lineage.get("authority_binding_sha256")
+                    if isinstance(validated_lineage, dict)
+                    else None
+                ),
+                "accepted_provider_request_id": (
+                    validated_lineage.get("accepted_provider_request_id")
+                    if isinstance(validated_lineage, dict)
+                    else None
+                ),
+            }
+            missing_lineage = [
+                name
+                for name, value in required_lineage.items()
+                if not isinstance(value, str) or not value
+            ]
+            if missing_lineage:
+                semantic_errors.append(
+                    f"visual role {role} lacks unique-source lineage fields: "
+                    + ", ".join(missing_lineage)
+                )
+                ready = False
+            else:
+                validated_lineage_entries.append(
+                    {"role": role, **required_lineage}  # type: ignore[arg-type]
+                )
+                registered_generated_ids.add(asset_id)
         if not ready:
             missing_roles.append(role)
         prompt_prefix = (
@@ -370,10 +538,24 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
                     "cutout_report_required": True,
                 },
                 "alpha_validation": alpha_report,
+                "acquisition_assurance": acquisition_assurance,
                 "ardot_component_name": expected_component_name,
             }
         )
     minimum_unique_assets = 4
+    lineage_uniqueness = {
+        field: len({entry[field] for entry in validated_lineage_entries})
+        for field in (
+            "source_sha256",
+            "authority_binding_sha256",
+            "accepted_provider_request_id",
+        )
+    }
+    for field, unique_count in lineage_uniqueness.items():
+        if unique_count < len(KIT_ROLES):
+            semantic_errors.append(
+                f"visual kit requires {len(KIT_ROLES)} distinct {field} values; found {unique_count}"
+            )
     ready_for_layout = (
         calibration["ready"]
         and storyboard["ready_for_visual_kit"]
@@ -419,6 +601,11 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
         "storyboard": storyboard,
         "minimum_micro_component_roles": len(KIT_ROLES),
         "minimum_unique_generated_micro_assets": minimum_unique_assets,
+        "lineage_uniqueness": {
+            "required_distinct_per_field": len(KIT_ROLES),
+            "validated_role_count": len(validated_lineage_entries),
+            **lineage_uniqueness,
+        },
         "generation_route": {
             "default": "chatgpt-web-image-route-v1",
             "provider_skill": "chatgpt-web-image-route",
@@ -430,6 +617,12 @@ def build_visual_kit_plan(article_path: Path, org_dir: Path) -> dict[str, Any]:
             "acquisition_preference": "native-alpha-first-controlled-key-fallback-only",
             "processor": "scripts/prepare_micro_cutout.py",
             "output_contract": "subject-cutout-rgba8-v1",
+            "current_session_assurance": (
+                "operator-harness-trusted-current-session; host_attested=false; "
+                "portable=false"
+            ),
+            "optional_policy_hook_can_upgrade_assurance": False,
+            "portable_assurance": "portable-ed25519-double-signed",
         },
         "visual_kit_status": visual_kit_status,
         "ready_for_layout": ready_for_layout,
@@ -457,17 +650,48 @@ def main() -> None:
     parser.add_argument("article", type=Path)
     parser.add_argument("--org", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--portable-trust-store",
+        type=Path,
+        help=(
+            "Protected host trust store for portable-signed provider receipts; "
+            "current-session readiness uses the migration/request/ingestion/pixel chain"
+        ),
+    )
     args = parser.parse_args()
     try:
-        plan = build_visual_kit_plan(args.article.resolve(), args.org.resolve())
-    except ValueError as exc:
+        article = existing_regular_file(args.article, label="article")
+        organization = existing_directory(args.org, label="organization pack")
+        trust_store = (
+            existing_regular_file(
+                args.portable_trust_store,
+                label="portable trust store",
+            )
+            if args.portable_trust_store is not None
+            else None
+        )
+        output = new_file_path(
+            args.output,
+            label="visual kit output",
+            forbidden_root=RUNTIME_ROOT,
+        )
+        plan = build_visual_kit_plan(
+            article,
+            organization,
+            portable_trust_store=trust_store,
+        )
+        write_text_create_once(
+            output,
+            json.dumps(plan, ensure_ascii=False, indent=2) + "\n",
+            label="visual kit output",
+            forbidden_root=RUNTIME_ROOT,
+        )
+    except (SafePathError, ValueError) as exc:
         raise SystemExit(str(exc)) from exc
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(
         json.dumps(
             {
-                "created": str(args.output.resolve()),
+                "created": str(output),
                 "ready_for_layout": plan["ready_for_layout"],
                 "missing_roles": plan["missing_roles"],
             },

@@ -38,7 +38,8 @@ WeChat adapter     → 图片上传、内联样式、草稿创建
 4. 再生成文章专属微型视觉套件计划：
 
    ```bash
-   python3 scripts/build_visual_kit.py article.json \
+   python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+     "$ORG_WECHAT_RUNTIME_ROOT/scripts/build_visual_kit.py" article.json \
      --org organizations/<organization-id> \
      --output output/<organization-id>/<slug>/visual-kit-plan.json
    ```
@@ -48,7 +49,8 @@ WeChat adapter     → 图片上传、内联样式、草稿创建
 7. 确认 `ready_for_layout: true` 后，生成装配清单：
 
    ```bash
-   python3 scripts/build_ardot_manifest.py article.json \
+   python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+     "$ORG_WECHAT_RUNTIME_ROOT/scripts/build_ardot_manifest.py" article.json \
      --org organizations/<organization-id> \
      --output output/<organization-id>/<slug>/ardot-manifest.json
    ```

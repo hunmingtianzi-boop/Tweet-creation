@@ -4,8 +4,10 @@
   "harness": "test-host",
   "truth_boundary": "test-only routing fixture; never describes a production host",
   "capabilities": {
+    "host.registry.export": {"route": "host", "availability": "available", "requires": ["host.registry.export"]},
     "image.generate.opaque": {"route": "tool", "requires": ["image_gen__imagegen"]},
     "image.generate.rgba": {"route": "tool", "requires": ["test__rgba_generate"], "output_contract": "subject-cutout-rgba8-v1", "processor": "scripts/prepare_micro_cutout.py", "migration_probe_contract": "neutral-rgba-route-probe-v1", "generation_route_id": "test-rgba-provider-v1"},
+    "image.provider.acquire.authority": {"route": "trusted-harness-policy-hook", "availability": "available", "requires": ["host.image.provider.acquire.authority"], "can_veto": true, "can_upgrade_assurance": false},
     "image.inspect": {"route": "tool", "requires": ["view_image"]},
     "chatgpt.session": {"route": "unavailable", "availability": "unavailable", "requires": [], "reason": "test host uses an equivalent native RGBA provider and does not require ChatGPT"},
     "ardot.create": {"route": "mcp", "requires": ["mcp__ardot_remote__create_design", "mcp__ardot_remote__create_new_page"]},
@@ -14,8 +16,13 @@
     "ardot.export": {"route": "mcp", "requires": ["mcp__ardot_remote__capture_screenshot", "mcp__ardot_remote__export_nodes"]},
     "browser.control": {"route": "skill+tool", "requires": ["browser:control-in-app-browser", "mcp__node_repl__js"]},
     "computer.use": {"route": "skill+tool", "requires": ["computer-use:computer-use", "mcp__node_repl__js"]},
-    "wechat.draft": {"route": "browser", "requires": ["browser:control-in-app-browser", "mcp__node_repl__js"]},
+    "browser.download.ingest": {"route": "host", "availability": "available", "requires": ["host.browser.download.ingest"]},
+    "wechat.draft": {"route": "verified-local-api-client", "requires": ["scripts/wechat_publisher.py"]},
+    "wechat.current-session-readback": {"route": "browser-current-session-capture+local-create-once-ingestion", "availability": "available", "requires": ["browser:control-in-app-browser", "mcp__node_repl__js", "scripts/ingest_wechat_readback_capture.py"], "processor": "scripts/ingest_wechat_readback_capture.py", "assurance": "current-session-only-nonportable"},
+    "wechat.current-session-authority": {"route": "host", "availability": "available", "requires": ["host.wechat.current-session-authority"]},
     "host.receipt.attest": {"route": "host", "availability": "available", "requires": ["host.receipt.attest"], "trust_boundary": "host-owned-private-key-and-protected-trust-store"},
+    "host.migration.finalize": {"route": "host", "availability": "available", "requires": ["host.migration.finalize"], "trust_boundary": "host-owned-private-key-protected-trust-store-and-replay-ledger"},
+    "filesystem.access.lease": {"route": "host", "availability": "available", "requires": ["host.filesystem.lease"]},
     "secret.resolve": {"route": "environment", "requires": ["PROVENANCE_WATERMARK_KEY", "PROVENANCE_WATERMARK_PRIVATE_ROOT"]}
   }
 }

@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "kind": "org-wechat-host-registry-census-contract",
+  "initialization_paths": {
+    "current_session": {
+      "input_kind": "org-wechat-current-session-registry-intent-v1",
+      "command": "python3 -I -S scripts/secure_runner.py scripts/runtime_preflight.py init-current-session-census --phase PHASE --session-id CURRENT_SESSION --visible-tool-id MODEL_VISIBLE_ID --skills-root INSTALLED_SKILLS_ROOT --release-manifest INSTALLED_MANIFEST.json --output output/runtime/registry-census-UNIQUE.json",
+      "derived_inputs": [
+        "verified installed release",
+        "reviewed adapter allowlist",
+        "actual model-visible registry identifier set"
+      ],
+      "operator_may_supply": ["phase", "session_id", "model_visible_identifier_set"],
+      "operator_must_not_supply": ["tool kind", "tool status", "provider", "Skill status", "installed entrypoint"],
+      "assurance": {
+        "mode": "current-session-model-visible-intent",
+        "host_attested_registry": false,
+        "portable": false,
+        "requires_later_live_probes": true
+      }
+    },
+    "host_callable": {
+      "input_kind": "org-wechat-host-registry-export-v1",
+      "required_adapter_capability": "host.registry.export",
+      "required_export_trace_fields": [
+        "capability",
+        "tool_id",
+        "provider",
+        "session_id",
+        "request_id"
+      ],
+      "required_fields": ["harness", "session_id", "registry_export", "tools", "skills"],
+      "tool_fields": ["id", "kind", "status", "source", "provider", "session_id"],
+      "skill_fields": ["id", "status", "installed_entrypoint"],
+      "operator_authored_export_allowed": false,
+      "command": "python3 -I -S scripts/secure_runner.py scripts/runtime_preflight.py build-census HOST_CALLABLE_EXPORT.json --skills-root INSTALLED_SKILLS_ROOT --release-manifest INSTALLED_MANIFEST.json --output output/runtime/registry-census-UNIQUE.json"
+    }
+  },
+  "forbidden_fields": ["token", "cookie", "app_secret", "access_token", "watermark_key"],
+  "output_required_fields": [
+    "captured_at",
+    "harness",
+    "workspace_identity",
+    "installed_release",
+    "registry_assurance",
+    "publication_routes",
+    "provider_acquisition_routes",
+    "tools",
+    "skills",
+    "registry_digest"
+  ],
+  "publication_routes": {
+    "draft_api_never_implies_publication_authority": true,
+    "current_session_readback_capability": "wechat.current-session-readback",
+    "current_session_readback_assurance": "current-session-only-nonportable",
+    "current_session_readback_implies_publication_authority": false,
+    "current_session_api_publish_capability": "wechat.current-session-authority",
+    "current_session_ui_publish_requires": "declared live UI route plus fresh confirmation and authoritative readback",
+    "portable_signed_publish_capability": "host.receipt.attest"
+  },
+  "provider_acquisition_routes": {
+    "current_session_authority_mode": "current-session-operator-harness-trusted",
+    "current_session_required_gates": "completed migration plus canonical request plus create-once ingestion plus exact raw bytes plus RGBA pixel validation",
+    "current_session_host_attested": false,
+    "current_session_portable": false,
+    "optional_policy_hook_capability": "image.provider.acquire.authority",
+    "optional_policy_hook_can_upgrade_assurance": false,
+    "portable_receipt_kind": "org-wechat-provider-image-host-receipt-v1",
+    "portable_host_capability": "host.receipt.attest",
+    "without_complete_chain_mode": "structural-only",
+    "file_json_or_python_callback_can_claim_host_attestation": false
+  },
+  "installed_release_verification": {
+    "api": "scripts/release_skills.py:verify_installed_packages",
+    "manifest_preference": "<skills-root>/.org-wechat-release-manifests/<release_sha256>.json",
+    "forbidden_source_zero_parts": [
+      ".git",
+      ".pytest_cache",
+      "__pycache__",
+      "examples",
+      "experiments",
+      "organizations",
+      "output"
+    ]
+  },
+  "trusted_local_processors": [
+    {
+      "id": "scripts/ingest_browser_download.py",
+      "kind": "browser.download.ingest",
+      "credential_policy": "none"
+    },
+    {
+      "id": "scripts/ingest_wechat_readback_capture.py",
+      "kind": "wechat.current-session-readback",
+      "credential_policy": "none",
+      "host_attested": false,
+      "portable": false,
+      "implies_publication_authority": false
+    },
+    {
+      "id": "scripts/wechat_publisher.py",
+      "kind": "wechat.draft",
+      "credential_policy": "execution-time environment only; never registry/profile/report",
+      "implies_publication_authority": false
+    }
+  ],
+  "commands": {
+    "build_profile": "python3 -I -S scripts/secure_runner.py scripts/runtime_preflight.py init-profile CENSUS.json TARGET.json --phase migration --output output/runtime/migration-profile-UNIQUE.json"
+  },
+  "truth_boundary": "The census proves reviewed adapter mapping, workspace identity and installed Skill package bytes. A current-session intent is not a host registry attestation. Neither path proves login, Browser events, generation, filesystem isolation, publication authority or phase readiness; later current-session probes or host receipts remain mandatory.",
+  "workspace_identity_fields": ["workspace_root", "workspace_root_sha256", "git_common_dir", "git_head"]
+}

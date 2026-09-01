@@ -20,9 +20,16 @@ import os
 import re
 import tempfile
 from collections import deque
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from statistics import median_low
 from typing import Any
+
+from provider_acquisition_authority import (
+    ACQUISITION_KIND,
+    LiveAuthorityCallback,
+    validate_provider_acquisition_bundle,
+)
 
 
 ROLE_TARGET_RATIOS = {
@@ -37,6 +44,13 @@ ROUTE = re.compile(r"^[a-z0-9][a-z0-9._:/-]{1,127}$")
 SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 SLOT_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{1,127}$")
 HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
+MAX_ACQUISITION_AGE = timedelta(days=7)
+MAX_ACQUISITION_FUTURE_SKEW = timedelta(minutes=5)
+MAX_ACQUISITION_COMPLETION_LAG = timedelta(hours=1)
+NATIVE_FAILURE_CODES = {
+    "cutout.source.native_alpha_required",
+    "cutout.source.invalid_native_rgba",
+}
 
 
 class CutoutPreparationError(ValueError):
@@ -75,13 +89,27 @@ def _pixel_sha256(image: Any) -> str:
     return _sha256_bytes(header + image.tobytes())
 
 
+def _has_symlink_component(path: Path) -> bool:
+    """Reject lexical user symlinks before any resolve or file creation."""
+
+    absolute = path.expanduser().absolute()
+    cursor = Path(absolute.anchor)
+    for part in absolute.parts[1:]:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            return True
+    return False
+
+
 def _safe_source(path: Path) -> Path:
-    if path.is_symlink():
+    absolute = path.expanduser().absolute()
+    if _has_symlink_component(absolute):
         raise CutoutPreparationError(
-            "cutout.path.symlink_forbidden", f"symlink source is forbidden: {path}"
+            "cutout.path.symlink_forbidden",
+            f"source path contains a symbolic link: {absolute}",
         )
     try:
-        resolved = path.resolve(strict=True)
+        resolved = absolute.resolve(strict=True)
     except OSError as exc:
         raise CutoutPreparationError("cutout.source.unreadable", f"source is unavailable: {exc}") from exc
     if not resolved.is_file() or resolved.is_symlink():
@@ -90,12 +118,21 @@ def _safe_source(path: Path) -> Path:
 
 
 def _safe_new_path(path: Path) -> Path:
-    absolute = path.absolute()
+    absolute = path.expanduser().absolute()
+    if _has_symlink_component(absolute.parent):
+        raise CutoutPreparationError(
+            "cutout.path.symlink_forbidden",
+            f"output path parent contains a symbolic link: {absolute.parent}",
+        )
     if os.path.lexists(absolute):
         raise CutoutPreparationError(
             "cutout.output.create_once", f"refusing to overwrite an existing path: {absolute}"
         )
-    absolute.parent.mkdir(parents=True, exist_ok=True)
+    if not absolute.parent.is_dir():
+        raise CutoutPreparationError(
+            "cutout.path.parent_unavailable",
+            "output/report parent must already exist as a real directory",
+        )
     try:
         resolved_parent = absolute.parent.resolve(strict=True)
     except OSError as exc:
@@ -112,6 +149,171 @@ def _safe_new_path(path: Path) -> Path:
 
 def _relative_to_report(path: Path, report_path: Path) -> str:
     return Path(os.path.relpath(path, report_path.parent)).as_posix()
+
+
+def _parse_iso_datetime(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _is_iso_datetime(value: Any) -> bool:
+    return _parse_iso_datetime(value) is not None
+
+
+def validate_acquisition_report(
+    report_path: Path,
+    source_path: Path,
+    *,
+    article_id: str,
+    asset_slot_id: str,
+    prompt_sha256: str,
+    generation_route: str,
+    expected_mode: str,
+    key_color: str | None,
+    enforce_current_freshness: bool = True,
+    live_authority: LiveAuthorityCallback | None = None,
+    portable_trust_store: Path | None = None,
+    require_authority: bool = True,
+) -> dict[str, Any]:
+    """Validate provider/download provenance and native-first attempt order."""
+
+    errors: list[str] = []
+    if report_path.is_symlink():
+        return {"ok": False, "errors": ["acquisition report cannot be a symlink"]}
+    try:
+        candidate = report_path.resolve(strict=True)
+        if not candidate.is_file():
+            raise OSError("not a regular file")
+        report = json.loads(candidate.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {"ok": False, "errors": [f"acquisition report is unavailable: {exc}"]}
+    if not isinstance(report, dict):
+        return {"ok": False, "errors": ["acquisition report must be a JSON object"]}
+    if report.get("schema_version") != 2 or report.get("kind") != ACQUISITION_KIND:
+        errors.append("acquisition report schema/kind is invalid")
+    expected = {
+        "article_id": article_id,
+        "asset_slot_id": asset_slot_id,
+        "prompt_sha256": prompt_sha256,
+        "generation_route": generation_route,
+    }
+    for field, value in expected.items():
+        if report.get(field) != value:
+            errors.append(f"acquisition report {field} does not match the cutout request")
+    trace = report.get("host_trace") if isinstance(report.get("host_trace"), dict) else {}
+    for field in ("provider", "session_id", "download_id"):
+        if not isinstance(trace.get(field), str) or not trace.get(field):
+            errors.append(f"acquisition host_trace.{field} is required")
+    completed_at = _parse_iso_datetime(trace.get("completed_at"))
+    if completed_at is None:
+        errors.append("acquisition host_trace.completed_at must be a timezone-aware ISO timestamp")
+    elif enforce_current_freshness:
+        now = datetime.now(timezone.utc)
+        if completed_at > now + MAX_ACQUISITION_FUTURE_SKEW:
+            errors.append("acquisition host_trace.completed_at is implausibly in the future")
+        if completed_at < now - MAX_ACQUISITION_AGE:
+            errors.append("acquisition report is stale and must be reacquired in the current workflow run")
+
+    attempts_raw = report.get("attempts")
+    attempts = (
+        [item for item in attempts_raw if isinstance(item, dict)]
+        if isinstance(attempts_raw, list)
+        else []
+    )
+    expected_count = 1 if expected_mode == "native-alpha" else 2
+    if len(attempts) != expected_count or len(attempts) != len(attempts_raw or []):
+        errors.append(
+            f"acquisition attempt ledger must contain exactly {expected_count} ordered attempts"
+        )
+    request_ids: set[str] = set()
+    accepted: dict[str, Any] | None = None
+    downloaded_times: list[datetime | None] = []
+    for index, attempt in enumerate(attempts, 1):
+        if attempt.get("attempt_index") != index:
+            errors.append("acquisition attempts must use contiguous one-based attempt_index values")
+        request_id = attempt.get("provider_request_id")
+        if not isinstance(request_id, str) or not request_id:
+            errors.append(f"acquisition attempt {index} requires provider_request_id")
+        elif request_id in request_ids:
+            errors.append("acquisition attempts must bind distinct provider requests")
+        else:
+            request_ids.add(request_id)
+        downloaded_at = _parse_iso_datetime(attempt.get("downloaded_at"))
+        downloaded_times.append(downloaded_at)
+        if downloaded_at is None:
+            errors.append(
+                f"acquisition attempt {index} downloaded_at must be a timezone-aware ISO timestamp"
+            )
+        if not SHA256.fullmatch(str(attempt.get("source_file_sha256", ""))):
+            errors.append(f"acquisition attempt {index} requires source_file_sha256")
+        if attempt.get("outcome") == "accepted":
+            accepted = attempt
+
+    aware_downloads = [value for value in downloaded_times if value is not None]
+    if len(aware_downloads) == len(downloaded_times) and aware_downloads:
+        if any(current <= previous for previous, current in zip(aware_downloads, aware_downloads[1:])):
+            errors.append("acquisition attempt downloaded_at values must be strictly increasing")
+        if completed_at is not None:
+            if aware_downloads[-1] > completed_at:
+                errors.append("acquisition attempts must complete no later than host_trace.completed_at")
+            elif completed_at - aware_downloads[-1] > MAX_ACQUISITION_COMPLETION_LAG:
+                errors.append("acquisition completion timestamp is too far after the accepted download")
+
+    current_source_sha = _sha256_file(source_path)
+    if expected_mode == "native-alpha":
+        if attempts:
+            first = attempts[0]
+            if first.get("mode") != "native-alpha" or first.get("outcome") != "accepted":
+                errors.append("native-alpha route requires one accepted native attempt")
+    else:
+        if len(attempts) >= 1:
+            first = attempts[0]
+            if first.get("mode") != "native-alpha" or first.get("outcome") != "rejected":
+                errors.append("controlled-key fallback requires a rejected native-alpha attempt first")
+            if first.get("failure_code") not in NATIVE_FAILURE_CODES:
+                errors.append("controlled-key fallback requires a real native Alpha/pixel gate failure code")
+        if len(attempts) >= 2:
+            second = attempts[1]
+            if second.get("mode") != "controlled-key" or second.get("outcome") != "accepted":
+                errors.append("the second and final attempt must be an accepted controlled-key source")
+            if second.get("key_color") != key_color:
+                errors.append("controlled-key acquisition key_color does not match processor configuration")
+            if first.get("source_file_sha256") == second.get("source_file_sha256"):
+                errors.append(
+                    "controlled-key fallback must bind a newly generated source, not relabel the failed native attempt"
+                )
+    if accepted is None or accepted.get("source_file_sha256") != current_source_sha:
+        errors.append("accepted acquisition attempt does not bind the current original PNG bytes")
+    authority = validate_provider_acquisition_bundle(
+        candidate,
+        source_path,
+        article_id=article_id,
+        asset_slot_id=asset_slot_id,
+        prompt_sha256=prompt_sha256,
+        generation_route=generation_route,
+        attempts=attempts,
+        live_authority=live_authority,
+        portable_trust_store=portable_trust_store,
+        require_authority=require_authority,
+    )
+    errors.extend(authority["errors"])
+    return {
+        "ok": not errors,
+        "errors": errors,
+        "report": report,
+        "report_path": candidate,
+        "report_sha256": _sha256_file(candidate),
+        "attempt_count": len(attempts),
+        "accepted_attempt_index": accepted.get("attempt_index") if accepted else None,
+        "authority": authority,
+    }
 
 
 def _distance_sq(first: tuple[int, int, int], second: tuple[int, int, int]) -> int:
@@ -536,7 +738,40 @@ def _validate_final_png(png: bytes, role: str, parent: Path) -> dict[str, Any]:
     return validation
 
 
-def prepare_micro_cutout(
+def _validate_native_source_safety(source: Path) -> dict[str, Any]:
+    """Reject unsafe Alpha before crop without applying final role geometry yet."""
+
+    from asset_quality import inspect_png
+
+    inspection = inspect_png(source)
+    errors: list[str] = []
+    if inspection.get("bit_depth") != 8 or inspection.get("color_type") != 6:
+        errors.append("native source must be an RGBA8 PNG")
+    transparent_ratio = inspection.get("transparent_pixel_ratio")
+    if not isinstance(transparent_ratio, float) or not 0.01 <= transparent_ratio <= 0.98:
+        errors.append("native source needs substantive transparent and visible pixels")
+    if inspection.get("alpha_touches_canvas_edge") is True:
+        errors.append("native Alpha subject touches the canvas edge")
+    largest = inspection.get("alpha_largest_component_ratio")
+    if not isinstance(largest, float) or largest < 0.80:
+        errors.append("native Alpha contains detached substantive debris")
+    low_alpha_canvas = inspection.get("alpha_low_nonzero_bbox_canvas_fill_ratio")
+    low_alpha_ratio = inspection.get("alpha_low_nonzero_substantive_ratio")
+    if (
+        isinstance(low_alpha_canvas, float)
+        and isinstance(low_alpha_ratio, float)
+        and low_alpha_canvas >= 0.70
+        and low_alpha_ratio >= 0.04
+    ):
+        errors.append("native Alpha contains canvas-scale low-alpha haze")
+    if inspection.get("alpha_near_white_halo_ratio", 0) > 0.10:
+        errors.append("native Alpha contains a white edge halo")
+    if inspection.get("alpha_near_black_halo_ratio", 0) > 0.10:
+        errors.append("native Alpha contains a black edge halo")
+    return {"ok": not errors, "errors": errors, "inspection": inspection}
+
+
+def _prepare_micro_cutout(
     source_path: Path,
     output_path: Path,
     report_path: Path,
@@ -546,11 +781,20 @@ def prepare_micro_cutout(
     asset_slot_id: str,
     prompt_sha256: str,
     generation_route: str,
+    acquisition_report_path: Path | None = None,
     key_color: str | None = None,
     require_native_alpha: bool = False,
     probe_colors: list[str] | None = None,
+    live_authority: LiveAuthorityCallback | None = None,
+    portable_trust_store: Path | None = None,
+    migration_probe_authority: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Prepare and atomically create one approved cutout plus its lineage report."""
+    """Prepare one cutout after formal or migration-only authority validation.
+
+    ``migration_probe_authority`` is private to the locked migration processor.
+    The public ``prepare_micro_cutout`` wrapper below never accepts it, so the
+    formal article path continues to require a provider acquisition report.
+    """
 
     from PIL import Image, __version__ as pillow_version
 
@@ -588,6 +832,65 @@ def prepare_micro_cutout(
             "select exactly one explicit acquisition route: require_native_alpha or controlled key_color",
         )
     source = _safe_source(source_path)
+    if migration_probe_authority is None:
+        if acquisition_report_path is None:
+            raise CutoutPreparationError(
+                "cutout.acquisition.report_required",
+                "formal micro assets require a provider acquisition report and ordered attempt ledger",
+            )
+        if _has_symlink_component(acquisition_report_path.expanduser().absolute()):
+            raise CutoutPreparationError(
+                "cutout.path.symlink_forbidden",
+                "acquisition report path cannot contain symbolic links",
+            )
+        expected_acquisition_mode = "native-alpha" if require_native_alpha else "controlled-key"
+        acquisition = validate_acquisition_report(
+            acquisition_report_path,
+            source,
+            article_id=article_id,
+            asset_slot_id=asset_slot_id,
+            prompt_sha256=prompt_sha256,
+            generation_route=generation_route,
+            expected_mode=expected_acquisition_mode,
+            key_color=key_color,
+            enforce_current_freshness=True,
+            live_authority=live_authority,
+            portable_trust_store=portable_trust_store,
+            require_authority=True,
+        )
+        if not acquisition["ok"]:
+            raise CutoutPreparationError(
+                "cutout.acquisition.invalid",
+                "; ".join(acquisition["errors"]),
+            )
+    else:
+        acquisition = None
+        required_probe_authority = {
+            "kind": "org-wechat-migration-probe-processor-authority-v1",
+            "validated": True,
+            "migration_only": True,
+            "article_asset_authority": False,
+            "registerable": False,
+            "portable": False,
+            "carry_forward": False,
+        }
+        if any(
+            migration_probe_authority.get(key) != value
+            for key, value in required_probe_authority.items()
+        ):
+            raise CutoutPreparationError(
+                "cutout.migration.authority_invalid",
+                "migration probe processor authority is invalid or article-capable",
+            )
+        if (
+            role != "floating-spot"
+            or article_id != "migration-route-probe"
+            or asset_slot_id != "migration.rgba-route-probe"
+        ):
+            raise CutoutPreparationError(
+                "cutout.migration.scope_violation",
+                "migration processor authority is limited to the neutral route probe",
+            )
     output = _safe_new_path(output_path)
     report = _safe_new_path(report_path)
     if len({source, output, report}) != 3:
@@ -634,6 +937,11 @@ def prepare_micro_cutout(
     has_native_alpha = (
         source_mode == "RGBA" and source_image.getchannel("A").getextrema()[0] < 255
     )
+    if key_color is not None and has_native_alpha:
+        raise CutoutPreparationError(
+            "cutout.source.route_mismatch_native_rgba",
+            "controlled-key attempt downloaded real native RGBA; rerun as the native-alpha route instead of emitting a dead fallback report",
+        )
     if require_native_alpha and not has_native_alpha:
         raise CutoutPreparationError(
             "cutout.source.native_alpha_required",
@@ -641,14 +949,12 @@ def prepare_micro_cutout(
             "do not infer or remove a background in this attempt",
         )
     if has_native_alpha:
-        from asset_quality import validate_micro_asset
-
-        native_validation = validate_micro_asset(source, role)
-        if not native_validation["ok"]:
+        native_safety = _validate_native_source_safety(source)
+        if not native_safety["ok"]:
             raise CutoutPreparationError(
                 "cutout.source.invalid_native_rgba",
-                "native RGBA source failed the strengthened cutout gate; regenerate rather than force-removing it: "
-                + "; ".join(native_validation.get("errors", [])),
+                "native RGBA source failed pre-crop safety checks; regenerate rather than force-removing it: "
+                + "; ".join(native_safety.get("errors", [])),
             )
         prepared = source_image.copy()
         background_assessment = {
@@ -680,10 +986,71 @@ def prepare_micro_cutout(
     output_sha256 = _sha256_bytes(png)
     inspection = validation["inspection"]
     script_sha256 = _sha256_file(Path(__file__).resolve())
+    if migration_probe_authority is None:
+        generation = {
+            "route": generation_route,
+            "prompt_sha256": prompt_sha256,
+            "alpha_was_not_assumed": True,
+            "acquisition_report_location": _relative_to_report(
+                acquisition["report_path"], report  # type: ignore[index]
+            ),
+            "acquisition_report_sha256": acquisition["report_sha256"],  # type: ignore[index]
+            "attempt_count": acquisition["attempt_count"],  # type: ignore[index]
+            "accepted_attempt_index": acquisition["accepted_attempt_index"],  # type: ignore[index]
+            "authority_binding_sha256": acquisition["authority"]["binding_sha256"],  # type: ignore[index]
+            "authority_scope_at_creation": acquisition["authority"]["authority_mode"],  # type: ignore[index]
+            "acquisition_assurance": acquisition["authority"]["assurance"],  # type: ignore[index]
+            "operationally_accepted": acquisition["authority"][  # type: ignore[index]
+                "operationally_accepted"
+            ],
+            "host_attested": acquisition["authority"]["host_attested"],  # type: ignore[index]
+            "portable": acquisition["authority"]["portable"],  # type: ignore[index]
+            "portable_host_receipt_verified": acquisition["authority"]["portable_verified"],  # type: ignore[index]
+            "requires_live_authority_revalidation": acquisition["authority"][  # type: ignore[index]
+                "requires_live_revalidation"
+            ],
+            "requires_current_session_chain_revalidation": acquisition["authority"][  # type: ignore[index]
+                "requires_current_session_chain_revalidation"
+            ],
+            "policy_hook_evaluated": acquisition["authority"][  # type: ignore[index]
+                "policy_hook_evaluated"
+            ],
+            "truth_boundary": (
+                "Current-session acceptance is operator/harness-trusted, non-portable, and "
+                "not host-attested. Registration and ready-for-layout revalidate the complete "
+                "migration/request/create-once-ingestion/raw/RGBA chain. A Python policy hook "
+                "may veto but cannot upgrade assurance. Portable assurance requires both "
+                "verified Ed25519 receipts."
+            ),
+        }
+        result_kind = "org-wechat-micro-cutout-derivation-v1"
+        result_status = "approved"
+    else:
+        generation = {
+            "route": generation_route,
+            "prompt_sha256": prompt_sha256,
+            "alpha_was_not_assumed": True,
+            "authority_scope_at_creation": "migration-probe-only",
+            "acquisition_assurance": "binding-and-create-once-ingestion-only",
+            "operationally_accepted": False,
+            "host_attested": False,
+            "portable": False,
+            "portable_host_receipt_verified": False,
+            "requires_migration_finalization": True,
+            "truth_boundary": (
+                "This derivative proves only the local migration pixel chain. It has no "
+                "article asset authority and cannot be registered, uploaded, copied, or "
+                "carried into authoring. Current-session or portable migration finalization "
+                "must independently validate the host trace."
+            ),
+        }
+        result_kind = "org-wechat-migration-probe-cutout-derivation-v1"
+        result_status = "migration-probe-only"
+
     result = {
         "schema_version": 1,
-        "kind": "org-wechat-micro-cutout-derivation-v1",
-        "status": "approved",
+        "kind": result_kind,
+        "status": result_status,
         "article_id": article_id,
         "asset_slot_id": asset_slot_id,
         "role": role,
@@ -697,11 +1064,7 @@ def prepare_micro_cutout(
             "width_px": source_dimensions[0],
             "height_px": source_dimensions[1],
         },
-        "generation": {
-            "route": generation_route,
-            "prompt_sha256": prompt_sha256,
-            "alpha_was_not_assumed": True,
-        },
+        "generation": generation,
         "processor": {
             "method": method,
             "script": "scripts/prepare_micro_cutout.py",
@@ -731,6 +1094,8 @@ def prepare_micro_cutout(
             "inspection_sha256": _canonical_sha256(inspection),
         },
     }
+    if migration_probe_authority is not None:
+        result["migration_probe"] = migration_probe_authority
     report_bytes = (
         json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     ).encode("utf-8")
@@ -752,6 +1117,43 @@ def prepare_micro_cutout(
     return result
 
 
+def prepare_micro_cutout(
+    source_path: Path,
+    output_path: Path,
+    report_path: Path,
+    *,
+    role: str,
+    article_id: str,
+    asset_slot_id: str,
+    prompt_sha256: str,
+    generation_route: str,
+    acquisition_report_path: Path | None = None,
+    key_color: str | None = None,
+    require_native_alpha: bool = False,
+    probe_colors: list[str] | None = None,
+    live_authority: LiveAuthorityCallback | None = None,
+    portable_trust_store: Path | None = None,
+) -> dict[str, Any]:
+    """Prepare one formal article cutout with full acquisition authority."""
+
+    return _prepare_micro_cutout(
+        source_path,
+        output_path,
+        report_path,
+        role=role,
+        article_id=article_id,
+        asset_slot_id=asset_slot_id,
+        prompt_sha256=prompt_sha256,
+        generation_route=generation_route,
+        acquisition_report_path=acquisition_report_path,
+        key_color=key_color,
+        require_native_alpha=require_native_alpha,
+        probe_colors=probe_colors,
+        live_authority=live_authority,
+        portable_trust_store=portable_trust_store,
+    )
+
+
 def main() -> None:
     from secure_runtime import require_secure_runtime
 
@@ -765,6 +1167,8 @@ def main() -> None:
     parser.add_argument("--asset-slot-id", required=True)
     parser.add_argument("--prompt-sha256", required=True)
     parser.add_argument("--generation-route", required=True)
+    parser.add_argument("--acquisition-report", type=Path, required=True)
+    parser.add_argument("--portable-trust-store", type=Path)
     parser.add_argument("--key-color")
     parser.add_argument("--require-native-alpha", action="store_true")
     parser.add_argument("--probe-color", action="append", dest="probe_colors")
@@ -779,6 +1183,8 @@ def main() -> None:
             asset_slot_id=args.asset_slot_id,
             prompt_sha256=args.prompt_sha256,
             generation_route=args.generation_route,
+            acquisition_report_path=args.acquisition_report,
+            portable_trust_store=args.portable_trust_store,
             key_color=args.key_color,
             require_native_alpha=args.require_native_alpha,
             probe_colors=args.probe_colors,

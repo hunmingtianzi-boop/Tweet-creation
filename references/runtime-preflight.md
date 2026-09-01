@@ -1,189 +1,307 @@
 # 运行环境启动自检
 
-每次启动 `org-wechat-studio` 都先做两层自检：
+每次迁移 harness、LLM、机器、adapter、provider route 或 Skill release 后，都要在读取组织材料前执行这套自检。它不要求操作者手写庞大 profile：当前 Codex Desktop 从“已验证安装 release + adapter allowlist + 本会话模型实际可见 registry id”生成非签名 census intent；只有宿主真实提供 `host.registry.export` callable 时才走高保证 export 路径。然后两条路径都从 census 与紧凑 target 确定性生成 profile。
 
-1. `runtime_preflight.py --binding-only` 直接检查项目文件、Markdown 链接、Skill SHA、Python/Pillow/cryptography、工作区读写、工具 provider/session 路由、无凭据 URL 与 key/path 引用形状；
-2. 当前 harness 通过它自己的真实工具调用进行 host probe。除 `migration` 的一次中性 RGBA 生成/下载例外，账号、Ardot 与普通启动 probe 均无副作用。这些调用必须在宿主工具轨迹中可见，不能由 profile、模型文字或旧报告自证。
+## 双层保证
 
-这个真值边界是刻意的：仓库内进程可以验证本地合同，但不能证明自己真的调用了 ImageGen、在 ChatGPT 生成并下载了原图、访问了 Ardot，或读取了已登录的微信账号。因此 binding report 可以是 `binding_ready: true`，但 `phase_ready` 始终是 `false`。不得手动改写它。
+| 档位 | 当前 Codex Desktop | 可以证明 | 不可声称 |
+|---|---|---|---|
+| `current-session` | 默认可用 | 已验证的 source-zero Skill release、当前宿主工具轨迹、Browser 返回的绝对下载路径、本地 create-once 摄取哈希、RGBA 像素与三底验收 | 宿主签名 Browser 事件、宿主强制文件系统隔离、可脱离本会话携带的审计结论 |
+| `host-enforced-source-zero` | 仅在 `filesystem.access.lease` callable 存在时升级 | 宿主只允许当前输入、当前 organization pack 和 runtime 输出，并拒绝 examples、其他组织、旧输出和旧 Ardot 引用 | 没有真实 lease callable 时不得伪装这一档 |
+| `portable-signed-migration` | 仅在 `host.migration.finalize` 和宿主重放账本存在时升级 | 最长十分钟的 Ed25519 receipt 绑定 nonce/digest/route/prompt/raw/derivative/report/inspection、installed release、registry census 和 filesystem policy | 没有宿主 signer 时不得将本地 JSON 当作签名 receipt |
 
-所有安全敏感 Python CLI 必须通过 `python3 -I -S scripts/secure_runner.py scripts/ENTRYPOINT.py ...` 运行。runner 只使用标准库，忽略 `PYTHONPATH`、user-site 自动加载与 `sitecustomize`；它在导入 Pillow/cryptography 前，先按 [`runtime/python-dependency-lock.json`](../runtime/python-dependency-lock.json) 校验平台/Python tag、版本、文件数和全分发文件聚合 SHA-256，再把已验证字节复制到一次性私有 snapshot 后执行入口。直接 `python3 scripts/...`、未锁定平台或任一依赖字节漂移都必须失败。当前 lock 只覆盖已验证的 `darwin-arm64-cpython-39`；迁移到其他 harness 时，必须在发布审核中增加该平台的真实分发哈希，更新 trusted-bundle allowlist，不得用环境路径跳过。
+`filesystem.access.lease`、`host.migration.finalize` 和用于 portable audit 的 `host.receipt.attest` 是保证升级，不是当前会话的默认硬阻断。正式文章微组件在完整 migration、canonical request、create-once ingestion、exact raw bytes 和 RGBA 像素链通过后，可以在 `authoring/full` operational accept；但固定是 operator/harness-trusted、`host_attested=false`、`portable=false`。`image.provider.acquire.authority` 仅是可选 trusted-harness veto policy，不是鉴真边界。正式发布的授权仍由 publisher 的当次用户确认、权威草稿回读和状态门禁决定；草稿 API 不推导发布权限。
 
-## 阶段
+## 0. 安装根与会话根
 
-- `migration`：把工作流/组织迁移到新 harness、LLM、机器、adapter、provider route，或 trusted bundle 发生变化时首先使用。只绑定不透明生图、RGBA 生产与验图，不需要组织、Ardot、微信或水印 secret。它是唯一会在启动时生成图片的阶段：必须在读材料前完成 `neutral-rgba-route-probe-v1`。
-- `bootstrap`：新组织还没有 Ardot file/root 时使用；只检查 `ardot.create` 路由，不要求生图、ChatGPT、验图、水印 secret、微信目标/登录，也不虚构文件链接。创建空白设计后立即改用目标阶段（默认 `full`，或用户明确的 `authoring`）重绑定精确 file/root。
-- `full`：主工作流默认路由；要求不透明生图、RGBA 生产、验图、Ardot、微信草稿和 secret resolver。宿主 receipt attestor 是 `portable-signed-audit` 的可选增强，不是 `current-session-draft` 的草稿写入前置。
-- `authoring`：只有用户明确要求停在创作/Ardot 时使用；要求两类生图、验图、Ardot 和水印 secret，不证明微信投递就绪。
-- `delivery`：`ardot-wechat-publisher` 使用；不要求再次生图，但必须重新绑定当前 Ardot root 和目标公众号。有 receipt attestor 时可进入 `portable-signed-audit`；无 signer 时明确降为 `current-session-draft`。
+从已加载的 `org-wechat-studio/SKILL.md` 反向解析其绝对父目录，定义为
+`ORG_WECHAT_RUNTIME_ROOT`。安装版中，它与 `chatgpt-web-image-route`、
+`ardot-wechat-publisher` 同为一个 Skill root 下的顶层 sibling，主包不包含
+可发现的嵌套 `skills/`。用户项目仍是当前工作目录；不 `cd` 到 Skill。
+将用户项目中绝对、Git-ignored、create-once 的会话目录定义为
+`ORG_WECHAT_SESSION_ROOT`。macOS 临时目录使用 `/private/tmp/...`，不使用经过
+symlink 的 `/tmp/...`。
 
-`migration` / `bootstrap` / `full` / `authoring` 要求项目根 `org-wechat-studio` 的当前 SHA 状态为 `loaded`；`delivery` 要求仓库内 `ardot-wechat-publisher` 状态为 `loaded`。`available` 不等于已加载，已安装旧副本不能代替项目版本。
+```bash
+ORG_WECHAT_RUNTIME_ROOT=/ABSOLUTE/SKILLS_ROOT/org-wechat-studio
+ORG_WECHAT_SESSION_ROOT=/ABSOLUTE/USER/PROJECT/output/runtime/SESSION_UNIQUE
 
-## 语义能力合同
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/release_skills.py" verify-installed \
+  /ABSOLUTE/SKILLS_ROOT/.org-wechat-release-manifests/RELEASE_SHA.json \
+  --skills-root /ABSOLUTE/SKILLS_ROOT
+```
 
-| 能力 | 职责 |
-|---|---|
-| `image.generate.opaque` | 生成不透明的同家族底图/封面源图 |
-| `image.generate.rgba` | 为文章小组件提供原图，最终必须经 `subject-cutout-rgba8-v1` 处理和验收 |
-| `image.inspect` | 读图、Alpha 检查与 390 px 截图验收 |
-| `chatgpt.session` | Codex Desktop 的 ChatGPT 会话/连接准备；只证明 session，不证明生图或 Alpha |
-| `ardot.create` | 新组织无 file/root 时创建空白设计/页 |
-| `ardot.read` | 读取当前 file、page、root 和 node |
-| `ardot.write` | 创建原生文本、矢量、组件和三态 |
-| `ardot.export` | 导出 node properties 和 390 px 证据 |
-| `browser.control` | 操作已登录网页；优先于通用 Computer Use |
-| `computer.use` | UI 末级兜底，不是必选依赖 |
-| `wechat.draft` | 微信素材、封面、draft upsert/get 与 CDN 回读 |
-| `host.receipt.attest` | 可选审计增强：宿主从真实 Ardot/微信工具轨迹签发短时效 receipt；私钥不进仓库进程。缺失时只禁用 portable signed audit，不禁用 current-session 草稿 |
-| `secret.resolve` | 只解析水印密钥与 Git 外私密路径的可用性，不返回值；receipt 公钥不允许作为普通 secret/环境变量注入 |
+下文所有 runner 和目标脚本都使用 `ORG_WECHAT_RUNTIME_ROOT` 下的绝对路径；
+census、target、profile、evidence 和 report 都使用 `ORG_WECHAT_SESSION_ROOT`
+下的绝对路径。安装包目录内不允许生成 `output/`。
 
-目标 harness 把自己的 callable 映射到这些能力。只发现 shell、JavaScript 或 Node 执行器，不等于 Browser/Computer Use 已加载。多个 callable 共同承担一项能力时，必须属于同一 provider 和当前 session。
+## 1. 平台与依赖审计
 
-Codex Desktop 的机器可读路由在 [`runtime/adapters/codex-desktop.json`](../runtime/adapters/codex-desktop.json)。其中不透明路由是 `image_gen__imagegen`；RGBA 默认是复合路由：仓库内 `chatgpt-web-image-route`、已安装 `codex-with-chatgpt`、同一 provider/session 的完整内置 Browser route，以及 `scripts/prepare_micro_cutout.py`。它同时声明 `migration_probe_contract: neutral-rgba-route-probe-v1` 和真实 `generation_route_id: chatgpt-web-image-route-v1`。本地 ImageGen 不得直接映射到 RGBA。该文件是路由表，不是登录或 live proof；C2C doctor、会话登录成功和页面预览都不是图像证据。当前 Codex Desktop 没有可调用的 `host.receipt.attest`，因此 `delivery/full` 默认报告 `delivery_assurance.mode: current-session-draft`，仍可在当前宿主轨迹中创建和回读验证草稿；不得声称 portable signed audit，也不得正式发表/群发。
+所有安全敏感 Python CLI 通过锁定 runner 执行：
 
-## runtime profile
+```bash
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" --platform-audit
+```
 
-profile 是当前会话的临时意图清单，放在 Git 忽略的 `output/runtime/`。不得放入 organization pack、article 目录或 Git，不得包含 probe 结论、token、Cookie、AppSecret、密钥、raw watermark ID 或任何 secret 值。
+当前 trusted lock 支持 `darwin-arm64-cpython-39`。未知 OS/CPU/Python 必须在运行目标入口前失败。新平台只能生成待审核 candidate：
 
-`migration` profile 是最小路由自测意图：`links` 必须为空，并只保留 `opaque_image_generation`、`rgba_cutout_generation` 与 `visual_inspection` 及它们实际引用的 tools。RGBA 项额外声明。其探针必须原生 Alpha 优先：首轮 exact prompt 要求真透明 provider original，processor 使用 `--require-native-alpha`；只有首轮到达 Alpha/像素门禁并失败，第二轮才可使用一次 controlled-key fallback。binding nonce/digest 仅进入宿主 canonical request metadata，不进入生图 prompt。RGBA 项字段为：
+```bash
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  --dependency-candidate "$ORG_WECHAT_SESSION_ROOT/dependency-candidate-PLATFORM-UNIQUE.json"
+```
+
+candidate 是 create-once、`trusted: false` 的审核材料，不修改 lock，不自动升级 trusted release。支持矩阵见 [`runtime/platform-support.json`](../runtime/platform-support.json)，完整非 MCP 依赖见 [`runtime/non-mcp-dependencies.json`](../runtime/non-mcp-dependencies.json)。
+
+## 2. 安装包与 registry census
+
+先通过 `scripts/release_skills.py` 安装并验证三个 Skill。安装器会在 Skill root 下 create-once 保存：
+
+```text
+<skills-root>/.org-wechat-release-manifests/<release_sha256>.json
+```
+
+安装态验证只接受这个目录中的 canonical 普通文件，文件名必须精确等于内部
+`release_sha256 + ".json"`；Skill root、manifest store、三个包目录及其父路径都
+不得经过 symlink。随后验证器才会校验 manifest 内部结构并逐字节 census 三个
+sibling Skill。这个门禁只是本机 create-once 的位置与字节绑定，不是密码学签名，
+也不是 host attestation；需要可携带保证时仍必须走独立的宿主签名路径。
+
+不要信任 profile 或人工 JSON 里填写的 `loaded/available`。当前 Codex Desktop 没有 `host.registry.export` callable，默认用下面命令。`--visible-tool-id` 由宿主/代理从当前 model-visible registry 原样传入，只填 id，不填 kind/provider/session/status；CLI 会从已审核 adapter 与已验证 release 派生这些字段：
+
+```bash
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/runtime_preflight.py" \
+  init-current-session-census \
+  --phase migration \
+  --session-id CURRENT_HOST_SESSION_ID \
+  --visible-tool-id image_gen__imagegen \
+  --visible-tool-id view_image \
+  --visible-tool-id codex-with-chatgpt \
+  --visible-tool-id browser:control-in-app-browser \
+  --visible-tool-id mcp__node_repl__js \
+  --skills-root /ABSOLUTE/INSTALLED/SKILLS/ROOT \
+  --release-manifest /ABSOLUTE/INSTALLED/SKILLS/ROOT/.org-wechat-release-manifests/RELEASE_SHA.json \
+  --workspace-root "$ORG_WECHAT_RUNTIME_ROOT" \
+  --output "$ORG_WECHAT_SESSION_ROOT/registry-census-UNIQUE.json"
+```
+
+输出必须标记 `registry_assurance.mode=current-session-model-visible-intent`、`host_attested_registry=false`、`portable=false`、`requires_later_live_probes=true`。它可用于生成本会话 profile；当前 Codex Desktop 的 `authoring/full` 不会仅因 provider policy hook 或 portable signer 缺失而失败。它不得称为 host-attested registry，也不替代后续 login/account/file/root/generation/download 真实探针和每张正式图的完整链门禁。
+
+仅当其他 harness 的 adapter 真实声明并暴露 `host.registry.export` callable 时，才接受该 callable 的 export。它必须同时包含 `registry_export` 调用轨迹，且工具清单中有同 provider/session 的 `host.registry.export` 行：
 
 ```json
 {
-  "migration_probe_contract": "neutral-rgba-route-probe-v1",
-  "generation_route_id": "ADAPTER_DECLARED_REAL_STABLE_ROUTE_ID"
+  "schema_version": 1,
+  "kind": "org-wechat-host-registry-export-v1",
+  "harness": "codex-desktop",
+  "session_id": "current-session-id",
+  "registry_export": {
+    "capability": "host.registry.export",
+    "tool_id": "host.registry.export",
+    "provider": "host-registry-provider",
+    "session_id": "current-session-id",
+    "request_id": "host-request-id"
+  },
+  "tools": [
+    {
+      "id": "image_gen__imagegen",
+      "kind": "image.generate.opaque",
+      "status": "available",
+      "source": "runtime-registry",
+      "provider": "codex-image-provider",
+      "session_id": "current-session-id"
+    }
+  ],
+  "skills": [
+    {
+      "id": "org-wechat-studio",
+      "status": "loaded",
+      "installed_entrypoint": "/ABSOLUTE/INSTALLED/SKILLS/ROOT/org-wechat-studio/SKILL.md"
+    },
+    {
+      "id": "chatgpt-web-image-route",
+      "status": "loaded",
+      "installed_entrypoint": "/ABSOLUTE/INSTALLED/SKILLS/ROOT/chatgpt-web-image-route/SKILL.md"
+    },
+    {
+      "id": "ardot-wechat-publisher",
+      "status": "available",
+      "installed_entrypoint": "/ABSOLUTE/INSTALLED/SKILLS/ROOT/ardot-wechat-publisher/SKILL.md"
+    }
+  ]
 }
 ```
 
-`generation_route_id` 在所有使用 RGBA 的阶段都必须与 adapter 中 `image.generate.rgba.generation_route_id` 完全一致；不得填一个与实际 provider/tool 无关的泛化名称。只有 `migration` 额外要求 `migration_probe_contract`；该阶段不登记 Ardot/微信链接，也不解析水印 secret。
+实际 export 必须由 callable 生成并列出当前 adapter 所需的全部 host tools；不允许操作者手写这份 export。然后生成 census：
 
-下例展示一个已完成宿主 attestor 集成、同时使用 ChatGPT-web RGBA 复合路线的目标 `full` profile 形状。`image.generate.rgba` 是 adapter 对外暴露的语义能力；在该路线中它不对应一个可以直接登记的“RGBA 生图工具”，而是由 `chatgpt.session` + 同 provider/session 的 `browser.control` + 本地 processor 共同实现。`HOST_ATTESTOR_TOOL_ID` 是占位符，不是当前 Codex Desktop 的真实 callable，不得照抄进当前 profile。`adapter_sha256` 在每次生成 profile 时重算；已集成的其他 harness 应使用自己的 adapter，不得假冒 `codex-desktop`。
+```bash
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/runtime_preflight.py" build-census \
+  "$ORG_WECHAT_SESSION_ROOT/host-registry-export.json" \
+  --skills-root /ABSOLUTE/INSTALLED/SKILLS/ROOT \
+  --release-manifest /ABSOLUTE/INSTALLED/SKILLS/ROOT/.org-wechat-release-manifests/RELEASE_SHA.json \
+  --workspace-root "$ORG_WECHAT_RUNTIME_ROOT" \
+  --output "$ORG_WECHAT_SESSION_ROOT/registry-census-UNIQUE.json"
+```
+
+`init-current-session-census` 和 `build-census` 都直接调用 `release_skills.verify_installed_packages`，验证真实安装路径和包摘要，并绑定 worktree、Git HEAD、adapter、provider/session。本地工具严格按 phase census 注入：`browser.download.ingest`/`scripts/ingest_browser_download.py` 用于 migration/authoring 图片摄取，不会被 API delivery 偷渡；`wechat.current-session-readback`/`scripts/ingest_wechat_readback_capture.py` 只在 delivery/full 的完整 Browser 路由中可用。`scripts/wechat_publisher.py` 作为本地 `wechat.draft` API 工具，不读取、不落盘微信凭据。草稿回读路由仅用于打开写后的确切草稿与截图，不是生图/下载摄取，也不推导发布权限。
+
+安装 release 包内必须不存在 `.git/.pytest_cache/__pycache__/examples/experiments/organizations/output`。这证明 Skill 包本身 source-zero，不等于宿主已强制限制模型读取其他本地文件。
+
+## 3. 生成 profile
+
+操作者只写 `org-wechat-runtime-target-v1`：`links`、Ardot/WeChat 精确目标、当前资产清单，以及真实可用时才请求的高等级 assurance。`artifact_inventory.census_complete` 为 true 且没有 eligible carriers 时，水印 secret 不是前置条件；只有确实存在可嵌入载体时才需要 `PROVENANCE_WATERMARK_KEY` 和 Git 外 private root。一个无载体的 authoring target 例子：
 
 ```json
 {
-  "schema_version": 2,
-  "kind": "org-wechat-runtime-profile",
-  "harness": {"name": "YOUR_INTEGRATED_HARNESS", "adapter_path": "PATH_TO_HOST_ADAPTER.json", "adapter_sha256": "sha256:CURRENT_ADAPTER_SHA"},
-  "skills": [
-    {"id": "org-wechat-studio", "entrypoint": "SKILL.md", "status": "loaded", "sha256": "sha256:CURRENT_SHA"},
-    {"id": "ardot-wechat-publisher", "entrypoint": "skills/ardot-wechat-publisher/SKILL.md", "status": "available", "sha256": "sha256:CURRENT_SHA"}
-  ],
-  "tools": [
-    {"id": "image_gen__imagegen", "kind": "image.generate.opaque", "status": "available", "source": "runtime-registry", "provider": "codex-image-provider", "session_id": "current-session"},
-    {"id": "view_image", "kind": "image.inspect", "status": "available", "source": "runtime-registry", "provider": "codex-image-provider", "session_id": "current-session"},
-    {"id": "codex-with-chatgpt", "kind": "chatgpt.session", "status": "available", "source": "skill-registry", "provider": "codex-browser", "session_id": "current-session"},
-    {"id": "mcp__ardot_remote__fetch_file_info", "kind": "ardot.read", "status": "available", "source": "runtime-registry", "provider": "ardot-remote", "session_id": "current-session"},
-    {"id": "mcp__ardot_remote__fetch_editor_state", "kind": "ardot.read", "status": "available", "source": "runtime-registry", "provider": "ardot-remote", "session_id": "current-session"},
-    {"id": "mcp__ardot_remote__batch_read", "kind": "ardot.read", "status": "available", "source": "runtime-registry", "provider": "ardot-remote", "session_id": "current-session"},
-    {"id": "mcp__ardot_remote__batch_edit", "kind": "ardot.write", "status": "available", "source": "runtime-registry", "provider": "ardot-remote", "session_id": "current-session"},
-    {"id": "mcp__ardot_remote__capture_screenshot", "kind": "ardot.export", "status": "available", "source": "runtime-registry", "provider": "ardot-remote", "session_id": "current-session"},
-    {"id": "mcp__ardot_remote__export_nodes", "kind": "ardot.export", "status": "available", "source": "runtime-registry", "provider": "ardot-remote", "session_id": "current-session"},
-    {"id": "browser:control-in-app-browser", "kind": "browser.control", "status": "available", "source": "skill-registry", "provider": "codex-browser", "session_id": "current-session"},
-    {"id": "mcp__node_repl__js", "kind": "browser.control", "status": "available", "source": "runtime-registry", "provider": "codex-browser", "session_id": "current-session"},
-    {"id": "HOST_ATTESTOR_TOOL_ID", "kind": "host.receipt.attest", "status": "available", "source": "runtime-registry", "provider": "host-attestor", "session_id": "current-session"}
-  ],
+  "schema_version": 1,
+  "kind": "org-wechat-runtime-target-v1",
   "links": {
-    "ardot_current_workspace": {"url": "https://ardot.tencent.com/file/123456789?web_only=1&node_id=1%3A2", "purpose": "current organization workspace"},
-    "wechat_current_account": {"url": "https://mp.weixin.qq.com/", "purpose": "current visible target account"}
+    "ardot_current_workspace": {
+      "url": "https://ardot.tencent.com/file/123456789?web_only=1&node_id=1%3A2",
+      "purpose": "current organization workspace"
+    }
   },
-  "capabilities": {
-    "opaque_image_generation": {"mode": "tool", "status": "declared", "tool_ids": ["image_gen__imagegen"]},
-    "rgba_cutout_generation": {
-      "mode": "chatgpt-web",
-      "status": "declared",
-      "tool_ids": ["codex-with-chatgpt", "browser:control-in-app-browser", "mcp__node_repl__js"],
-      "provider_skill": {"id": "chatgpt-web-image-route", "status": "loaded", "contract": "chatgpt-web-image-route-v1"},
-      "output_contract": "subject-cutout-rgba8-v1",
-      "processor": "scripts/prepare_micro_cutout.py",
-      "generation_route_id": "chatgpt-web-image-route-v1"
-    },
-    "visual_inspection": {"mode": "tool", "status": "declared", "tool_ids": ["view_image"]},
-    "ardot_authoring": {"mode": "mcp", "status": "declared", "tool_ids": ["mcp__ardot_remote__fetch_file_info", "mcp__ardot_remote__fetch_editor_state", "mcp__ardot_remote__batch_read", "mcp__ardot_remote__batch_edit", "mcp__ardot_remote__capture_screenshot", "mcp__ardot_remote__export_nodes"], "workspace_link": "ardot_current_workspace", "expected_file_id": "123456789", "expected_root_id": "1:2"},
-    "wechat_delivery": {"mode": "ui", "status": "declared", "tool_ids": ["browser:control-in-app-browser", "mcp__node_repl__js"], "account_link": "wechat_current_account", "target_account_ref": "visible-account-reference"},
-    "host_receipt_attestation": {"mode": "host", "status": "declared", "tool_ids": ["HOST_ATTESTOR_TOOL_ID"], "trust_boundary": "host-owned-private-key-and-protected-trust-store"},
-    "secret_store": {"mode": "environment", "status": "declared", "secret_refs": ["PROVENANCE_WATERMARK_KEY"], "path_refs": ["PROVENANCE_WATERMARK_PRIVATE_ROOT"]}
+  "targets": {
+    "ardot": {
+      "workspace_link": "ardot_current_workspace",
+      "expected_file_id": "123456789",
+      "expected_root_id": "1:2"
+    }
+  },
+  "artifact_inventory": {
+    "census_complete": true,
+    "source_sha256": "sha256:REPLACE_WITH_64_HEX",
+    "eligible_watermark_carriers": []
   }
 }
 ```
 
-## 执行 binding gate
-
-迁移开始先运行：
+`migration` target 的 `links`/`targets` 为空且可不带资产清单。当前会话 census intent 是 phase-bound：切换到 `bootstrap/authoring/delivery/full` 时必须先重跑 `init-current-session-census --phase <目标阶段>`，不可复用 migration census。`delivery/full` 再增加 `targets.wechat.mode` (`api` 或 `ui`)、`terminal_state` (`draft` 或 `publish`，缺省为 `draft`)、`account_link` 和 exact `target_account_ref`。当选择 `api + draft` 且未选 portable `host_receipt_attestation` 时，profile 必须单独选中同 account 的 `wechat_current_session_readback`，且 census 中必须有完整 `wechat.current-session-readback` Browser/Computer Use 路由；缺路由直接失败。Portable signed API draft 保留自己的 screenshot/receipt 路线，不要求或注入 current-session bundle route。`wechat.draft` 只能证明 API 草稿路径，绝不推导发布权限：`publish+api` 还必须有独立 `wechat.current-session-authority` 或已选 portable receipt；否则 binding 提前失败并列出 UI live route。`publish+ui` 必须使用已声明的 Browser/Computer Use live route，并在点击前消费当次确认、点击后权威回读状态。不要在 adapter 无 callable 时填 `assurance.filesystem_access_lease` 或 `assurance.migration_probe_finalization`。
 
 ```bash
-python3 -I -S scripts/secure_runner.py scripts/runtime_preflight.py output/runtime/migration-profile.json \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/runtime_preflight.py" init-profile \
+  "$ORG_WECHAT_SESSION_ROOT/registry-census-UNIQUE.json" \
+  "$ORG_WECHAT_SESSION_ROOT/target.json" \
+  --workspace-root "$ORG_WECHAT_RUNTIME_ROOT" \
+  --phase migration \
+  --output "$ORG_WECHAT_SESSION_ROOT/migration-profile-UNIQUE.json"
+
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/runtime_preflight.py" \
+  "$ORG_WECHAT_SESSION_ROOT/migration-profile-UNIQUE.json" \
+  --workspace-root "$ORG_WECHAT_RUNTIME_ROOT" \
+  --session-root "$ORG_WECHAT_SESSION_ROOT" \
   --phase migration --binding-only \
-  --output output/runtime/migration-binding-report-UNIQUE.json
+  --output "$ORG_WECHAT_SESSION_ROOT/migration-binding-UNIQUE.json"
 ```
 
-只有该报告的 binding 通过，且宿主按 `run-migration-rgba-route-probe` 完成本次 nonce/digest 绑定的 provider request → 生成完成 → original download → raw PNG 魔数/MIME/bytes/SHA/time → secure processor → exact derivative 透明/浅/深三底验图，才允许读组织材料。本地报告仍保持 `phase_ready: false`；这不是失败，而是防止一个 JSON 伪造宿主路由证据。
+`--session-root` 是 migration 的强制外置边界：目录必须已存在、使用
+canonical 绝对路径、全路径无 symlink、位于已安装 Skill 之外，并且位于
+所有 Git 仓库之外或被 owning Git 明确忽略。报告把 probe 资产以及
+ingest/processor 可执行文件都冻结为绝对路径；缺参、指向 Skill 内部或未忽略的
+另一个项目都会在生成 probe 前失败。profile 也必须在其所属 Git 工作树明确忽略
+的绝对会话目录，或不属于任何 Git 仓库的外部绝对临时目录中。“位于 Skill root
+外”不等于私有。profile 不得含 token、Cookie、AppSecret、水印密钥、ChatGPT
+saved-chat URL 或微信带 token 链接。所有报告 create-once，拒绝覆盖和任一路径
+组件中的 symlink。
 
-完成迁移自测后，再使用下面的 `bootstrap`、`authoring` 或 `full` 绑定目标组织。普通文章启动不重复生成中性 probe，但 `authoring/full` 报告会先给出阻断动作 `enforce-migration-rgba-route-gate`：宿主必须确认当前 trusted bundle SHA、adapter SHA 与 `generation_route_id` 已在自己的当前迁移轨迹中通过；本地 profile/report、旧 probe 文件或模型自述都不能解锁。缺失时停止并先运行 `migration`。这是宿主工作流硬门禁；本地 CLI 只会发出动作，不能认证宿主历史。ChatGPT-web migration 遵守 C2C 单对话规则，不开 throwaway chat；探针限定为无对象、无品牌、单一中灰的非语义轮廓，正式 prompt 必须排除该轮廓与灰度测试处理。首张正式资产仍要保留独立的正式 lineage。
+## 4. C2C 与 Browser 启动动作
+
+ChatGPT-web RGBA route 的 `host_setup_actions` 要依次闭合：
+
+1. C2C `update-check` 和 `sandbox-allow`；
+2. 确认当前精确 worktree session，不串到其他 checkout；
+3. 读取 tunnel status，由用户在需要时选择直连/隧道；
+4. 新 workspace 执行 setup；旧 workspace 恢复唯一 saved project/conversation；
+5. 校验 project identity、connector identity 和 workspace identity；
+6. 运行 `workspace-info` 和 `doctor`；
+7. 复用唯一内置 Browser 标签；如果真实出现登录/2FA/同意页，再请用户处理该一步并于同一 session 重探。
+
+tunnel 选择、setup、project/connector/workspace 错配都不是“登录问题”，必须按各自状态修复。当前 Codex route 禁止为中性 probe 另开抛弃对话，也禁止用 Computer Use 操作 ChatGPT；Computer Use 只是 Ardot/微信 UI 的末级降级。
+
+## 5. Browser 下载的 create-once 摄取
+
+Browser 完成 original download 后，立即用它刚返回的绝对路径运行报告中的 `ingestion_command_template`。最小调用形状为：
 
 ```bash
-python3 -I -S scripts/secure_runner.py scripts/runtime_preflight.py output/runtime/runtime-profile.json \
-  --phase full --binding-only \
-  --output output/runtime/binding-report-UNIQUE.json
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/ingest_browser_download.py" \
+  /ABSOLUTE/PATH/RETURNED/BY/HOST.png \
+  "$ORG_WECHAT_SESSION_ROOT/migration-probes/NONCE/raw/provider-original.png" \
+  --report "$ORG_WECHAT_SESSION_ROOT/migration-probes/NONCE/raw/download-ingestion.json" \
+  --allowed-target-root "$ORG_WECHAT_SESSION_ROOT/migration-probes/NONCE" \
+  --binding-nonce NONCE --binding-digest sha256:DIGEST \
+  --provider-session-id CURRENT --provider-request-id CURRENT \
+  --observed-download-id CURRENT --request-metadata-sha256 sha256:DIGEST
 ```
 
-输入和输出必须位于当前工作区的 Git 忽略路径，或位于不属于任何 Git 仓库的外部临时目录。报告不覆盖已有文件，每次使用新文件名。
+必须传入宿主观察到的 canonical real path。macOS 上 `/tmp` 通常是指向 `/private/tmp` 的 symlink，因而会被全路径 no-symlink 门禁正常拒绝；宿主返回 `/tmp/...` 时，先从宿主/系统获取其解析后的 `/private/tmp/...` 真实路径，不要在报告中手改路径来冒充观察值。
 
-通过标准：
+摄取器拒绝 symlink、非普通文件、目标逃逸和覆盖；流式复制后比对源/目标 SHA-256 与 bytes，并 create-once 写报告。它证明“当前轨迹标识绑定的观察路径与摄取字节”，不独立证明 Browser 事件真实性。
 
-- `ok: true`
-- `binding_ready: true`
-- `check_level: "binding"`
-- `phase_ready: false` （预期值）
-- 无安全、版本、链接、provider/session 或能力缺口。
+迁移摄取后执行 binding report 中的绝对 `prepare_migration_probe.py` 命令，不调用正式文章处理器的 `--acquisition-report`。它会重验 binding/case/ingestion/raw/trace/request metadata，且只能产生不可注册、不可携带的 migration-only lineage。首轮必须 `--require-native-alpha`；只有首轮由同一锁定处理器 create-once 写出且可独立重算的 Alpha 失败证据，才允许一次 `--key-color` fallback。最终必须是 RGBA8、非矩形背景、边缘干净，并通过透明/浅/深三底 exact derivative 验收。正式文章资产仍必须另行执行 `prepare_micro_cutout.py --acquisition-report ...`，迁移报告不能代替。
 
-在 `portable-signed-audit` 中，`binding_nonce` 和 `binding_digest` 必须被后续宿主 receipt 签入；`binding_digest` 同时绑定根/publisher Skill、自检程序本身、两份 `agents/openai.yaml`、adapter、setup-links、终态使用/QA/互动/水印合同，以及 compiler、asset/cutout、workflow、SVG policy、watermark 与 transport validator 的完整本地执行闭包。`requirements.txt` 精确锁定 Pillow/cryptography 版本。任一活路由或 validator 逻辑漂移都会阻断或改变绑定摘要。宿主 signer 必须将 trusted-bundle digest 与其允许的已发布 digest 比较，不能只回签模型提供的本地值。宿主保留 Ed25519 私钥；仓库进程只能从 root-owned、无 symlink、组/其他用户不可写的 JSON 信任库读取公钥。`ORG_WECHAT_HOST_RECEIPT_TRUST_STORE` 只允许选择这个受保护文件的绝对路径；直接环境公钥不被读取。仓库进程为 root 时也必须 fail closed，因为它可自行造一份“root-owned”文件。`current-session-draft` 不用本地文件伪造这个信任等级；它依赖本次宿主可见轨迹，并始终报告 `portable_audit_verified: false`。
+### 正式文章资产的二次宿主绑定
 
-报告的 `host_setup_actions` 是启动时立即执行的准备队列，不是文章做完后的补救：
+Migration 只证明路由在本会话可用，不能为后续每张正式图代签。正式 `article-micro` 必须新建 `org-wechat-provider-image-acquisition-v2`，将这次文章 request/download 反向绑到：
 
-1. 加载当前阶段的仓库 Skill；
-2. 仅 `migration/authoring/full` 且 RGBA mode 为 `chatgpt-web` 时，按顺序加载仓库 `chatgpt-web-image-route`、已安装 `codex-with-chatgpt`，执行 `update-check` / `sandbox-allow` / `doctor`，再打开或复用唯一内置 Browser 标签并完成必要的 ChatGPT 登录，最后绑定原始 PNG 下载、`scripts/prepare_micro_cutout.py` 和 `image.inspect`。`bootstrap/delivery` 不加载、登录或打开 ChatGPT；
-3. 仅 `migration` 执行 `run-migration-rgba-route-probe`：使用报告的 exact prompt、host-side nonce/digest request metadata 和 create-once 路径，完成真实 provider request/生成/original download、raw PNG 事实、secure processor 及 exact derivative 透明/浅/深三底验收。输出只在 `output/runtime/migration-probes/<binding_nonce>/`，不登记资产、不上传 Ardot、不进入后续风格 prompt。首轮必须是 `--require-native-alpha`；只有首次到达原生 Alpha/像素门禁并失败，第二轮才可使用一次 controlled-key `--key-color`；登录/CAPTCHA/下载中断只修复同一 attempt；
-4. 按 profile 所选 Ardot route 准备：MCP 才连接/OAuth，UI 则加载已声明的 Browser/Computer Use；`full/authoring/delivery` 打开当前精确 Ardot 目标，`bootstrap` 只打开 Ardot 中性入口；`migration` 不打开 Ardot；
-5. 需要微信的 `delivery/full` 按 mode 准备：API 连接并授权 publisher provider；UI 才打开 `https://mp.weixin.qq.com/`，若出现扫码/登录页，保持页面、说明需要的账号登录并等待用户；
-6. `delivery/full` 检测可选 `host.receipt.attest` callable 和受保护信任库；当前 Codex adapter 没有此 callable，不得在 profile 里凭空登记。无 signer 时选 `current-session-draft`：必须由同一 Ardot provider/session 真实重读精确 file/root，绑定 live export、candidate HTML 和 candidate report，实际写入微信后重新打开并逐章 readback；报告保持 `portable_audit_verified: false`。能力存在时可选 `portable-signed-audit`：宿主紧接 Ardot 真实工具响应签发最长十分钟的 `ardot-host-live-read-receipt-v1`，重新打开微信草稿后再签发 `wechat-host-saved-draft-receipt-v1`，绑定账号/草稿、终态 HTML/compile report 和 readback 全字节。缺 callable/信任库只阻断 portable 声明，不应单独阻断 current-session 草稿。
-7. `authoring/full/delivery` 解析水印 secret 引用并绑定验图能力；`migration/authoring/full` 绑定不透明生图、RGBA 与验图，原生 RGBA tool route 仅在 adapter 选中 `mode: tool` 时绑定。`migration` 不解析 secret，`bootstrap` 不要求验图、secret 或任何生图；
-8. 登录/授权后在同一 session 重新读取账号/file/root/权限。
+1. 已验证 installed release 的 registry census 字节；
+2. census 选中 adapter 的当前 SHA/bytes 与该 adapter 声明的 `generation_route_id`；
+3. 同 provider session 的 current-session migration result，或 host-finalized portable migration result；
+4. 每个 native/fallback attempt 的 canonical `org-wechat-article-image-request-v1` metadata；
+5. 该 attempt 的 create-once Browser ingestion report 与 exact target raw SHA/bytes。
 
-Ardot MCP OAuth 和 Ardot 网页登录是两个独立状态；其中一个成功不能代替另一个。宿主只打开 credential-free base/current target，不将登录后含 token 的 redirect/editor URL 写入 profile 或报告。`https://chatgpt.com/` 仅是无凭据登录入口，或 C2C 在 `long-chat` 且尚无 saved chat 时允许的新对话入口；正常工作要在同一内置 Browser 标签中恢复 `codex-with-chatgpt` 管理的 saved chat/project。恢复失败时修复 C2C session，不得用 base URL 另开对话。不将 saved chat URL、会话 ID 或登录后 URL 持久化到 profile、organization pack 或 binding report。
+仓库进程能重算上述结构与字节链，但不能将它升级为独立宿主鉴真。current-session 的真实语义是 operator/harness-trusted operational acceptance：prepare/register/pack/ready 四个 gate 都重验完整 migration/request/ingestion/raw/RGBA 链，并固定 `host_attested=false`、`portable=false`。`live_provider_acquisition_authority(callback)` 仅保留为可选 veto policy；`True` 不升级保证，`False`/异常阻断。普通 Python callback、`ContextVar` 或类型接口都不可被描述为不可伪造。
 
-## 当前会话 host probes
+另一条可携带路线由宿主签名 migration receipt，并由 `host.receipt.attest` 对 canonical acquisition core 签发 `org-wechat-provider-image-host-receipt-v1`，standalone CLI 只用仓库外受保护公钥库验签。core 明确排除后附 receipt 引用，避免哈希环；其余 runtime/attempt/ingestion/raw SHA 和 byte length 全部受签名。仓库不提供本地自签捷径，file JSON 也不能冒充 signer。缺少 signer 仅使 portable 升级不可用，不阻断完整当前会话链。完整 API 见 [provider-acquisition-authority.md](provider-acquisition-authority.md)。
 
-binding 通过后，按选中路线执行：
+## 6. migration 终态
 
-1. **Skill**：在宿主中加载对应阶段的仓库 Skill，核对实际 resource/path 和 SHA；不使用旧安装副本。
-2. **ChatGPT-web RGBA**：`migration` 必须执行报告的中性 probe；`authoring/full` 不重复它，但首张正式小组件原图仍必须由 ChatGPT 实际生成、下载 provider original PNG、记录 source SHA，再经 `scripts/prepare_micro_cutout.py` 产生 create-once RGBA/report，并由 `image.inspect` 读图。启动时的 C2C doctor、登录成功、会话恢复或页面预览只证明路线可用，不是中性 probe 或正式资产 live proof。
-3. **Migration RGBA truth boundary**：宿主路由必须显示当前 request、生成完成、同一会话 original-download 事件与本地 raw PNG 事实，并将 canonical host request metadata SHA（binding nonce/digest、route、attempt、mode、prompt SHA）关联到同一事件链；本地像素链必须显示安全 processor/report、RGBA8 门禁与 exact derivative 透明/浅/深三底验图。两列证据缺一都不通过；本地 JSON 永远不能自证 host route。首轮 `--require-native-alpha` 禁止暗中抠背景，第二轮才可使用一次 `--key-color`。
-4. **Image inspect**：在 `migration/authoring/full/delivery` 真实读图；`migration` 读 exact probe derivative，其他阶段读一张中性本地图像；`bootstrap` 不要求。只枚举 schema 不算。迁移中的像素 CLI 必须使用 `python3 -I -S scripts/secure_runner.py scripts/inspect_asset.py ...`。
-5. **Ardot**：`migration` 不访问 Ardot；`bootstrap` 只确认 `ardot.create` callable，随后仅创建空白设计/页来建立新目标；`full`/`authoring`/`delivery` 才先用 read-only file info/editor state 核对 canonical file ID 和精确 root ID，然后在同一 provider/session 确认 write/export callable 存在，且不为读探针创建节点。
-6. **WeChat**：官方 API provider 存在时优先 API；否则优先 Browser，缺 Browser 但当前 session 有完整 Computer Use route 时可用其作 UI 兜底，读取无 token 入口的当前可见账号与草稿权限。登录页返回 `needs_user_login`，不能标成通过。
-7. **Secret**：只在 `authoring/full/delivery` 返回 key present/format/length 和 private-root present/writable/non-symlink/outside-Git 布尔结果；不返回 key、稳定指纹或绝对路径。
-8. **Opaque ImageGen**：`migration/authoring/full` 在启动时验证宿主已绑定 `image.generate.opaque` callable；中性迁移 probe 只测 RGBA 链，不另生成 opaque smoke image。首张正式不透明资产必须实际生成、读图并记录资产 SHA；失败即阻断视觉阶段。
+### 当前会话（Codex Desktop 默认）
 
-所有宿主 probe 都必须来自本次会话。旧报告、article JSON、organization pack、重写时间戳或一段模型说明都不是证据。
+宿主组装 `org-wechat-migration-session-evidence-v1`，精确绑定 binding nonce/digest、trusted bundle、installed release、registry digest、adapter/route/prompt/request metadata、provider session/request/download id、ingestion report、derivative/report 和三底 inspection，再运行：
 
-## 路由与降级
+```bash
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/runtime_preflight.py" \
+  finalize-current-session-migration \
+  "$ORG_WECHAT_SESSION_ROOT/migration-binding-UNIQUE.json" \
+  "$ORG_WECHAT_SESSION_ROOT/migration-session-evidence-UNIQUE.json" \
+  --workspace-root "$ORG_WECHAT_RUNTIME_ROOT" \
+  --consumption-record "$ORG_WECHAT_SESSION_ROOT/migration-session-consumption-UNIQUE.json" \
+  --output "$ORG_WECHAT_SESSION_ROOT/migration-session-final-UNIQUE.json"
+```
 
-- Ardot：MCP 优先，其次 Browser，最后 Computer Use。缺少可读、可写或可导出能力时，不得用 HTML 冒充 Ardot 原生稿。
-- 微信：官方 API 优先，其次 Browser，最后 Computer Use。UI 路线只需 Browser 或 Computer Use 中一条在同一 provider/session 完整可用；只有 API 文档链接不等于 publisher provider 已存在。
-- 选中 MCP/API/Browser 路线已完整时，缺少 Computer Use 不阻断。
-- 微信未登录、账号不符或 Ardot file/root 不符时停止，等用户处理后重新 probe。
-- `current-session-draft` 必须在同一宿主轨迹中完成 Ardot reread、草稿写入、重开和逐章 readback；不得用该模式声称 portable audit。
-- 正式发布或群发仍需单独明确确认；自检不扩大写入或发布权限。
+成功结果是 `operational_ready: true`、`phase_ready: false`、`scope: same-host-session-only`。这是真实可执行的当前会话续跑合同，不是假绿；`phase_ready` 保留给宿主签名可携带结果。
 
-## 链接与 secret 安全
+### 宿主签名可携带迁移
 
-- 配置入口集中在 [`runtime/setup-links.json`](../runtime/setup-links.json)。
-- 其中 `https://chatgpt.com/` 只是启动时登录入口，或 C2C 批准的 `long-chat` 新对话入口，不是 runtime profile 的可持久 target；profile 中不登记 ChatGPT saved chat/project URL。
-- Ardot 文件 URL 只接受 `https://ardot.tencent.com/file/<数字>`，query 只允许 `node_id` 和 `web_only=1`。
-- 微信 profile 只保存无 token 的 `https://mp.weixin.qq.com/` 或 `https://api.weixin.qq.com/`。
-- 拒绝 URL userinfo、显式端口、fragment、相似恶意域名和 token/secret query。
-- 水印私密 registry 必须是已存在、可写、非 symlink 且位于所有 Git 仓库之外的目录。
-- profile/report 输出不覆盖已有文件，不跟随末级 symlink，不进入任何 Git 仓库的非忽略路径。
+只有 adapter 真实提供 `filesystem.access.lease` 与 `host.migration.finalize`、签名密钥在仓库进程外、宿主原子消费 nonce 时才运行：
 
-## 跨 harness adapter
+```bash
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/runtime_preflight.py" finalize-migration \
+  "$ORG_WECHAT_SESSION_ROOT/migration-binding-UNIQUE.json" HOST-RECEIPT.json \
+  --workspace-root "$ORG_WECHAT_RUNTIME_ROOT" \
+  --trust-store /PROTECTED/HOST-MIGRATION-PUBLIC-KEYS.json \
+  --consumption-record "$ORG_WECHAT_SESSION_ROOT/migration-consumption-UNIQUE.json" \
+  --output "$ORG_WECHAT_SESSION_ROOT/migration-final-UNIQUE.json"
+```
 
-迁移到其他 LLM/harness 时，保留上述十三个语义能力和 probe 真值边界，替换的只是 adapter route。新 adapter 至少要列出：实际 callable ID、provider、session 绑定方式、读/写/导出责任、登录探针、secret resolver 和无副作用限制。其 `image.generate.rgba` 必须声明真实稳定的 `generation_route_id` 与 `migration_probe_contract: neutral-rgba-route-probe-v1`，并在读取任何组织材料前完成当前 nonce/digest 绑定的迁移 probe。有可验收的原生 RGBA provider 时，adapter 可以将 `image.generate.rgba` 映射为 `mode: tool` 并将 `chatgpt.session` 明确标为 unavailable，但仍必须保留 `subject-cutout-rgba8-v1`、本地 processor、中性迁移 probe 和首张正式资产的独立 live proof。无 signer 的新 harness 可完成 `current-session-draft`，但必须在同一可观测宿主会话中完成 Ardot reread、精确 candidate binding、微信写入/重开/readback，且不得宣称可携带审计。需要 `portable-signed-audit` 的 harness 还必须实现宿主外 Ed25519 signer，分别对真实 Ardot read 与微信 saved-draft readback 签发 receipt，绑定 binding nonce/digest、目标 file/root/account/draft、实际 provider/session/request、交付字节和有效期。仓库只配置公钥。
+有效 receipt 才会产生 `phase_ready: true`。复制 JSON、重写时间、自报 host action、缺少签名或重放账本、任一路径/SHA/provider/session/request 不匹配都必须失败。
+
+## 7. 阶段和路由
+
+- `migration`：只需 opaque/RGBA/inspect，执行一次中性 RGBA route probe，不读组织、不打开 Ardot/微信、不要求水印 secret。
+- `bootstrap`：仅验证 `ardot.create`，创建空白设计后用精确 file/root 重跑目标阶段。
+- `authoring`：绑定生图、验图与 Ardot；如没有可嵌入水印载体，不因缺 secret 阻断。
+- `delivery`：不再生图，绑定当前 Ardot root 与目标公众号。
+- `full`：作者与交付的全链路。
+
+Ardot 路由优先 MCP，其次 Browser，最后 Computer Use。微信草稿路由可优先已验证本地 API publisher，其次 Browser，最后 Computer Use；正式发布还必须满足报告 `publication_routes` 矩阵的独立权限与确认/回读门禁。当前 `wechat_publisher.py` 只在执行时读取 `WECHAT_ACCESS_TOKEN` 和 `WECHAT_APP_ID`，未实现 AppSecret 换 token；凭据不进 registry/profile/report。UI 路由要先打开无 token 入口，只在实际登录墙出现时请用户登录，随后在同一 session 重读精确账号/file/root。
+
+可表达的 MCP 依赖已在三个 `agents/openai.yaml` 中声明；Browser、Computer Use、C2C、Node、本地 processor、API 凭据、host signer/lease 不是 MCP，统一由 [`runtime/non-mcp-dependencies.json`](../runtime/non-mcp-dependencies.json) 与 census/profile 管理。
+
+机器合同见 [`runtime/host-registry-census-contract.json`](../runtime/host-registry-census-contract.json)、[`runtime/migration-host-receipt-contract.json`](../runtime/migration-host-receipt-contract.json) 和 [`runtime/adapters/codex-desktop.json`](../runtime/adapters/codex-desktop.json)。

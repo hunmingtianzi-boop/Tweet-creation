@@ -2,7 +2,7 @@ interface:
   display_name: "Ardot WeChat Publisher"
   short_description: "Send reviewed Ardot articles to WeChat"
   brand_color: "#07C160"
-  default_prompt: "Use $ardot-wechat-publisher, pass the delivery binding gate and fresh host probes for the current Ardot root and visible target account, then save, reopen, and verify the draft with an explicit current-session or portable-signed assurance label; publish only with portable signed audit and my fresh confirmation."
+  default_prompt: "Use $ardot-wechat-publisher, pass the delivery binding gate and fresh host probes for the current Ardot root and exact target account, then save, reopen, and authoritatively verify the draft with an explicit current-session or portable-signed assurance label. Publish only after my fresh confirmation and the publisher's draft-readback and status gates. Current-session API publication requires an isolated trusted-harness policy hook and is never portable evidence; the checked-in Codex adapter must instead use the declared UI live route or a portable signed API route."
 dependencies:
   tools:
     - type: "mcp"

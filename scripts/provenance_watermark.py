@@ -36,6 +36,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
+try:
+    from safe_paths import (
+        SafePathError,
+        existing_directory,
+        existing_regular_file,
+        new_file_path,
+        require_within,
+    )
+except ImportError:  # package import in repository tests
+    from .safe_paths import (  # type: ignore
+        SafePathError,
+        existing_directory,
+        existing_regular_file,
+        new_file_path,
+        require_within,
+    )
+
 if __name__ == "__main__":
     from secure_runtime import require_secure_runtime
 
@@ -53,6 +70,7 @@ PAYLOAD_VERSION = 1
 PAYLOAD_PURPOSE = 1
 DEFAULT_KEY_ENV = "PROVENANCE_WATERMARK_KEY"
 PRIVATE_ROOT_ENV = "PROVENANCE_WATERMARK_PRIVATE_ROOT"
+RUNTIME_ROOT = Path(__file__).resolve().parent.parent
 
 # A 48 x 64 grid provides 3,072 distinct 8 x 8 blocks.  The compact 128-bit
 # payload consumes 1,920 of them at fifteen independent repetitions per bit.
@@ -161,7 +179,10 @@ def _decode_image_bytes(encoded_image: bytes, *, label: str) -> _LoadedImage:
 
 def _safe_load_image(path: str | Path, *, label: str) -> _LoadedImage:
     """Load one bounded, regular, non-symlink image into detached memory."""
-    source_path = Path(path)
+    try:
+        source_path = existing_regular_file(path, label=label)
+    except SafePathError as exc:
+        raise WatermarkError(str(exc)) from exc
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
     flags |= getattr(os, "O_NOFOLLOW", 0)
     try:
@@ -566,6 +587,103 @@ def assess_carrier(path: str | Path) -> dict[str, Any]:
     return report
 
 
+def _resized_carrier_payload(loaded: _LoadedImage) -> tuple[bytes, int, int, str]:
+    """Return the one canonical proportional carrier encoding for a loaded source."""
+
+    pixels = loaded.image.width * loaded.image.height
+    if pixels <= MAX_EMBED_PIXELS:
+        raise WatermarkError("carrier is already within the V1 embed ceiling; resizing is forbidden")
+    scale = math.sqrt(MAX_EMBED_PIXELS / pixels)
+    width = math.floor(loaded.image.width * scale)
+    height = math.floor(loaded.image.height * scale)
+    # Never lift one dimension independently: that silently distorts panoramic
+    # or portrait artwork and can make an ineligible source appear valid.
+    if width < MIN_WIDTH or height < MIN_HEIGHT or width * height < MIN_PIXELS:
+        raise WatermarkError("deterministic resize would produce an ineligible carrier")
+    if width * height > MAX_EMBED_PIXELS:
+        raise WatermarkError("deterministic proportional resize exceeded the embed ceiling")
+    source_ratio = loaded.image.width / loaded.image.height
+    carrier_ratio = width / height
+    ratio_tolerance = max(1 / width, 1 / height)
+    if abs(carrier_ratio / source_ratio - 1) > ratio_tolerance:
+        raise WatermarkError("deterministic resize did not preserve the source aspect ratio")
+    resized = loaded.image.resize((width, height), _RESAMPLING.LANCZOS)
+    buffer = io.BytesIO()
+    resized.save(buffer, format="PNG", optimize=True)
+    encoded = buffer.getvalue()
+    decoded = _decode_image_bytes(encoded, label="resized watermark carrier")
+    _require_opaque_png(decoded, label="resized watermark carrier")
+    return encoded, width, height, decoded.input_sha256
+
+
+def derive_resized_carrier(
+    input_path: str | Path,
+    output_path: str | Path,
+) -> dict[str, Any]:
+    """Create one deterministic, auditable carrier below the V1 embed ceiling."""
+
+    source_path = Path(input_path)
+    destination_path = Path(output_path)
+    _require_new_path(destination_path, label="resized watermark carrier")
+    if source_path.resolve() == destination_path.resolve():
+        raise WatermarkError("resized carrier must use a new derivative path")
+    if destination_path.suffix.lower() != ".png":
+        raise WatermarkError("resized carrier derivative must use a .png output path")
+    loaded = _safe_load_image(source_path, label="resized carrier source")
+    _require_opaque_png(loaded, label="resized carrier source")
+    encoded, width, height, carrier_sha256 = _resized_carrier_payload(loaded)
+    _publish_bytes_exclusive(
+        destination_path,
+        encoded,
+        label="resized watermark carrier",
+    )
+    return {
+        "schema_version": 1,
+        "kind": "org-wechat-watermark-carrier-resize-v1",
+        "applied": True,
+        "method": "lanczos-fit-max-embed-pixels-v1",
+        "max_embed_pixels": MAX_EMBED_PIXELS,
+        "source_sha256": loaded.input_sha256,
+        "source_width": loaded.image.width,
+        "source_height": loaded.image.height,
+        "carrier_sha256": carrier_sha256,
+        "carrier_width": width,
+        "carrier_height": height,
+    }
+
+
+def validate_resized_carrier_derivation(
+    original_path: str | Path,
+    carrier_path: str | Path,
+    lineage: dict[str, Any],
+) -> list[str]:
+    """Recompute a scaled carrier in memory and bind it to original bytes."""
+
+    errors: list[str] = []
+    try:
+        original = _safe_load_image(Path(original_path), label="original watermark source")
+        _require_opaque_png(original, label="original watermark source")
+        encoded, width, height, carrier_sha256 = _resized_carrier_payload(original)
+        carrier = _safe_load_image(Path(carrier_path), label="resized watermark carrier")
+        _require_opaque_png(carrier, label="resized watermark carrier")
+    except (OSError, WatermarkError) as exc:
+        return [str(exc)]
+    expected = {
+        "source_sha256": original.input_sha256,
+        "source_width": original.image.width,
+        "source_height": original.image.height,
+        "carrier_sha256": carrier_sha256,
+        "carrier_width": width,
+        "carrier_height": height,
+    }
+    for field, value in expected.items():
+        if lineage.get(field) != value:
+            errors.append(f"watermark carrier lineage {field} does not match deterministic derivation")
+    if carrier.input_sha256 != carrier_sha256 or carrier.input_sha256 != hashlib.sha256(encoded).hexdigest():
+        errors.append("resized watermark carrier bytes do not match deterministic derivation")
+    return errors
+
+
 def _public_detection_report(
     image: Image.Image,
     image_format: str | None,
@@ -787,8 +905,10 @@ def verify_transport_simulation(
 
 
 def _require_new_path(path: Path, *, label: str) -> None:
-    if os.path.lexists(path):
-        raise WatermarkError(f"{label} already exists; replacement is forbidden")
+    try:
+        new_file_path(path, label=label)
+    except SafePathError as exc:
+        raise WatermarkError(str(exc)) from exc
 
 
 def _publish_bytes_exclusive(
@@ -799,13 +919,14 @@ def _publish_bytes_exclusive(
     mode: int = 0o600,
 ) -> None:
     """Publish complete bytes with an exclusive link from a private dirfd."""
-    _require_new_path(destination_path, label=label)
     try:
-        destination_path.parent.mkdir(parents=True, exist_ok=True)
-        resolved_parent = destination_path.parent.resolve(strict=True)
-    except (OSError, RuntimeError) as exc:
+        safe_destination = new_file_path(destination_path, label=label)
+        resolved_parent = existing_directory(
+            safe_destination.parent, label=f"{label} parent"
+        )
+    except SafePathError as exc:
         raise WatermarkError(f"{label} directory cannot be prepared") from exc
-    actual_destination = resolved_parent / destination_path.name
+    actual_destination = resolved_parent / safe_destination.name
     _require_new_path(actual_destination, label=label)
     directory_flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
     directory_flags |= getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
@@ -899,6 +1020,7 @@ def embed_watermark(
     key_epoch: int = 1,
     wm_id: bytes | str | None = None,
     include_private_record: bool = False,
+    resized_carrier_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Create a new watermarked PNG derivative and verify it locally.
 
@@ -913,11 +1035,35 @@ def embed_watermark(
         raise WatermarkError("output must be a new derivative path; source overwrite is forbidden")
     if destination_path.suffix.lower() != ".png":
         raise WatermarkError("watermarked derivative must use a .png output path")
-    assessment = assess_carrier(source_path)
+    initial = _safe_load_image(source_path, label="carrier image")
+    carrier_path = source_path
+    if initial.image.width * initial.image.height > MAX_EMBED_PIXELS:
+        if resized_carrier_path is None:
+            assessment = assess_carrier(source_path)
+            raise CarrierRejectedError(assessment)
+        carrier_path = Path(resized_carrier_path)
+        carrier_derivation = derive_resized_carrier(source_path, carrier_path)
+    else:
+        if resized_carrier_path is not None:
+            raise WatermarkError("--resized-carrier is only valid when the source exceeds the embed ceiling")
+        carrier_derivation = {
+            "schema_version": 1,
+            "kind": "org-wechat-watermark-carrier-resize-v1",
+            "applied": False,
+            "method": "identity-within-max-embed-pixels-v1",
+            "max_embed_pixels": MAX_EMBED_PIXELS,
+            "source_sha256": initial.input_sha256,
+            "source_width": initial.image.width,
+            "source_height": initial.image.height,
+            "carrier_sha256": initial.input_sha256,
+            "carrier_width": initial.image.width,
+            "carrier_height": initial.image.height,
+        }
+    assessment = assess_carrier(carrier_path)
     if not assessment["eligible"]:
         raise CarrierRejectedError(assessment)
 
-    loaded_source = _safe_load_image(source_path, label="carrier image")
+    loaded_source = _safe_load_image(carrier_path, label="carrier image")
     if loaded_source.input_sha256 != assessment["input_sha256"]:
         raise WatermarkError("carrier image changed during eligibility assessment")
     _require_opaque_png(loaded_source, label="carrier image")
@@ -980,9 +1126,12 @@ def embed_watermark(
     if not detection["authenticated"] or detection["payload_fingerprint"] != expected_fingerprint:
         raise VerificationError("new watermark derivative failed local authentication")
     post_sha256 = detection["input_sha256"]
-    current_source = _safe_load_image(source_path, label="carrier image")
+    current_source = _safe_load_image(carrier_path, label="carrier image")
     if current_source.input_sha256 != loaded_source.input_sha256:
         raise WatermarkError("carrier image changed before derivative commit")
+    current_original = _safe_load_image(source_path, label="original carrier image")
+    if current_original.input_sha256 != initial.input_sha256:
+        raise WatermarkError("original carrier image changed before derivative commit")
     _publish_bytes_exclusive(
         destination_path,
         output_bytes,
@@ -1003,6 +1152,7 @@ def embed_watermark(
         "purpose": PAYLOAD_PURPOSE,
         "key_epoch": key_epoch,
         "carrier": assessment,
+        "carrier_derivation": carrier_derivation,
         "detection": detection,
         "transport_simulation": transport_simulation,
     }
@@ -1116,6 +1266,19 @@ _EMBED_PUBLIC_SCHEMA: dict[str, Any] = {
     "purpose": _INTEGER,
     "key_epoch": _INTEGER,
     "carrier": _CARRIER_PUBLIC_SCHEMA,
+    "carrier_derivation": {
+        "schema_version": _INTEGER,
+        "kind": _STRING,
+        "applied": _BOOLEAN,
+        "method": _STRING,
+        "max_embed_pixels": _INTEGER,
+        "source_sha256": _STRING,
+        "source_width": _INTEGER,
+        "source_height": _INTEGER,
+        "carrier_sha256": _STRING,
+        "carrier_width": _INTEGER,
+        "carrier_height": _INTEGER,
+    },
     "detection": _DETECTION_PUBLIC_SCHEMA,
     "transport_simulation": _TRANSPORT_SIMULATION_PUBLIC_SCHEMA,
 }
@@ -1187,6 +1350,11 @@ def _build_parser() -> argparse.ArgumentParser:
     embed.add_argument("output", type=Path)
     embed.add_argument("--key-epoch", type=int, default=1)
     embed.add_argument("--key-env", default=DEFAULT_KEY_ENV)
+    embed.add_argument(
+        "--resized-carrier",
+        type=Path,
+        help="create-once deterministic carrier path when input exceeds the V1 embed ceiling",
+    )
     embed.add_argument("--report", type=Path, help="write the public JSON report")
     embed.add_argument(
         "--private-record",
@@ -1233,22 +1401,21 @@ def _validated_private_record_path(path: Path) -> Path:
             f"--private-record requires environment variable {PRIVATE_ROOT_ENV}"
         )
     try:
-        private_root = Path(configured_root).expanduser().resolve(strict=True)
-    except (OSError, RuntimeError) as exc:
+        private_root = existing_directory(
+            configured_root, label="configured private-record root"
+        )
+    except SafePathError as exc:
         raise WatermarkError("configured private-record root is not accessible") from exc
-    if not private_root.is_dir():
-        raise WatermarkError("configured private-record root must be a directory")
     if _path_is_within_git(private_root):
         raise WatermarkError("configured private-record root must be outside every Git repository")
     try:
-        target_parent = path.parent.expanduser().resolve(strict=True)
-    except (OSError, RuntimeError) as exc:
+        target = require_within(path, private_root, label="private-record path")
+        target_parent = existing_directory(
+            target.parent, label="private-record parent directory"
+        )
+    except SafePathError as exc:
         raise WatermarkError("private-record parent directory must already exist") from exc
-    target = target_parent / path.name
-    try:
-        target.relative_to(private_root)
-    except ValueError as exc:
-        raise WatermarkError("private-record path must remain inside the configured private root") from exc
+    target = target_parent / target.name
     if _path_is_within_git(target_parent):
         raise WatermarkError("private-record path must be outside every Git repository")
     _require_new_path(target, label="private record")
@@ -1256,23 +1423,48 @@ def _validated_private_record_path(path: Path) -> Path:
 
 
 def _validate_cli_paths(arguments: argparse.Namespace) -> None:
+    try:
+        arguments.input = existing_regular_file(arguments.input, label="input")
+    except SafePathError as exc:
+        raise WatermarkError(str(exc)) from exc
     if arguments.private_record is not None:
         arguments.private_record = _validated_private_record_path(arguments.private_record)
     named_paths: list[tuple[str, Path]] = [("input", arguments.input)]
     if arguments.command == "embed":
+        try:
+            arguments.output = new_file_path(
+                arguments.output,
+                label="watermarked image output",
+                forbidden_root=RUNTIME_ROOT,
+            )
+        except SafePathError as exc:
+            raise WatermarkError(str(exc)) from exc
         named_paths.append(("output", arguments.output))
-        _require_new_path(arguments.output, label="watermarked image output")
+        if arguments.resized_carrier is not None:
+            try:
+                arguments.resized_carrier = new_file_path(
+                    arguments.resized_carrier,
+                    label="resized watermark carrier",
+                    forbidden_root=RUNTIME_ROOT,
+                )
+            except SafePathError as exc:
+                raise WatermarkError(str(exc)) from exc
+            named_paths.append(("resized_carrier", arguments.resized_carrier))
     if arguments.report is not None:
+        try:
+            arguments.report = new_file_path(
+                arguments.report,
+                label="public report",
+                forbidden_root=RUNTIME_ROOT,
+            )
+        except SafePathError as exc:
+            raise WatermarkError(str(exc)) from exc
         named_paths.append(("report", arguments.report))
-        _require_new_path(arguments.report, label="public report")
     if arguments.private_record is not None:
         named_paths.append(("private_record", arguments.private_record))
     resolved: dict[Path, str] = {}
     for label, path in named_paths:
-        try:
-            normalized = path.resolve()
-        except (OSError, RuntimeError) as exc:
-            raise WatermarkError(f"{label} path cannot be resolved safely") from exc
+        normalized = path
         if normalized in resolved:
             raise WatermarkError(f"{label} path must differ from {resolved[normalized]} path")
         resolved[normalized] = label
@@ -1291,6 +1483,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 key_env=arguments.key_env,
                 key_epoch=arguments.key_epoch,
                 include_private_record=arguments.private_record is not None,
+                resized_carrier_path=arguments.resized_carrier,
             )
         else:
             report = detect_watermark(

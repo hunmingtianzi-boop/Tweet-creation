@@ -8,8 +8,31 @@ import json
 from pathlib import Path
 from typing import Any
 
+if __name__ == "__main__":
+    from secure_runtime import require_secure_runtime
+
+    require_secure_runtime("scripts/build_visual_directions.py")
+
 from orgs import load_pack, validate_pack
 from workflow_quality import calibration_state
+
+try:
+    from safe_paths import (
+        SafePathError,
+        existing_directory,
+        new_file_path,
+        write_text_create_once,
+    )
+except ImportError:  # pragma: no cover - package import fallback
+    from .safe_paths import (  # type: ignore
+        SafePathError,
+        existing_directory,
+        new_file_path,
+        write_text_create_once,
+    )
+
+
+RUNTIME_ROOT = Path(__file__).resolve().parent.parent
 
 
 CALIBRATION_EXCLUSION = (
@@ -189,12 +212,22 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     try:
-        plan = build_directions(args.org.resolve(), args.article_type)
-    except ValueError as exc:
+        organization = existing_directory(args.org, label="organization pack")
+        output = new_file_path(
+            args.output,
+            label="visual directions output",
+            forbidden_root=RUNTIME_ROOT,
+        )
+        plan = build_directions(organization, args.article_type)
+        write_text_create_once(
+            output,
+            json.dumps(plan, ensure_ascii=False, indent=2) + "\n",
+            label="visual directions output",
+            forbidden_root=RUNTIME_ROOT,
+        )
+    except (SafePathError, ValueError) as exc:
         raise SystemExit(str(exc)) from exc
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({"created": str(args.output.resolve()), "directions": len(plan["directions"]), "full_article_allowed": plan["full_article_allowed"]}, ensure_ascii=False, indent=2))
+    print(json.dumps({"created": str(output), "directions": len(plan["directions"]), "full_article_allowed": plan["full_article_allowed"]}, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

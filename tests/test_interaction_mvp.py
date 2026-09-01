@@ -6,7 +6,10 @@ import json
 import re
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from PIL import Image
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -15,7 +18,24 @@ SPEC = importlib.util.spec_from_file_location("interaction_mvp", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
 SPEC.loader.exec_module(MODULE)
+import wechat_interaction_policy as interaction_policy  # noqa: E402
 TEST_FALLBACK_HASH = "sha256:" + "a" * 64
+
+
+class FakeCurrentSessionMobileAuthority:
+    def authorize_mobile_evidence(self, challenge):
+        return interaction_policy.CurrentSessionMobileAuthorization(
+            profile_sha256=challenge.profile_sha256,
+            target_account_id=challenge.target_account_id,
+            draft_id=challenge.draft_id,
+            candidate_sha256=challenge.candidate_sha256,
+            readback_sha256=challenge.readback_sha256,
+            host_session_id=challenge.host_session_id,
+            device_session_ids=challenge.device_session_ids,
+            evidence_sha256s=challenge.evidence_sha256s,
+            authorization_event_id="live-mobile-authorization-test",
+            authorized_at=datetime.now(timezone.utc).isoformat(),
+        )
 
 
 class InteractionMvpTests(unittest.TestCase):
@@ -67,41 +87,92 @@ class InteractionMvpTests(unittest.TestCase):
             fallback = (output / "b-dynamic" / "static-fallback-fragment.html").read_text(
                 encoding="utf-8"
             )
+            evidence_dir = output / "mobile-evidence"
+            evidence_dir.mkdir()
+            host_trace = evidence_dir / "host-trace.json"
+            host_trace.write_text('{"session":"mobile-test"}', encoding="utf-8")
+            host_trace_sha = "sha256:" + hashlib.sha256(
+                host_trace.read_bytes()
+            ).hexdigest()
+            now = datetime.now(timezone.utc)
+            profile_path = evidence_dir / "profile.json"
+            clients = []
+            for index, platform in enumerate(("ios", "android"), start=1):
+                screenshot = evidence_dir / f"{platform}-preview.png"
+                Image.new(
+                    "RGB",
+                    (390, 844),
+                    (20 * index, 40 * index, 60 * index),
+                ).save(screenshot)
+                clients.append(
+                    {
+                        "platform": platform,
+                        "wechat_version": f"test-version-{platform}",
+                        "result": "passed",
+                        "preview_evidence": {
+                            "path": screenshot.name,
+                            "sha256": "sha256:"
+                            + hashlib.sha256(screenshot.read_bytes()).hexdigest(),
+                            "byte_length": screenshot.stat().st_size,
+                            "captured_at": now.isoformat(),
+                            "device_session_id": f"device-{platform}-session",
+                        },
+                    }
+                )
             profile = {
-                "schema_version": 1,
+                "schema_version": 2,
+                "source": "wechat-host-mobile-compatibility-profile-v2",
+                "signature_algorithm": None,
+                "assurance_scope": "current-session-live",
+                "key_id": None,
+                "nonce": "12" * 16,
                 "policy_version": MODULE.POLICY_VERSION,
                 "status": "passed",
                 "target_account_id": "account-under-test",
                 "draft_id": "draft-under-test",
-                "verified_at": "2026-08-28T18:03:00+08:00",
-                "valid_until": "2099-08-28T18:03:00+08:00",
-                "probe_sha256": "a" * 64,
-                "readback_sha256": "b" * 64,
-                "clients": [
-                    {
-                        "platform": "ios",
-                        "wechat_version": "test-version-ios",
-                        "result": "passed",
-                        "preview_evidence": "evidence/ios-preview.png",
-                    },
-                    {
-                        "platform": "android",
-                        "wechat_version": "test-version-android",
-                        "result": "passed",
-                        "preview_evidence": "evidence/android-preview.png",
-                    },
-                ],
+                "verified_at": now.isoformat(),
+                "valid_until": (now + timedelta(hours=1)).isoformat(),
+                "probe_sha256": "sha256:"
+                + hashlib.sha256(candidate.encode()).hexdigest(),
+                "readback_sha256": "sha256:"
+                + hashlib.sha256(candidate.encode()).hexdigest(),
+                "clients": clients,
+                "host_session_id": "mobile-test-session",
+                "host_trace_sha256": host_trace_sha,
+                "signature": None,
             }
+            profile_path.write_text(json.dumps(profile), encoding="utf-8")
+            file_only = MODULE.audit_transport(
+                candidate,
+                fallback_html=fallback,
+                readback_html=candidate,
+                mobile_profile=profile,
+                target_account_id="account-under-test",
+                mobile_profile_path=profile_path,
+            )
+            self.assertFalse(file_only["dynamic_eligible"])
+            self.assertTrue(
+                any(
+                    "in-process live host authority" in item
+                    for item in file_only["certification_errors"]
+                ),
+                file_only,
+            )
+
             report = MODULE.audit_transport(
                 candidate,
                 fallback_html=fallback,
                 readback_html=candidate,
                 mobile_profile=profile,
                 target_account_id="account-under-test",
+                mobile_profile_path=profile_path,
+                current_session_mobile_authority=FakeCurrentSessionMobileAuthority(),
             )
             self.assertTrue(report["dynamic_eligible"], report["certification_errors"])
             self.assertEqual(report["status"], "certified")
             self.assertEqual(report["recommended_payload"], "dynamic")
+            self.assertEqual(report["mobile_assurance_scope"], "current-session-live")
+            self.assertFalse(report["mobile_portable_verified"])
 
     def test_legacy_details_and_cross_id_smil_are_rejected(self) -> None:
         legacy = MODULE.audit_transport(

@@ -4,6 +4,12 @@
   "harness": "codex-desktop",
   "truth_boundary": "routing-only; the host tool trace is required for live proof",
   "capabilities": {
+    "host.registry.export": {
+      "route": "unavailable",
+      "availability": "unavailable",
+      "requires": [],
+      "reason": "Codex Desktop exposes no authoritative host registry-export callable; use the non-attested current-session census initializer and retain all later live probes"
+    },
     "image.generate.opaque": {
       "route": "tool",
       "requires": ["image_gen__imagegen"]
@@ -28,6 +34,14 @@
       "migration_probe_contract": "neutral-rgba-route-probe-v1",
       "generation_route_id": "chatgpt-web-image-route-v1",
       "live_proof": "migration-neutral-probe-plus-independent-first-official-asset-lineage"
+    },
+    "image.provider.acquire.authority": {
+      "route": "optional-trusted-harness-policy-hook",
+      "availability": "unavailable",
+      "requires": [],
+      "reason": "Codex Desktop exposes no optional provider-acquisition policy hook. This does not block current-session operational authoring: formal v2 assets use the completed migration plus canonical request, create-once ingestion, exact raw bytes, and RGBA pixel gates, with host_attested=false and portable=false. A future Python hook may veto but can never upgrade assurance; portable-signed assets still require separate verified Ed25519 receipts.",
+      "can_veto": true,
+      "can_upgrade_assurance": false
     },
     "image.inspect": {
       "route": "tool",
@@ -78,21 +92,60 @@
         "mcp__node_repl__js"
       ]
     },
-    "wechat.draft": {
-      "route": "browser",
-      "status": "requires-live-login-and-account-probe",
+    "browser.download.ingest": {
+      "route": "browser-observed-path+local-create-once",
+      "assurance": "current-session-only",
       "requires": [
         "browser:control-in-app-browser",
-        "mcp__node_repl__js"
+        "mcp__node_repl__js",
+        "scripts/ingest_browser_download.py"
       ],
-      "api_provider": "not-bound"
+      "processor": "scripts/ingest_browser_download.py",
+      "truth_boundary": "binds the current Browser trace identifiers to source/target byte hashes but does not sign or independently attest the browser event"
+    },
+    "wechat.draft": {
+      "route": "verified-local-api-client",
+      "status": "requires-runtime-secret-resolution-and-live-account-probe",
+      "requires": ["scripts/wechat_publisher.py"],
+      "processor": "scripts/wechat_publisher.py",
+      "credential_policy": "Execution-time credential and account identifier references are documented in runtime/non-mcp-dependencies.json and never stored in registry, profile, report, or URL; this CLI does not implement application-secret exchange"
+    },
+    "wechat.current-session-readback": {
+      "route": "browser-current-session-capture+local-create-once-ingestion",
+      "availability": "available",
+      "requires": [
+        "browser:control-in-app-browser",
+        "mcp__node_repl__js",
+        "scripts/ingest_wechat_readback_capture.py"
+      ],
+      "processor": "scripts/ingest_wechat_readback_capture.py",
+      "assurance": "current-session-only-nonportable",
+      "truth_boundary": "opens the exact API-saved draft in the current Browser session and binds real 390px PNG bytes to the API reread; it is neither browser-event attestation nor publication authority"
+    },
+    "wechat.current-session-authority": {
+      "route": "unavailable",
+      "availability": "unavailable",
+      "requires": [],
+      "reason": "The local WeChat draft API client is file-driven and cannot consume a fresh in-process user confirmation plus authoritative account/draft readback; wechat.draft never implies publication authority"
     },
     "host.receipt.attest": {
       "route": "unavailable",
       "availability": "unavailable",
       "requires": [],
-      "reason": "Codex Desktop has no callable host receipt signer in this runtime; current-session-draft remains available, while portable-signed-audit and formal publish/group-send remain blocked",
+      "reason": "Codex Desktop has no callable host receipt signer in this runtime; this blocks only a portable signed-audit claim. Draft work remains available. Publication requires an independent wechat.current-session-authority or a separately declared live UI route; the file-driven draft API is insufficient.",
       "trust_boundary": "host-owned-private-key-and-protected-trust-store"
+    },
+    "host.migration.finalize": {
+      "route": "unavailable",
+      "availability": "unavailable",
+      "requires": [],
+      "reason": "Codex Desktop has no host-owned migration finalizer/signing callable or replay ledger in this runtime"
+    },
+    "filesystem.access.lease": {
+      "route": "unavailable",
+      "availability": "unavailable",
+      "requires": [],
+      "reason": "Codex Desktop has no callable per-run filesystem lease that can enforce the source-zero allowlist and deny old organization/example/output state"
     },
     "secret.resolve": {
       "route": "environment",

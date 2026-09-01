@@ -7,8 +7,14 @@ import argparse
 import hashlib
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
+
+if __name__ == "__main__":
+    from secure_runtime import require_secure_runtime
+
+    require_secure_runtime("scripts/validate_workflow_attribution.py")
 
 from asset_quality import file_sha256
 from workflow_quality import (
@@ -16,9 +22,24 @@ from workflow_quality import (
     WORKFLOW_ATTRIBUTION_TEXT,
     WORKFLOW_ATTRIBUTION_TEXT_SHA256,
 )
+try:
+    from safe_paths import (
+        SafePathError,
+        existing_regular_file,
+        new_file_path,
+        write_text_create_once,
+    )
+except ImportError:  # package import in repository tests
+    from .safe_paths import (  # type: ignore
+        SafePathError,
+        existing_regular_file,
+        new_file_path,
+        write_text_create_once,
+    )
 
 
 ARDOT_REVISION_ALGORITHM = "ardot-root-revision-v1"
+RUNTIME_ROOT = Path(__file__).resolve().parent.parent
 
 
 def read_object(path: Path, label: str) -> dict[str, Any]:
@@ -412,18 +433,44 @@ def main() -> int:
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
     try:
+        handoff = existing_regular_file(args.handoff, label="handoff")
+        saved_draft_visible_text = (
+            existing_regular_file(
+                args.saved_draft_visible_text,
+                label="saved draft visible text",
+            )
+            if args.saved_draft_visible_text is not None
+            else None
+        )
+        report_path = (
+            new_file_path(
+                args.report,
+                label="workflow attribution report",
+                forbidden_root=RUNTIME_ROOT,
+            )
+            if args.report is not None
+            else None
+        )
         report = validate_workflow_attribution_handoff(
-            args.handoff,
-            saved_draft_visible_text_path=args.saved_draft_visible_text,
+            handoff,
+            saved_draft_visible_text_path=saved_draft_visible_text,
             require_readback=args.require_readback,
         )
-    except ValueError as exc:
+    except (SafePathError, ValueError) as exc:
         print(json.dumps({"ok": False, "errors": [str(exc)]}, ensure_ascii=False))
         return 2
     payload = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
-    if args.report:
-        args.report.parent.mkdir(parents=True, exist_ok=True)
-        args.report.write_text(payload, encoding="utf-8")
+    if report_path is not None:
+        try:
+            write_text_create_once(
+                report_path,
+                payload,
+                label="workflow attribution report",
+                forbidden_root=RUNTIME_ROOT,
+            )
+        except SafePathError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
     print(payload, end="")
     return 0 if report["ok"] else 1
 

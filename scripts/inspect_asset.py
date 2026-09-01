@@ -7,6 +7,11 @@ import argparse
 import json
 from pathlib import Path
 
+if __name__ == "__main__":
+    from secure_runtime import require_secure_runtime
+
+    require_secure_runtime("scripts/inspect_asset.py")
+
 from asset_quality import ROLE_ASPECT_RATIOS, validate_micro_asset
 
 

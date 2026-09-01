@@ -32,6 +32,11 @@ Use this order for every eligible asset:
    report. When a raw-ID record is needed, set
    `PROVENANCE_WATERMARK_PRIVATE_ROOT` to an existing directory outside every
    Git repository and write the record beneath it.
+   When a normal source such as `1024x1536` exceeds the bounded V1 embed ceiling,
+   supply a fresh `--resized-carrier` PNG path. The tool creates one deterministic
+   proportional LANCZOS derivative, records original/carrier SHA and dimensions,
+   and embeds only that carrier. It never lifts the short edge independently;
+   a resize that would fall below eligibility or an extreme aspect source fails.
 3. Detect the payload locally and run the fixed full-frame transport simulation
    (`width 390 when larger`, then JPEG quality 75). Do not register the
    derivative unless both results are `payload_authenticated` and the
@@ -55,24 +60,78 @@ Check the exact local final asset:
 
 ```bash
 audit_dir="$(mktemp -d)"
-python3 -I -S scripts/secure_runner.py scripts/provenance_watermark.py detect \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/provenance_watermark.py" detect \
   "/absolute/path/background-final.png" \
   --report "$audit_dir/local-detect.json"
 ```
 
-After saving the WeChat draft, download the exact hosted object returned by the
-draft and detect that file without screenshotting, cropping, or transcoding it:
+After saving the WeChat draft, use the locked publisher readback. It obtains
+the exact hosted URL from the authoritative API response, downloads the full
+object with the built-in bounded downloader, and runs the same detector. The
+formal path does not depend on `curl` and does not accept a hand-entered URL.
+
+For a nonportable current-session API draft, first create the authoritative raw
+capture, use the bound Browser/Computer Use route to open the exact draft and
+capture each chapter as an actual 390 px PNG, ingest those bytes with
+`ingest_wechat_readback_capture.py`, and pass its create-once bundle back to the
+publisher:
 
 ```bash
-curl --fail --location --silent --show-error \
-  -H 'Accept: image/png,image/jpeg' \
-  "$WECHAT_CDN_URL" --output "$audit_dir/wechat-hosted-image"
-python3 -I -S scripts/secure_runner.py scripts/provenance_watermark.py detect \
-  "$audit_dir/wechat-hosted-image" \
-  --report "$audit_dir/cdn-detect.json"
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/wechat_publisher.py" \
+  --store DELIVERY/publisher.sqlite3 capture-raw DRAFT_MEDIA_ID \
+  --target-account appid:EXACT_APPID \
+  --output "$EXTERNAL_READBACK_ROOT/raw-draft-UNIQUE.json"
+
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/ingest_wechat_readback_capture.py" \
+  HANDOFF_JSON OUTPUT/candidate-report.json \
+  "$EXTERNAL_READBACK_ROOT/raw-draft-UNIQUE.json" \
+  --runtime-profile "$ORG_WECHAT_SESSION_ROOT/delivery-profile-UNIQUE.json" \
+  --runtime-report "$ORG_WECHAT_SESSION_ROOT/delivery-preflight-report-UNIQUE.json" \
+  --registry-census "$ORG_WECHAT_SESSION_ROOT/registry-census-UNIQUE.json" \
+  --target-account appid:EXACT_APPID --draft-id DRAFT_MEDIA_ID \
+  --article-revision 'sha256:EXACT_TRANSPORT_REVISION' \
+  --host-session-id CURRENT_HOST_SESSION_ID \
+  --capture-tool-id scripts/ingest_wechat_readback_capture.py \
+  --observed-url https://mp.weixin.qq.com/cgi-bin/appmsg \
+  --nonce FRESH_CURRENT_SESSION_NONCE_AT_LEAST_32_CHARS \
+  --chapter-capture CHAPTER_ID /EXTERNAL/chapter.png RFC3339_TIME EVENT_ID \
+  --output-dir "$EXTERNAL_READBACK_ROOT/ingested-capture-UNIQUE"
+
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/wechat_publisher.py" \
+  --store DELIVERY/publisher.sqlite3 capture-readback \
+  HANDOFF_JSON OUTPUT/candidate-report.json DRAFT_MEDIA_ID \
+  --target-account appid:EXACT_APPID \
+  --output-dir "$EXTERNAL_READBACK_ROOT/readback-UNIQUE" \
+  --capture-bundle "$EXTERNAL_READBACK_ROOT/ingested-capture-UNIQUE/capture-bundle.json"
 ```
 
-A successful detector exits `0` and reports both
+Repeat `--chapter-capture` for every chapter. The live browser may use a token
+query internally, but that query is never persisted; the ingestor accepts only
+a credential-free WeChat URL with no query or fragment. All raw/bundle/readback
+destinations are external, symlink-free, parent-precreated, and create-once.
+The bundle is explicitly `host_attested=false`, `portable=false`, and
+`publication_authority=false`; no signer is needed to finish the draft
+readback, and this evidence cannot authorize `freepublish`.
+
+The portable signed route remains separate and uses its host screenshot
+manifest instead of `--capture-bundle`:
+
+```bash
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/wechat_publisher.py" \
+  --store DELIVERY/publisher.sqlite3 capture-readback \
+  HANDOFF_JSON OUTPUT/compile-report.json DRAFT_MEDIA_ID \
+  --target-account appid:EXACT_APPID \
+  --output-dir "$EXTERNAL_READBACK_ROOT/portable-readback-UNIQUE" \
+  --screenshots DELIVERY/portable-signed-wechat-chapter-screenshots.json
+```
+
+A successful readback records every eligible carrier as `transport_verified`
+in `watermark-carrier-census.json`; its bound detector result contains both
 `status: payload_authenticated` and `authenticated: true`. For the local final,
 `input_sha256` must equal the embed report's `post_sha256`. WeChat may re-encode
 the hosted object, so its byte SHA may differ; compare `algorithm`,

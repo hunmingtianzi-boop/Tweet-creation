@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "kind": "org-wechat-migration-host-receipt-contract",
+  "receipt_kind": "org-wechat-migration-probe-host-receipt-v1",
+  "signature": "ed25519 over canonical JSON excluding signature",
+  "maximum_ttl_seconds": 600,
+  "required_bindings": [
+    "binding_nonce",
+    "binding_digest",
+    "trusted_bundle_sha256",
+    "installed_release_sha256",
+    "registry_digest",
+    "registry_census_sha256",
+    "adapter_sha256",
+    "generation_route_id",
+    "migration_probe_contract",
+    "filesystem_policy_sha256",
+    "source_binding_report_sha256"
+  ],
+  "required_probe_evidence": [
+    "prompt_sha256",
+    "host_request_metadata_sha256",
+    "provider_request_id",
+    "provider_session_id",
+    "observed_download_id",
+    "download_ingestion absolute external-session path/sha256/source-target-sha256/bytes for every selected migration case",
+    "raw_png absolute external-session path/sha256/bytes/mime/downloaded_at",
+    "derivative_png absolute external-session path/sha256/pixel_sha256/mode",
+    "migration-only derivation_report path/sha256/config_sha256 with article_asset_authority=false/registerable=false/portable=false/carry_forward=false",
+    "attempt 2 only: create-once attempt 1 failure path/sha256 whose exact raw and ingestion bytes independently reproduce an allowed native-Alpha gate failure",
+    "transparent/light/dark exact-derivative inspection"
+  ],
+  "replay_policy": "The signer must atomically consume the binding nonce in a host-owned ledger. The repository also writes one create-once consumption record, but that local record is only defense in depth."
+}

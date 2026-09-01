@@ -1,5 +1,8 @@
 # ChatGPT web image generation contract
 
+Resolve the same-release shared runtime and external create-once artifact root
+through [runtime-location.md](runtime-location.md) before using any command.
+
 Contract ID: `chatgpt-web-image-route-v1`
 
 Output contracts:
@@ -50,12 +53,18 @@ must match both `migration_probe_contract: neutral-rgba-route-probe-v1` and the
 adapter's actual stable `generation_route_id`.
 
 The binding report emits an exact direct-transparency prompt, one controlled-key
-fallback prompt, both prompt SHAs, per-attempt processor commands, and a
-nonce-specific directory under `output/runtime/migration-probes/`. Attempt 1
+fallback prompt, both prompt SHAs, per-attempt absolute
+`prepare_migration_probe.py` commands, and a
+nonce-specific directory under the caller's explicit external
+`ORG_WECHAT_SESSION_ROOT`. It must never write beneath the installed Skill. Attempt 1
 requires a provider-original PNG with genuine native Alpha and runs the
 processor with `--require-native-alpha`; it cannot silently remove a background.
-Attempt 2 is allowed only when attempt 1 reaches the native-Alpha/cutout/pixel
-gate and fails, and it alone may use `--key-color`. Login, CAPTCHA, 2FA,
+This processor accepts only the fixed migration article/slot/role and emits
+`migration_only=true`, `article_asset_authority=false`, `registerable=false`,
+`portable=false`, and `carry_forward=false`. Attempt 2 is allowed only when the
+same locked processor created an attempt-1 failure report whose raw/ingestion
+bytes independently reproduce an allowed native-Alpha gate failure; both
+current-session and portable finalizers revalidate that chain. It alone may use `--key-color`. Login, CAPTCHA, 2FA,
 consent, generation interruption, or download repair resumes the same attempt
 and never spends the fallback.
 
@@ -66,17 +75,18 @@ associated with the same current provider request, completed generation, and
 original-download event. This avoids visual/semantic prompt pollution while
 still preventing an old raw file or report from satisfying the current run.
 
-Passing requires two independent layers:
+Passing the current-session migration requires two bound layers:
 
 - `local_pixel_chain_verified`: downloaded PNG bytes, prompt SHA, secure
   processor/config/report chain, true RGBA8, tight Alpha bounds, and the final
   pixel gate;
-- `host_route_verified`: the current provider request, completed generation,
+- `current_session_route_bound`: the current provider request, completed generation,
   same current Browser/provider session, visible provider-original download
   event, local PNG magic/MIME/byte length/SHA/time, and host inspection of the
   exact derivative on transparent, light, and dark surfaces.
 
-Neither layer implies the other. A profile field, local report, copied file,
+Neither layer implies the other, and neither cryptographically attests the
+Browser event. A profile field, local report, copied file,
 old host trace, model-authored receipt, C2C status, screenshot, preview Canvas,
 clipboard image, or remote URL cannot make the migration ready. The repository
 report remains `phase_ready: false`; only the current host trace can close the
@@ -155,19 +165,43 @@ The raw file is retained even when a derivative is required.
 
 ## RGBA derivation and acceptance
 
-Run the create-once cutout processor through the repository secure runner:
+Before derivation, every formal article attempt must have an
+`org-wechat-provider-image-acquisition-v2` record. It binds the verified
+installed-release census, exact adapter bytes, adapter-declared route, the
+same-session migration result, canonical request metadata, a create-once
+Browser ingestion report, and its exact raw target SHA/bytes. The migration
+probe keeps its separate nonce-bound contract; it is never reused as this
+article record.
+
+The command shape below shows the stronger portable invocation. It requires a
+portable migration receipt plus provider receipt and supplies
+`--portable-trust-store /PROTECTED/PUBLIC-KEYS.json`:
 
 ```bash
-python3 -I -S scripts/secure_runner.py scripts/prepare_micro_cutout.py \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/prepare_micro_cutout.py" \
   RAW_PNG DERIVED_PNG \
   --role ROLE \
   --article-id ARTICLE_ID \
   --asset-slot-id ASSET_SLOT_ID \
   --prompt-sha256 sha256:PROMPT_SHA \
   --generation-route chatgpt-web-image-route-v1 \
+  --acquisition-report ACQUISITION_V2.json \
+  --portable-trust-store /PROTECTED/PUBLIC-KEYS.json \
   --require-native-alpha \
   --report DERIVATION_REPORT.json
 ```
+
+For the normal Codex Desktop current-session route, the same CLI or Python API
+may run without `--portable-trust-store` after the completed same-session
+migration, canonical request, create-once ingestion, exact raw-byte, and RGBA
+pixel gates pass. The result is operationally accepted but fixed to
+`host_attested=false` and `portable=false`. The compatibility function
+`live_provider_acquisition_authority(callback)` is only an optional
+trusted-harness veto policy. `True` leaves assurance unchanged; `False` or an
+exception blocks. A plain Python callback, including `lambda challenge: True`,
+cannot create a signature, host attestation, or portability claim. A JSON field
+named `callback`, `authorized`, or `passed` likewise has no assurance effect.
 
 This is the mandatory first attempt. It rejects RGB and all-opaque RGBA without
 trying to infer a background. Only after that route fails may the single
@@ -192,7 +226,8 @@ After derivation, including for a migration probe, run the inspection through
 the locked secure runner:
 
 ```bash
-python3 -I -S scripts/secure_runner.py scripts/inspect_asset.py \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/inspect_asset.py" \
   DERIVED_PNG --role ROLE
 ```
 
@@ -239,9 +274,21 @@ accepted only when its own evidence chain contains:
 5. cutout derivative and derivation report when the role requires RGBA;
 6. final pixel gate plus visual inspection.
 
+For a four-role article kit, each report uses the exact `kit.<role>` slot. The
+layout-ready gate requires four distinct accepted raw SHA values, provider
+request IDs, acquisition authority bindings, and derivative SHA values. A
+single provider original copied to another path or recropped for another role
+is rejected even when every individual PNG passes Alpha inspection.
+
 C2C update/doctor output, connector status, `workspace_info`, a ChatGPT text
 reply, a page preview, a prior migration probe, or a model-authored JSON receipt
 cannot replace this chain.
+
+An article record with a complete current-session chain is operationally
+accepted as operator/harness-trusted even when no callback or signer exists.
+Incomplete chains are `structural-only` and cannot produce/register a formal
+derivative or make `ready_for_layout` true. A configured callback denial or
+exception blocks. A copied v1 ledger is always rejected for new formal assets.
 
 ## Harness portability
 

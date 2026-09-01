@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import binascii
 import base64
+import hashlib
 import json
 import os
 import re
@@ -11,9 +12,13 @@ import sys
 import tempfile
 import unittest
 import zlib
+from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 from unittest import mock
+
+from PIL import Image
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -22,21 +27,35 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from asset_quality import (  # noqa: E402
     MICRO_CUTOUT_EVIDENCE_FIELDS,
     file_sha256,
+    validate_background_family_assets,
     validate_micro_asset,
 )
 from build_ardot_manifest import build_manifest  # noqa: E402
 from build_storyboard import build_storyboard_plan  # noqa: E402
 from build_visual_directions import build_directions  # noqa: E402
 from build_visual_kit import build_visual_kit_plan  # noqa: E402
+from build_visual_review import canonical_input_file  # noqa: E402
 from compile_wechat import compile_article  # noqa: E402
+from ingest_browser_download import ingest_download  # noqa: E402
 from orgs import (  # noqa: E402
     build_asset_plan,
+    build_parser,
     command_init,
     command_register_asset,
+    load_pack,
+    matching_assets,
     scaffold,
     validate_pack,
+    validate_cutout_derivation_report,
     write_json,
 )
+from pack_assets import PackAssetResolutionError, resolve_pack_asset  # noqa: E402
+from prepare_micro_cutout import prepare_micro_cutout, validate_acquisition_report  # noqa: E402
+from provider_acquisition_authority import (  # noqa: E402
+    article_request_metadata,
+    live_provider_acquisition_authority,
+)
+import provider_acquisition_authority as authority_module  # noqa: E402
 from provenance_watermark import embed_watermark, measure_psnr  # noqa: E402
 from workflow_quality import (  # noqa: E402
     WORKFLOW_ATTRIBUTION_MARKER,
@@ -48,6 +67,9 @@ from workflow_quality import (  # noqa: E402
     style_grammar_errors,
     style_grammar_sha256,
     validate_interaction_plan,
+    validate_visual_review,
+    derive_section_density_metrics,
+    source_content_sha256,
     watermark_evidence_from_report,
     watermark_inventory,
 )
@@ -62,6 +84,8 @@ ROLES = (
 
 TEST_WATERMARK_KEY = b"workflow-test-watermark-key-material-v1"
 TEST_WATERMARK_ENV = "base64:" + base64.b64encode(TEST_WATERMARK_KEY).decode("ascii")
+MICRO_PROMPT_SHA = "sha256:" + "a" * 64
+MICRO_ROUTE = "chatgpt-web-image-route-v1"
 
 
 def write_png(
@@ -109,6 +133,203 @@ def write_png(
         + chunk(b"IDAT", zlib.compress(b"".join(rows), 9))
         + chunk(b"IEND", b"")
     )
+
+
+def write_acquisition_report(
+    path: Path,
+    source: Path,
+    *,
+    article_id: str,
+    asset_slot_id: str,
+    prompt_sha256: str,
+    generation_route: str,
+    provider_request_id: str | None = None,
+) -> None:
+    evidence_root = source.parents[2] / "runtime-evidence"
+    evidence_root.mkdir(parents=True, exist_ok=True)
+    adapter = ROOT / "runtime" / "adapters" / "codex-desktop.json"
+    adapter_sha = "sha256:" + file_sha256(adapter)
+    census = evidence_root / "registry-census.json"
+    if not census.exists():
+        write_json(
+            census,
+            {
+                "schema_version": 1,
+                "kind": "org-wechat-host-registry-census-v1",
+                "harness": {"session_id": "host-session", "adapter_sha256": adapter_sha},
+                "installed_release": {"release_sha256": "7" * 64},
+                "registry_digest": "sha256:" + "8" * 64,
+            },
+        )
+    census_sha = "sha256:" + file_sha256(census)
+    nonce = "N" * 32
+    digest = "sha256:" + "9" * 64
+    migration = evidence_root / "migration-current-session.json"
+    if not migration.exists():
+        write_json(
+            migration,
+            {
+                "schema_version": 1,
+                "kind": "org-wechat-migration-current-session-report-v1",
+                "binding_nonce": nonce,
+                "binding_digest": digest,
+                "ok": True,
+                "operational_ready": True,
+                "phase_ready": False,
+                "assurance": "current-session-observed-path-not-portable-signed",
+                "local": {
+                    "installed_registry_verified": True,
+                    "registry_census_sha256": census_sha,
+                    "installed_release_sha256": "7" * 64,
+                    "registry_digest": "sha256:" + "8" * 64,
+                },
+                "resolved_harness": {"adapter_sha256": adapter_sha},
+                "resolved_capabilities": {
+                    "rgba_cutout_generation": {"generation_route_id": generation_route}
+                },
+                "continuation": {
+                    "scope": "same-host-session-only",
+                    "provider_session_id": "test-session",
+                    "adapter_sha256": adapter_sha,
+                    "generation_route_id": generation_route,
+                    "installed_release_sha256": "7" * 64,
+                    "registry_digest": "sha256:" + "8" * 64,
+                },
+            },
+        )
+    payload = source.read_bytes()
+    provider_root = source.parents[2] / "provider-downloads"
+    provider_root.mkdir(exist_ok=True)
+    provider_source = provider_root / (source.stem + "-provider.png")
+    provider_source.write_bytes(payload)
+    source.unlink()
+    ingestion = path.with_name(path.stem + "-ingestion.json")
+    if ingestion.exists():
+        ingestion.unlink()
+    request_id = provider_request_id or f"request-{asset_slot_id}"
+    download_id = f"download-{asset_slot_id}"
+    metadata = article_request_metadata(
+        binding_nonce=nonce,
+        binding_digest=digest,
+        article_id=article_id,
+        asset_slot_id=asset_slot_id,
+        attempt_index=1,
+        acquisition_mode="native-alpha",
+        generation_route_id=generation_route,
+        prompt_sha256=prompt_sha256,
+    )
+    metadata_sha = "sha256:" + hashlib.sha256(
+        json.dumps(metadata, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    ingest_download(
+        provider_source,
+        source,
+        ingestion,
+        source.parent,
+        binding_nonce=nonce,
+        binding_digest=digest,
+        provider_session_id="test-session",
+        provider_request_id=request_id,
+        observed_download_id=download_id,
+        request_metadata_sha256=metadata_sha,
+    )
+    completed_at = datetime.now(timezone.utc)
+    write_json(
+        path,
+        {
+            "schema_version": 2,
+            "kind": "org-wechat-provider-image-acquisition-v2",
+            "article_id": article_id,
+            "asset_slot_id": asset_slot_id,
+            "prompt_sha256": prompt_sha256,
+            "generation_route": generation_route,
+            "host_trace": {
+                "provider": "test-host-image-provider",
+                "session_id": "test-session",
+                "download_id": download_id,
+                "completed_at": completed_at.isoformat(),
+            },
+            "attempts": [
+                {
+                    "attempt_index": 1,
+                    "mode": "native-alpha",
+                    "outcome": "accepted",
+                    "provider_request_id": request_id,
+                    "observed_download_id": download_id,
+                    "request_metadata_sha256": metadata_sha,
+                    "download_ingestion": {
+                        "location": str(ingestion),
+                        "sha256": "sha256:" + file_sha256(ingestion),
+                    },
+                    "downloaded_at": (completed_at - timedelta(minutes=1)).isoformat(),
+                    "source_file_sha256": "sha256:" + file_sha256(source),
+                }
+            ],
+            "runtime_binding": {
+                "adapter": {"location": str(adapter), "sha256": adapter_sha},
+                "registry_census": {"location": str(census), "sha256": census_sha},
+                "migration_result": {
+                    "location": str(migration),
+                    "sha256": "sha256:" + file_sha256(migration),
+                },
+            },
+        },
+    )
+
+
+@lru_cache(maxsize=1)
+def derived_micro_fixture_bytes() -> dict[str, bytes]:
+    """Build the expensive canonical cutouts once, then copy immutable bytes."""
+
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary).resolve()
+        assets_root = root / "assets"
+        generated_root = assets_root / "generated"
+        derived_root = assets_root / "derived"
+        # Mirror a freshly initialized organization pack: the cutout processor
+        # consumes only pre-created, real asset directories and must not create
+        # either parent as a side effect.
+        assets_root.mkdir()
+        generated_root.mkdir()
+        derived_root.mkdir()
+        for role_index, (role, asset_id, width, height, *_) in enumerate(ROLES):
+            stem = asset_id.replace(".", "-")
+            source = generated_root / f"{stem}-source.png"
+            acquisition = generated_root / f"{stem}-acquisition.json"
+            output = derived_root / f"{stem}.png"
+            report = derived_root / f"{stem}-cutout.json"
+            write_png(
+                source,
+                round(width * 1.35),
+                round(height * 1.35),
+                color=(30 + role_index * 24, 100 + role_index * 13, 180 - role_index * 17),
+                pattern_strength=22,
+            )
+            write_acquisition_report(
+                acquisition,
+                source,
+                article_id="fresh-article",
+                asset_slot_id=f"kit.{role}",
+                prompt_sha256=MICRO_PROMPT_SHA,
+                generation_route=MICRO_ROUTE,
+            )
+            prepare_micro_cutout(
+                source,
+                output,
+                report,
+                role=role,
+                article_id="fresh-article",
+                asset_slot_id=f"kit.{role}",
+                prompt_sha256=MICRO_PROMPT_SHA,
+                generation_route=MICRO_ROUTE,
+                acquisition_report_path=acquisition,
+                require_native_alpha=True,
+            )
+        return {
+            path.relative_to(root).as_posix(): path.read_bytes()
+            for path in root.rglob("*")
+            if path.is_file()
+        }
 
 
 def make_pack(root: Path) -> Path:
@@ -192,6 +413,7 @@ def make_pack(root: Path) -> Path:
         "notes": "Only current raw materials were used.",
         "visual_reference_policy": "source-zero",
         "visual_input_source_ids": ["source.current-materials"],
+        "visual_input_allowed_roots": ["inputs/current"],
         "excluded_visual_reference_kinds": [
             "prior-article-layout",
             "prior-ardot-file",
@@ -200,6 +422,11 @@ def make_pack(root: Path) -> Path:
         ],
         "isolation_reviewed_at": "2026-08-27T09:00:00+08:00",
     }
+    current_input = pack / "inputs" / "current"
+    current_input.mkdir(parents=True)
+    (current_input / "brief.txt").write_text(
+        "current organization facts and current article source material\n", encoding="utf-8"
+    )
     documents["sources.json"] = {
         "schema_version": 1,
         "organization_id": "fresh-organization",
@@ -208,7 +435,8 @@ def make_pack(root: Path) -> Path:
                 "id": "source.current-materials",
                 "title": "Current raw materials",
                 "kind": "user-supplied",
-                "locator": "current-input/",
+                "locator": "inputs/current",
+                "content_sha256": source_content_sha256(current_input),
             }
         ],
         "facts": [],
@@ -235,6 +463,13 @@ def make_pack(root: Path) -> Path:
             "visual_role": "illustrative-atmosphere",
             "background_family_id": "fresh-action-family",
             "background_variant": "master",
+            "background_family_lineage": {
+                "family_id": "fresh-action-family",
+                "master_asset_id": "background.master",
+                "generation_route": "test-opaque-image-route-v1",
+                "family_prompt_sha256": "sha256:" + "b" * 64,
+                "variant_prompt_sha256": "sha256:" + "c" * 64,
+            },
         },
         {
             "id": "background.companion",
@@ -247,26 +482,83 @@ def make_pack(root: Path) -> Path:
             "visual_role": "illustrative-atmosphere",
             "background_family_id": "fresh-action-family",
             "background_variant": "companion",
+            "background_family_lineage": {
+                "family_id": "fresh-action-family",
+                "master_asset_id": "background.master",
+                "generation_route": "test-opaque-image-route-v1",
+                "family_prompt_sha256": "sha256:" + "b" * 64,
+                "variant_prompt_sha256": "sha256:" + "d" * 64,
+            },
         },
     ]
-    for role, asset_id, width, height, *_ in ROLES:
-        filename = asset_id.replace(".", "-") + ".png"
-        asset_path = generated / filename
-        # A synthetic micro fixture must contain real subject variation; a flat
-        # colored ellipse is deliberately rejected as a matte/backplate.
-        write_png(asset_path, width, height, pattern_strength=22)
+    for relative, payload in derived_micro_fixture_bytes().items():
+        destination = pack / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(payload)
+    for role, asset_id, _, _, *_ in ROLES:
+        stem = asset_id.replace(".", "-")
+        source_path = pack / "assets" / "generated" / f"{stem}-source.png"
+        acquisition_path = pack / "assets" / "generated" / f"{stem}-acquisition.json"
+        asset_path = pack / "assets" / "derived" / f"{stem}.png"
+        report_path = pack / "assets" / "derived" / f"{stem}-cutout.json"
+        # Cached pixel bytes are rebound to this pack's exact create-once raw
+        # path and current-session migration/request/ingestion chain. This is
+        # intentionally operator-trusted, non-attested and non-portable.
+        write_acquisition_report(
+            acquisition_path,
+            source_path,
+            article_id="fresh-article",
+            asset_slot_id=f"kit.{role}",
+            prompt_sha256=MICRO_PROMPT_SHA,
+            generation_route=MICRO_ROUTE,
+        )
+        derivation_payload = json.loads(report_path.read_text(encoding="utf-8"))
+        authority_validation = validate_acquisition_report(
+            acquisition_path,
+            source_path,
+            article_id="fresh-article",
+            asset_slot_id=f"kit.{role}",
+            prompt_sha256=MICRO_PROMPT_SHA,
+            generation_route=MICRO_ROUTE,
+            expected_mode="native-alpha",
+            key_color=None,
+            enforce_current_freshness=True,
+            require_authority=True,
+        )
+        assert authority_validation["ok"], authority_validation
+        generation = derivation_payload["generation"]
+        generation["acquisition_report_sha256"] = "sha256:" + file_sha256(acquisition_path)
+        generation["authority_binding_sha256"] = authority_validation["authority"][
+            "binding_sha256"
+        ]
+        generation["authority_scope_at_creation"] = (
+            "current-session-operator-harness-trusted"
+        )
+        generation["acquisition_assurance"] = (
+            "operator-harness-trusted-current-session"
+        )
+        generation["operationally_accepted"] = True
+        generation["host_attested"] = False
+        generation["portable"] = False
+        generation["portable_host_receipt_verified"] = False
+        generation["requires_live_authority_revalidation"] = False
+        generation["requires_current_session_chain_revalidation"] = True
+        generation["policy_hook_evaluated"] = True
+        write_json(report_path, derivation_payload)
         quality = validate_micro_asset(asset_path, role)
         assert quality["ok"], quality
         inspection = quality["inspection"]
+        derivation = validate_cutout_derivation_report(pack, report_path, asset_path, role)
+        assert derivation["ok"], derivation
         assets.append(
             {
                 "id": asset_id,
                 "kind": "illustration",
                 "title": role,
-                "location": f"assets/generated/{filename}",
+                "location": f"assets/derived/{stem}.png",
                 "style": "article-specific",
                 "uses": ["introduction"],
-                "origin": "generated-illustrative",
+                "origin": "derived",
                 "visual_role": "article-micro",
                 "roles": [role],
                 "generated_for_articles": ["fresh-article"],
@@ -274,13 +566,14 @@ def make_pack(root: Path) -> Path:
                     "alpha_verified": True,
                     "cutout_verified": True,
                     "sha256": inspection["sha256"],
-                    "width_px": width,
-                    "height_px": height,
+                    "width_px": inspection["width_px"],
+                    "height_px": inspection["height_px"],
                     "transparent_pixel_ratio": inspection["transparent_pixel_ratio"],
                     "cutout_evidence": {
                         key: inspection[key] for key in MICRO_CUTOUT_EVIDENCE_FIELDS
                     },
                 },
+                "cutout": derivation["lineage"],
             }
         )
     documents["assets.json"] = {
@@ -421,7 +714,11 @@ def make_article(root: Path, pack: Path) -> Path:
             "thesis": blocks[index].get("title", blocks[index].get("paragraphs", [""])[0]),
             "composition": f"composition-{index + 1}",
             "visual_intent": f"current-material visual action {index + 1}",
-            "density_intent": "compact-editorial with no accidental empty region",
+            "density_intent": {
+                "mode": "compact-editorial",
+                "target_content_occupancy_ratio": 0.74,
+                "intentional_whitespace": False,
+            },
             "block_indices": [index],
         }
         for index, chapter_id in enumerate(chapter_ids)
@@ -758,6 +1055,186 @@ def add_visual_review(article_path: Path) -> Path:
             "instances": inventory_instances,
         },
     )
+    census_sections = []
+    for index, screenshot in enumerate(screenshots):
+        height = screenshot["height_px"]
+        body_nodes = []
+        for paragraph_index, y in enumerate((20, 80, 140, 222), 1):
+            body_nodes.append(
+                {
+                    "node_id": f"{screenshot['node_id']}:body-{paragraph_index}",
+                    "kind": "text",
+                    "role": "body-copy",
+                    "visible": True,
+                    "editable": True,
+                    "plain_text": f"Body paragraph {paragraph_index}",
+                    "font_size_px": 16,
+                    "line_height_px": 24.64,
+                    "letter_spacing_px": -0.1,
+                    "font_weight": 400,
+                    "text_color": "#111111",
+                    "background_color": "#FFFFFF",
+                    "bounds": {"x": 30, "y": y, "width": 330, "height": 50},
+                }
+            )
+        nodes = [
+            *body_nodes,
+            {
+                "node_id": f"{screenshot['node_id']}:evidence-image",
+                "kind": "image",
+                "visible": True,
+                "bounds": {"x": 0, "y": 290, "width": 390, "height": height - 290},
+            },
+        ]
+        if index < 3:
+            nodes.append(
+                {
+                    "node_id": f"{screenshot['node_id']}:edge-break",
+                    "kind": "vector-accent",
+                    "visible": True,
+                    "bounds": {"x": -8, "y": 276, "width": 36, "height": 42},
+                }
+            )
+        if index == 0:
+            nodes.extend(
+                [
+                    {
+                        "node_id": "41:1",
+                        "kind": "text",
+                        "role": "art-type",
+                        "visible": True,
+                        "editable": True,
+                        "plain_text": "第一步从一个真实问题开始。",
+                        "font_size_px": 39,
+                        "line_height_px": 42,
+                        "letter_spacing_px": 0,
+                        "font_weight": 700,
+                        "line_count": 2,
+                        "text_color": "#FFFFFF",
+                        "background_color": "#1E64A8",
+                        "bounds": {"x": 22, "y": 8, "width": 260, "height": 78},
+                    },
+                    {
+                        "node_id": "41:1a",
+                        "kind": "text",
+                        "role": "art-type-layer",
+                        "visible": True,
+                        "editable": True,
+                        "plain_text": "真实问题",
+                        "font_size_px": 30,
+                        "line_height_px": 34,
+                        "letter_spacing_px": 0,
+                        "font_weight": 500,
+                        "line_count": 1,
+                        "text_color": "#E9C46A",
+                        "background_color": "#1E64A8",
+                        "bounds": {"x": 180, "y": 54, "width": 150, "height": 38},
+                    },
+                    {
+                        "node_id": "42:1",
+                        "kind": "vector-accent",
+                        "visible": True,
+                        "bounds": {"x": 10, "y": 8, "width": 8, "height": 82},
+                    },
+                ]
+            )
+        elif index == 1:
+            nodes.extend(
+                [
+                    {
+                        "node_id": "41:2",
+                        "kind": "text",
+                        "role": "art-type",
+                        "visible": True,
+                        "editable": True,
+                        "plain_text": "不同能力沿同一条路径汇合。",
+                        "font_size_px": 32,
+                        "line_height_px": 36,
+                        "letter_spacing_px": 0,
+                        "font_weight": 700,
+                        "line_count": 1,
+                        "text_color": "#FFFFFF",
+                        "background_color": "#1E64A8",
+                        "bounds": {"x": 24, "y": 8, "width": 300, "height": 38},
+                    },
+                    {
+                        "node_id": "41:2a",
+                        "kind": "text",
+                        "role": "art-type-layer",
+                        "visible": True,
+                        "editable": True,
+                        "plain_text": "能力路径",
+                        "font_size_px": 32,
+                        "line_height_px": 36,
+                        "letter_spacing_px": 0,
+                        "font_weight": 400,
+                        "line_count": 1,
+                        "text_color": "#E9C46A",
+                        "background_color": "#1E64A8",
+                        "bounds": {"x": 196, "y": 48, "width": 142, "height": 38},
+                    },
+                ]
+            )
+        section = {
+            "node_id": screenshot["node_id"],
+            "article_order": index,
+            "container_style": "open",
+            "bounds": {"x": 0, "y": 0, "width": 390, "height": height},
+            "visible_descendant_count": len(nodes),
+            "nodes": nodes,
+        }
+        census_sections.append(section)
+    census_path = qa / "article-node-census.json"
+    write_json(
+        census_path,
+        {
+            "schema_version": 1,
+            "source": "ardot-article-node-census",
+            "article_root_node_id": "30:0",
+            "revision_hash": article["interaction_plan"].get("ardot_revision_hash", "0" * 64),
+            "article_width_px": 390,
+            "complete_descendant_census": True,
+            "visible_descendant_count": sum(len(item["nodes"]) for item in census_sections),
+            "sections": census_sections,
+        },
+    )
+    density_samples = []
+    for screenshot, section in zip(screenshots, census_sections):
+        density_samples.append(
+            {
+                "node_id": screenshot["node_id"],
+                "chapter_id": screenshot["chapter_id"],
+                "screenshot_sha256": screenshot["sha256"],
+                **derive_section_density_metrics(section),
+            }
+        )
+    receipt_path = qa / "ardot-host-export-receipt.json"
+    write_json(
+        receipt_path,
+        {
+            "schema_version": 1,
+            "kind": "ardot-host-export-receipt-v1",
+            "assurance_level": "current-session-host-trace",
+            "host_enforced": False,
+            "provider": "ardot-remote-test-host",
+            "session_id": "current-test-session",
+            "request_id": "ardot-export-request-1",
+            "tool_id": "mcp__ardot_remote__export_nodes",
+            "file_url": "https://ardot.example/fresh",
+            "article_root_node_id": "30:0",
+            "revision_hash": article["interaction_plan"].get("ardot_revision_hash", "0" * 64),
+            "node_census_sha256": file_sha256(census_path),
+            "screenshot_sha256s": sorted(item["sha256"] for item in screenshots),
+            "exported_at": "2026-08-27T10:00:00+08:00",
+        },
+    )
+    check_evidence = {
+        "status": "pass",
+        "evidence_node_ids": [item["node_id"] for item in screenshots],
+        "screenshot_sha256s": sorted(item["sha256"] for item in screenshots),
+        "reviewer": {"kind": "host-assisted-human", "id": "fixture-reviewer"},
+        "reviewed_at": "2026-08-27T10:09:00+08:00",
+    }
     review = {
         "schema_version": 3,
         "article_id": article["article_id"],
@@ -768,6 +1245,10 @@ def add_visual_review(article_path: Path) -> Path:
             "captured_at": "2026-08-27T10:00:00+08:00",
             "article_root_node_id": "30:0",
             "revision_hash": article["interaction_plan"].get("ardot_revision_hash", "0" * 64),
+            "node_census_file": "qa/article-node-census.json",
+            "node_census_sha256": file_sha256(census_path),
+            "host_export_receipt_file": "qa/ardot-host-export-receipt.json",
+            "host_export_receipt_sha256": file_sha256(receipt_path),
         },
         "screenshots": screenshots,
         "micro_component_layout": {
@@ -784,7 +1265,7 @@ def add_visual_review(article_path: Path) -> Path:
             "samples": density_samples,
         },
         "checks": {
-            name: "pass"
+            name: dict(check_evidence)
             for name in (
                 "subject_relevance", "style_coherence", "no_clipped_ornaments", "scale_variation",
                 "photo_illustration_harmony", "no_generic_ai_decoration", "no_unexplained_labels",
@@ -809,11 +1290,14 @@ def add_visual_review(article_path: Path) -> Path:
 class FreshWorkflowTestCase(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
+        self.live_authority = live_provider_acquisition_authority(lambda challenge: True)
+        self.live_authority.__enter__()
         self.pack = make_pack(self.root)
         self.article = make_article(self.root, self.pack)
 
     def tearDown(self) -> None:
+        self.live_authority.__exit__(None, None, None)
         self.temp.cleanup()
 
 
@@ -821,6 +1305,263 @@ class OrganizationPackTests(FreshWorkflowTestCase):
     def test_fresh_pack_validates_without_bundled_examples(self) -> None:
         report = validate_pack(self.pack)
         self.assertTrue(report["ok"], report["errors"])
+
+    def test_pack_asset_resolver_accepts_normal_in_pack_file(self) -> None:
+        resolved = resolve_pack_asset(
+            self.pack,
+            "assets/generated/background-master.png",
+        )
+        self.assertEqual(
+            resolved,
+            self.pack / "assets" / "generated" / "background-master.png",
+        )
+        self.assertTrue(resolved.is_file())
+
+    def test_pack_asset_locations_reject_absolute_empty_dot_and_parent_segments(self) -> None:
+        assets_path = self.pack / "assets.json"
+        original = json.loads(assets_path.read_text(encoding="utf-8"))
+        master_path = self.pack / "assets" / "generated" / "background-master.png"
+        outside = self.root / "outside.png"
+        write_png(outside, 390, 780, alpha=False)
+        unsafe_locations = (
+            str(master_path),
+            "",
+            ".",
+            "../outside.png",
+            "assets/generated/../generated/background-master.png",
+        )
+        for location in unsafe_locations:
+            with self.subTest(location=location):
+                document = json.loads(json.dumps(original))
+                document["assets"][0]["location"] = location
+                write_json(assets_path, document)
+                report = validate_pack(self.pack)
+                self.assertFalse(report["ok"])
+                self.assertTrue(
+                    any(
+                        "asset background.master location" in error
+                        for error in report["errors"]
+                    ),
+                    report["errors"],
+                )
+        write_json(assets_path, original)
+
+    def test_pack_asset_rejects_parent_directory_symlink_even_to_same_pack(self) -> None:
+        actual = self.pack / "asset-store"
+        actual.mkdir()
+        write_png(actual / "master.png", 390, 780, alpha=False)
+        linked_parent = self.pack / "assets" / "linked-store"
+        linked_parent.symlink_to(actual, target_is_directory=True)
+        assets_path = self.pack / "assets.json"
+        document = json.loads(assets_path.read_text(encoding="utf-8"))
+        document["assets"][0]["location"] = "assets/linked-store/master.png"
+        write_json(assets_path, document)
+
+        with mock.patch("orgs.validate_background_family_assets") as pixel_gate:
+            report = validate_pack(self.pack)
+        self.assertFalse(report["ok"])
+        self.assertTrue(
+            any("cannot traverse a parent symlink" in error for error in report["errors"]),
+            report["errors"],
+        )
+        pixel_gate.assert_not_called()
+
+    def test_pack_asset_rejects_target_symlink_even_to_same_pack(self) -> None:
+        actual = self.pack / "assets" / "generated" / "master-real.png"
+        write_png(actual, 390, 780, alpha=False)
+        linked = self.pack / "assets" / "generated" / "master-linked.png"
+        linked.symlink_to(actual)
+        assets_path = self.pack / "assets.json"
+        document = json.loads(assets_path.read_text(encoding="utf-8"))
+        document["assets"][0]["location"] = "assets/generated/master-linked.png"
+        write_json(assets_path, document)
+
+        report = validate_pack(self.pack)
+        self.assertFalse(report["ok"])
+        self.assertTrue(
+            any("cannot traverse a target symlink" in error for error in report["errors"]),
+            report["errors"],
+        )
+        matches = matching_assets(load_pack(self.pack), "introduction", {"background"})
+        self.assertNotIn("background.master", {item["id"] for item in matches})
+        with self.assertRaisesRegex(ValueError, "target symlink"):
+            build_manifest(self.article, self.pack)
+
+    def test_pack_root_symlink_is_rejected_before_pack_or_asset_read(self) -> None:
+        alias = self.root / "other-organization-alias"
+        alias.symlink_to(self.pack, target_is_directory=True)
+        with self.assertRaisesRegex(PackAssetResolutionError, "pack root cannot traverse"):
+            load_pack(alias)
+        report = validate_pack(alias)
+        self.assertFalse(report["ok"])
+        self.assertTrue(
+            any("pack root cannot traverse" in error for error in report["errors"]),
+            report["errors"],
+        )
+        with self.assertRaisesRegex(PackAssetResolutionError, "pack root cannot traverse"):
+            compile_article(self.article, alias, self.root / "unsafe-output", check=True)
+
+    def test_register_asset_uses_same_safe_location_resolver(self) -> None:
+        parser = build_parser()
+        outside = self.root / "outside-photo.png"
+        write_png(outside, 320, 240, alpha=False)
+        for location in (str(outside), "../outside-photo.png"):
+            with self.subTest(location=location):
+                args = parser.parse_args(
+                    [
+                        "register-asset",
+                        str(self.pack),
+                        "--id",
+                        "photo.unsafe",
+                        "--kind",
+                        "photo",
+                        "--title",
+                        "Unsafe photo",
+                        "--location",
+                        location,
+                        "--origin",
+                        "photographed",
+                        "--style",
+                        "documentary",
+                    ]
+                )
+                with self.assertRaisesRegex(SystemExit, "relative|\.\.'"):
+                    command_register_asset(args)
+
+        safe = self.pack / "assets" / "photos" / "safe-photo.png"
+        write_png(safe, 320, 240, alpha=False)
+        args = parser.parse_args(
+            [
+                "register-asset",
+                str(self.pack),
+                "--id",
+                "photo.safe",
+                "--kind",
+                "photo",
+                "--title",
+                "Safe photo",
+                "--location",
+                "assets/photos/safe-photo.png",
+                "--origin",
+                "photographed",
+                "--style",
+                "documentary",
+            ]
+        )
+        with mock.patch("builtins.print"):
+            command_register_asset(args)
+        registered = json.loads((self.pack / "assets.json").read_text(encoding="utf-8"))[
+            "assets"
+        ]
+        self.assertIn("photo.safe", {item["id"] for item in registered})
+
+    def test_source_zero_rejects_old_output_locator_even_inside_allowed_root(self) -> None:
+        organization_path = self.pack / "organization.json"
+        sources_path = self.pack / "sources.json"
+        organization = json.loads(organization_path.read_text(encoding="utf-8"))
+        sources = json.loads(sources_path.read_text(encoding="utf-8"))
+        old_output = self.pack / "inputs" / "current" / "output" / "prior-article"
+        old_output.mkdir(parents=True)
+        (old_output / "page.png").write_bytes(b"not-a-visual-input")
+        organization["provenance"]["visual_input_source_ids"] = ["source.old-output"]
+        sources["sources"].append(
+            {
+                "id": "source.old-output",
+                "title": "Old article export",
+                "kind": "user-supplied",
+                "locator": "inputs/current/output/prior-article",
+                "content_sha256": source_content_sha256(old_output),
+            }
+        )
+        write_json(organization_path, organization)
+        write_json(sources_path, sources)
+        report = validate_pack(self.pack)
+        self.assertFalse(report["ok"])
+        self.assertTrue(
+            any("legacy/example material" in error for error in report["errors"]),
+            report["errors"],
+        )
+
+    def test_source_zero_rejects_tampered_current_material_bytes(self) -> None:
+        current = self.pack / "inputs" / "current" / "brief.txt"
+        current.write_text("bytes changed after approval\n", encoding="utf-8")
+        report = validate_pack(self.pack)
+        self.assertFalse(report["ok"])
+        self.assertTrue(
+            any("does not match current material bytes" in error for error in report["errors"]),
+            report["errors"],
+        )
+
+    def test_source_zero_rejects_parent_symlink_even_when_target_stays_in_pack(self) -> None:
+        inputs = self.pack / "inputs"
+        real_inputs = self.pack / "material-root"
+        inputs.rename(real_inputs)
+        inputs.symlink_to(real_inputs, target_is_directory=True)
+        report = validate_pack(self.pack)
+        self.assertFalse(report["ok"])
+        self.assertTrue(
+            any("cannot traverse a symlink" in error for error in report["errors"]),
+            report["errors"],
+        )
+
+    def test_source_zero_rejects_common_chinese_old_draft_directory(self) -> None:
+        organization_path = self.pack / "organization.json"
+        sources_path = self.pack / "sources.json"
+        organization = json.loads(organization_path.read_text(encoding="utf-8"))
+        sources = json.loads(sources_path.read_text(encoding="utf-8"))
+        old_material = self.pack / "inputs" / "current" / "往期" / "成稿"
+        old_material.mkdir(parents=True)
+        (old_material / "copy.txt").write_text("old article copy", encoding="utf-8")
+        organization["provenance"]["visual_input_source_ids"] = ["source.old-cn"]
+        sources["sources"].append(
+            {
+                "id": "source.old-cn",
+                "title": "Old Chinese draft",
+                "kind": "user-supplied",
+                "locator": "inputs/current/往期/成稿",
+                "content_sha256": source_content_sha256(old_material),
+            }
+        )
+        write_json(organization_path, organization)
+        write_json(sources_path, sources)
+        report = validate_pack(self.pack)
+        self.assertFalse(report["ok"])
+        self.assertTrue(
+            any("legacy/example material" in error for error in report["errors"]),
+            report["errors"],
+        )
+
+    def test_source_zero_rejects_declared_prior_article_kind(self) -> None:
+        sources_path = self.pack / "sources.json"
+        sources = json.loads(sources_path.read_text(encoding="utf-8"))
+        sources["sources"][0]["kind"] = "prior-article-layout"
+        write_json(sources_path, sources)
+        report = validate_pack(self.pack)
+        self.assertFalse(report["ok"])
+        self.assertTrue(
+            any("source kind is forbidden" in error for error in report["errors"]),
+            report["errors"],
+        )
+
+    def test_generated_pixels_cannot_impersonate_documentary_photo(self) -> None:
+        assets_path = self.pack / "assets.json"
+        assets = json.loads(assets_path.read_text(encoding="utf-8"))
+        background = next(item for item in assets["assets"] if item["id"] == "background.master")
+        background.update(
+            {
+                "kind": "photo",
+                "origin": "generated-illustrative",
+                "visual_role": "documentary-evidence",
+                "source_id": "source.current-materials",
+            }
+        )
+        write_json(assets_path, assets)
+        report = validate_pack(self.pack)
+        self.assertFalse(report["ok"])
+        self.assertTrue(
+            any("generated assets can never serve as documentary evidence" in error for error in report["errors"]),
+            report["errors"],
+        )
 
     def test_scaffold_starts_source_zero_but_remains_blocked(self) -> None:
         pack = self.root / "new-org"
@@ -1016,6 +1757,42 @@ class OrganizationPackTests(FreshWorkflowTestCase):
         self.assertFalse(report["ok"])
         self.assertTrue(any("final opaque PNG" in item for item in report["errors"]), report["errors"])
 
+    def test_background_family_rejects_same_mean_but_orthogonal_spatial_grammar(self) -> None:
+        assets: list[tuple[str, Path]] = []
+        for asset_id, split_axis in (("master", "x"), ("companion", "y")):
+            path = self.root / f"{asset_id}.png"
+            image = Image.new("RGB", (390, 780))
+            pixels = image.load()
+            for y in range(image.height):
+                for x in range(image.width):
+                    first_half = x < image.width // 2 if split_axis == "x" else y < image.height // 2
+                    shade = 25 if first_half else 105
+                    pixels[x, y] = (shade, shade, shade)
+            image.save(path, format="PNG")
+            assets.append((asset_id, path))
+        lineage = {
+            asset_id: {
+                "family_id": "same-mean-different-structure",
+                "master_asset_id": "master",
+                "generation_route": "test-route-v1",
+                "family_prompt_sha256": "sha256:" + "a" * 64,
+                "variant_prompt_sha256": "sha256:" + variant * 64,
+            }
+            for asset_id, variant in (("master", "b"), ("companion", "c"))
+        }
+        report = validate_background_family_assets(
+            assets,
+            surface_mode="dark",
+            copy_safe_zone={"x": 0.12, "y": 0.16, "width": 0.76, "height": 0.58},
+            body_text_color="#FFFFFF",
+            family_lineage=lineage,
+        )
+        self.assertFalse(report["ok"])
+        self.assertIn(
+            "background family spatial luminance grammar is structurally inconsistent",
+            report["errors"],
+        )
+
     def test_typography_calibration_is_mandatory(self) -> None:
         organization = json.loads((self.pack / "organization.json").read_text(encoding="utf-8"))
         organization["visual"]["calibration"].pop("typography")
@@ -1168,6 +1945,57 @@ class WatermarkWorkflowTests(FreshWorkflowTestCase):
             "assets/generated/watermark-reports/cover.json",
         )
         self.assertNotIn("wm_id", json.dumps(evidence, ensure_ascii=False))
+
+    def test_scaled_watermark_evidence_binds_original_and_exact_carrier(self) -> None:
+        original = self.pack / "assets/generated/unwatermarked-masters/portrait.png"
+        carrier = self.pack / "assets/derived/portrait-carrier.png"
+        marked = self.pack / "assets/derived/portrait-marked.png"
+        report_path = self.pack / "assets/derived/portrait-watermark.json"
+        original.parent.mkdir(parents=True, exist_ok=True)
+        noise = Image.effect_noise((1024, 1536), 96).convert("RGB")
+        noise.save(original, format="PNG")
+        report = embed_watermark(
+            original,
+            marked,
+            resized_carrier_path=carrier,
+            key=TEST_WATERMARK_KEY,
+            key_epoch=9,
+            wm_id="22" * 8,
+        )
+        write_json(report_path, report)
+        with mock.patch.dict(
+            os.environ, {"PROVENANCE_WATERMARK_KEY": TEST_WATERMARK_ENV}
+        ):
+            evidence = watermark_evidence_from_report(
+                report,
+                report_path,
+                marked,
+                pack_dir=self.pack,
+                source_path=carrier,
+                original_source_path=original,
+                key_id="test-external-key",
+            )
+        self.assertEqual(evidence["source_sha256"], file_sha256(carrier))
+        self.assertEqual(evidence["original_source_sha256"], file_sha256(original))
+        self.assertNotEqual(evidence["source_location"], evidence["original_source_location"])
+
+        with Image.open(carrier) as opened:
+            tampered = opened.copy()
+        tampered.putpixel((0, 0), (0, 0, 0))
+        tampered.save(carrier, format="PNG")
+        with mock.patch.dict(
+            os.environ, {"PROVENANCE_WATERMARK_KEY": TEST_WATERMARK_ENV}
+        ):
+            with self.assertRaisesRegex(ValueError, "deterministic derivation"):
+                watermark_evidence_from_report(
+                    report,
+                    report_path,
+                    marked,
+                    pack_dir=self.pack,
+                    source_path=carrier,
+                    original_source_path=original,
+                    key_id="test-external-key",
+                )
 
     def test_v1_excludes_real_identity_micro_svg_remote_and_derived_assets(self) -> None:
         opaque = self.pack / "assets/generated/background-master.png"
@@ -1689,6 +2517,21 @@ class VisualKitTests(FreshWorkflowTestCase):
         self.assertEqual(plan["minimum_unique_generated_micro_assets"], 4)
         self.assertTrue(all(slot["alpha_validation"]["ok"] for slot in plan["slots"]))
 
+    def test_current_session_chain_unlocks_ready_without_python_callback(self) -> None:
+        token = authority_module._LIVE_AUTHORITY.set(None)
+        try:
+            plan = build_visual_kit_plan(self.article, self.pack)
+        finally:
+            authority_module._LIVE_AUTHORITY.reset(token)
+        self.assertTrue(plan["ready_for_layout"], plan["blocking_reasons"])
+        for slot in plan["slots"]:
+            assurance = slot["acquisition_assurance"]
+            self.assertEqual(
+                assurance["mode"], "current-session-operator-harness-trusted"
+            )
+            self.assertFalse(assurance["host_attested"])
+            self.assertFalse(assurance["portable"])
+
     def test_one_asset_cannot_cover_two_micro_roles(self) -> None:
         article = json.loads(self.article.read_text(encoding="utf-8"))
         article["visual_kit"]["assets"][3]["id"] = article["visual_kit"]["assets"][0]["id"]
@@ -1696,6 +2539,120 @@ class VisualKitTests(FreshWorkflowTestCase):
         plan = build_visual_kit_plan(self.article, self.pack)
         self.assertFalse(plan["ready_for_layout"])
         self.assertTrue(any("4 unique" in item for item in plan["blocking_reasons"]))
+
+    def test_cutout_slot_must_match_its_visual_role(self) -> None:
+        assets = json.loads((self.pack / "assets.json").read_text(encoding="utf-8"))
+        micro = next(
+            item
+            for item in assets["assets"]
+            if item.get("roles") == ["section-transition"]
+        )
+        report_path = self.pack / micro["cutout"]["report_location"]
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        report["asset_slot_id"] = "kit.floating-spot"
+        write_json(report_path, report)
+
+        validation = validate_pack(self.pack)
+        self.assertFalse(validation["ok"])
+        self.assertTrue(
+            any(
+                "asset_slot_id must be kit.section-transition" in error
+                for error in validation["errors"]
+            ),
+            validation["errors"],
+        )
+
+    def test_distinct_derivatives_cannot_reuse_raw_source_or_provider_request(self) -> None:
+        assets_path = self.pack / "assets.json"
+        assets = json.loads(assets_path.read_text(encoding="utf-8"))
+        by_role = {
+            item["roles"][0]: item
+            for item in assets["assets"]
+            if item.get("visual_role") == "article-micro"
+        }
+        opening = by_role["floating-spot"]
+        transition = by_role["inline-explainer"]
+        opening_source = self.pack / opening["cutout"]["source_location"]
+        transition_source = self.pack / transition["cutout"]["source_location"]
+        transition_output = self.pack / transition["location"]
+        transition_report = self.pack / transition["cutout"]["report_location"]
+        transition_acquisition = self.pack / transition["cutout"][
+            "acquisition_report_location"
+        ]
+
+        shutil.copyfile(opening_source, transition_source)
+        transition_output.unlink()
+        transition_report.unlink()
+        write_acquisition_report(
+            transition_acquisition,
+            transition_source,
+            article_id="fresh-article",
+            asset_slot_id="kit.inline-explainer",
+            prompt_sha256=MICRO_PROMPT_SHA,
+            generation_route=MICRO_ROUTE,
+            provider_request_id="request-kit.floating-spot",
+        )
+        prepare_micro_cutout(
+            transition_source,
+            transition_output,
+            transition_report,
+            role="inline-explainer",
+            article_id="fresh-article",
+            asset_slot_id="kit.inline-explainer",
+            prompt_sha256=MICRO_PROMPT_SHA,
+            generation_route=MICRO_ROUTE,
+            acquisition_report_path=transition_acquisition,
+            require_native_alpha=True,
+        )
+        inspection = validate_micro_asset(
+            transition_output, "inline-explainer"
+        )["inspection"]
+        lineage = validate_cutout_derivation_report(
+            self.pack,
+            transition_report,
+            transition_output,
+            "inline-explainer",
+        )
+        self.assertTrue(lineage["ok"], lineage["errors"])
+        transition["quality"].update(
+            {
+                "alpha_verified": True,
+                "cutout_verified": True,
+                "sha256": inspection["sha256"],
+                "width_px": inspection["width_px"],
+                "height_px": inspection["height_px"],
+                "transparent_pixel_ratio": inspection["transparent_pixel_ratio"],
+                "cutout_evidence": {
+                    key: inspection[key] for key in MICRO_CUTOUT_EVIDENCE_FIELDS
+                },
+            }
+        )
+        transition["cutout"] = lineage["lineage"]
+        write_json(assets_path, assets)
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article_transition = next(
+            item
+            for item in article["visual_kit"]["assets"]
+            if item["role"] == "inline-explainer"
+        )
+        article_transition["asset_sha256"] = inspection["sha256"]
+        write_json(self.article, article)
+
+        pack_validation = validate_pack(self.pack)
+        self.assertTrue(pack_validation["ok"], pack_validation["errors"])
+        plan = build_visual_kit_plan(self.article, self.pack)
+        self.assertFalse(plan["ready_for_layout"])
+        self.assertTrue(
+            any("distinct source_sha256" in item for item in plan["semantic_errors"]),
+            plan["semantic_errors"],
+        )
+        self.assertTrue(
+            any(
+                "distinct accepted_provider_request_id" in item
+                for item in plan["semantic_errors"]
+            ),
+            plan["semantic_errors"],
+        )
 
     def test_native_ardot_component_evidence_is_required(self) -> None:
         article = json.loads(self.article.read_text(encoding="utf-8"))
@@ -1706,7 +2663,9 @@ class VisualKitTests(FreshWorkflowTestCase):
         self.assertTrue(any("native Ardot" in item for item in plan["semantic_errors"]))
 
     def test_replaced_alpha_asset_must_match_registered_hash(self) -> None:
-        replacement = self.pack / "assets" / "generated" / "spot-opening.png"
+        assets = json.loads((self.pack / "assets.json").read_text(encoding="utf-8"))
+        registered = next(item for item in assets["assets"] if item["id"] == "spot.opening")
+        replacement = self.pack / registered["location"]
         write_png(replacement, 300, 300)
         with self.assertRaisesRegex(ValueError, "stored cutout evidence"):
             build_visual_kit_plan(self.article, self.pack)
@@ -1865,6 +2824,26 @@ class VisualKitTests(FreshWorkflowTestCase):
         write_json(self.article, article)
         report = build_storyboard_plan(self.article)
         self.assertFalse(report["ready_for_visual_kit"])
+
+    def test_storyboard_rejects_unstructured_density_and_visual_reordering(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        chapters = article["storyboard"]["chapters"]
+        chapters[0]["density_intent"] = "compact-editorial"
+        chapters[1]["block_indices"], chapters[2]["block_indices"] = (
+            chapters[2]["block_indices"],
+            chapters[1]["block_indices"],
+        )
+        write_json(self.article, article)
+        report = build_storyboard_plan(self.article)
+        self.assertFalse(report["ready_for_visual_kit"])
+        self.assertTrue(
+            any("structured object" in error for error in report["errors"]),
+            report["errors"],
+        )
+        self.assertTrue(
+            any("preserve the article block order" in error for error in report["errors"]),
+            report["errors"],
+        )
 
 
 class InteractionPlanTests(FreshWorkflowTestCase):
@@ -2343,6 +3322,181 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
         report = compile_article(self.article, self.pack, self.root / "output", check=True)
         self.assertFalse(report["ok"])
         self.assertTrue(any("sha256" in item for item in report["errors"]))
+
+    def test_canonical_visual_review_qa_paths_compile(self) -> None:
+        add_visual_review(self.article)
+        report = compile_article(self.article, self.pack, self.root / "output", check=True)
+        self.assertTrue(report["ok"], report["errors"])
+
+    def test_visual_review_rejects_symlinked_qa_root(self) -> None:
+        add_visual_review(self.article)
+        qa_root = self.root / "qa"
+        real_qa_root = self.root / "qa-real"
+        qa_root.rename(real_qa_root)
+        qa_root.symlink_to(real_qa_root, target_is_directory=True)
+
+        report = compile_article(self.article, self.pack, self.root / "output", check=True)
+        self.assertFalse(report["ok"])
+        self.assertTrue(
+            any("current article qa directory" in item for item in report["errors"]),
+            report["errors"],
+        )
+
+    def test_visual_review_rejects_screenshot_parent_symlink(self) -> None:
+        review_path = add_visual_review(self.article)
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        original = self.root / review["screenshots"][0]["location"]
+        linked_target = self.root / "linked-screenshot-target"
+        linked_target.mkdir()
+        shutil.copyfile(original, linked_target / original.name)
+        (self.root / "qa" / "linked-screenshots").symlink_to(
+            linked_target,
+            target_is_directory=True,
+        )
+        review["screenshots"][0]["location"] = f"qa/linked-screenshots/{original.name}"
+        write_json(review_path, review)
+
+        report = compile_article(self.article, self.pack, self.root / "output", check=True)
+        self.assertFalse(report["ok"])
+        self.assertTrue(
+            any("visual review screenshot 0 must be a canonical" in item for item in report["errors"]),
+            report["errors"],
+        )
+
+    def test_visual_review_rejects_noncanonical_screenshot_locations(self) -> None:
+        review_path = add_visual_review(self.article)
+        baseline = json.loads(review_path.read_text(encoding="utf-8"))
+        aliases = {
+            "absolute": str(self.root / "qa" / "hero.png"),
+            "parent": "qa/../qa/hero.png",
+            "dot": "qa/./hero.png",
+        }
+        for name, alias in aliases.items():
+            with self.subTest(name=name):
+                review = json.loads(json.dumps(baseline))
+                review["screenshots"][0]["location"] = alias
+                write_json(review_path, review)
+                report = compile_article(
+                    self.article,
+                    self.pack,
+                    self.root / f"output-{name}",
+                    check=True,
+                )
+                self.assertFalse(report["ok"])
+                self.assertTrue(
+                    any("visual review screenshot 0 must be a canonical" in item for item in report["errors"]),
+                    report["errors"],
+                )
+
+    def test_interaction_state_rejects_parent_symlink(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        state = article["interaction_plan"]["modules"][0]["ardot_component"]["states"]["closed"]
+        original = self.root / state["screenshot"]
+        linked_target = self.root / "linked-interaction-target"
+        linked_target.mkdir()
+        shutil.copyfile(original, linked_target / original.name)
+        (self.root / "qa" / "linked-interaction").symlink_to(
+            linked_target,
+            target_is_directory=True,
+        )
+        state["screenshot"] = f"qa/linked-interaction/{original.name}"
+        write_json(self.article, article)
+
+        report = compile_article(self.article, self.pack, self.root / "output", check=True)
+        self.assertFalse(report["ok"])
+        self.assertTrue(
+            any("interaction module 0 closed screenshot must be a canonical" in item for item in report["errors"]),
+            report["errors"],
+        )
+
+    def test_micro_node_properties_reject_parent_symlink(self) -> None:
+        review_path = add_visual_review(self.article)
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        placement = review["micro_component_layout"]["placements"][0]
+        original = self.root / placement["node_properties_file"]
+        linked_target = self.root / "linked-node-properties-target"
+        linked_target.mkdir()
+        shutil.copyfile(original, linked_target / original.name)
+        (self.root / "qa" / "linked-node-properties").symlink_to(
+            linked_target,
+            target_is_directory=True,
+        )
+        placement["node_properties_file"] = f"qa/linked-node-properties/{original.name}"
+        write_json(review_path, review)
+
+        report = compile_article(self.article, self.pack, self.root / "output", check=True)
+        self.assertFalse(report["ok"])
+        self.assertTrue(
+            any("micro component placement 0 node properties must be a canonical" in item for item in report["errors"]),
+            report["errors"],
+        )
+
+    def test_visual_review_rejects_article_and_review_document_symlinks(self) -> None:
+        review_path = add_visual_review(self.article)
+        article_alias = self.root / "article-alias.json"
+        review_alias = self.root / "visual-review-alias.json"
+        article_alias.symlink_to(self.article)
+        review_alias.symlink_to(review_path)
+
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        validation = validate_visual_review(review, article, article_alias)
+        self.assertFalse(validation["ready"])
+        self.assertTrue(
+            any("current article qa directory" in item for item in validation["errors"]),
+            validation["errors"],
+        )
+        with self.assertRaises(PackAssetResolutionError):
+            canonical_input_file(article_alias, label="article document")
+        with self.assertRaises(PackAssetResolutionError):
+            canonical_input_file(review_alias, label="visual review document")
+
+        linked_document_target = self.root / "linked-document-target"
+        linked_document_target.mkdir()
+        shutil.copyfile(self.article, linked_document_target / self.article.name)
+        shutil.copyfile(review_path, linked_document_target / review_path.name)
+        linked_document_parent = self.root / "linked-documents"
+        linked_document_parent.symlink_to(linked_document_target, target_is_directory=True)
+        with self.assertRaises(PackAssetResolutionError):
+            canonical_input_file(
+                linked_document_parent / self.article.name,
+                label="article document",
+            )
+        with self.assertRaises(PackAssetResolutionError):
+            canonical_input_file(
+                linked_document_parent / review_path.name,
+                label="visual review document",
+            )
+
+    def test_visual_review_cannot_self_approve_with_plain_pass_strings(self) -> None:
+        review_path = add_visual_review(self.article)
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        first_check = next(iter(review["checks"]))
+        review["checks"][first_check] = "pass"
+        write_json(review_path, review)
+        report = compile_article(self.article, self.pack, self.root / "output", check=True)
+        self.assertFalse(report["ok"])
+        self.assertTrue(
+            any("visual review check must pass" in item for item in report["errors"]),
+            report["errors"],
+        )
+
+    def test_authoring_receipt_cannot_claim_host_enforced_assurance(self) -> None:
+        review_path = add_visual_review(self.article)
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        receipt_path = review_path.parent / review["capture"]["host_export_receipt_file"]
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        receipt["assurance_level"] = "host-enforced"
+        receipt["host_enforced"] = True
+        write_json(receipt_path, receipt)
+        review["capture"]["host_export_receipt_sha256"] = file_sha256(receipt_path)
+        write_json(review_path, review)
+        report = compile_article(self.article, self.pack, self.root / "output", check=True)
+        self.assertFalse(report["ok"])
+        self.assertTrue(
+            any("current-session-host-trace" in item for item in report["errors"]),
+            report["errors"],
+        )
 
     def test_compact_editorial_major_gap_is_enforced(self) -> None:
         review_path = add_visual_review(self.article)

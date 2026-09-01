@@ -8,32 +8,140 @@ description: Research an organization, create or update its reusable organizatio
 Create organization-specific WeChat articles without reducing the organization to a logo and color swap. Separate stable publishing mechanics from the organization’s identity and the facts of the current article.
 
 For commands and file locations, read [references/使用说明.md](references/使用说明.md). For a new account, also read [references/organization-pack-migration.md](references/organization-pack-migration.md). The current hardening rationale is recorded in [references/source-zero-audit.md](references/source-zero-audit.md). Read [references/style-options.md](references/style-options.md) only when the user explicitly supplies a style reference or selects a reviewed style preset. Read [references/provenance-watermark.md](references/provenance-watermark.md) before registering a generated opaque background or fully generated raster cover.
-On Codex Desktop, load [skills/chatgpt-web-image-route/SKILL.md](skills/chatgpt-web-image-route/SKILL.md) before the first generated asset. It composes `codex-with-chatgpt`, the built-in Browser, original-file download, and the local RGBA processor; the C2C connector itself remains a planning/read-only bridge and never counts as image evidence.
+On Codex Desktop, load the same-release top-level sibling Skill at `$SKILLS_ROOT/chatgpt-web-image-route/SKILL.md` before the first generated asset. It composes `codex-with-chatgpt`, the built-in Browser, original-file download, and the local RGBA processor; the C2C connector itself remains a planning/read-only bridge and never counts as image evidence.
 Before freezing any final HTML or publisher handoff, read [references/ardot-transport-fidelity.md](references/ardot-transport-fidelity.md).
+
+## Runtime and session roots
+
+Resolve the directory containing this loaded `SKILL.md` and bind it as the
+absolute `ORG_WECHAT_RUNTIME_ROOT`. In an installed release it must be the
+top-level `SKILLS_ROOT/org-wechat-studio` sibling of
+`chatgpt-web-image-route` and `ardot-wechat-publisher`; it must not contain a
+nested discoverable `skills/` copy. Keep the user's project as the working
+directory. Bind an absolute, create-once, Git-ignored project path as
+`ORG_WECHAT_SESSION_ROOT`, for example
+`/ABSOLUTE/USER/PROJECT/output/runtime/SESSION_UNIQUE`. Never `cd` into or
+write runtime artifacts beneath the installed Skill. On macOS, use canonical
+`/private/tmp/...`, not the `/tmp` symlink, for temporary session files.
+
+Every command below that names a repository script resolves it under
+`$ORG_WECHAT_RUNTIME_ROOT/scripts/`. Every census, profile, target, evidence,
+and report path resolves under `$ORG_WECHAT_SESSION_ROOT` unless the command
+explicitly requires another protected absolute path. Before preflight, verify
+the create-once installed manifest against all three sibling packages:
+
+```bash
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/release_skills.py" verify-installed \
+  /ABSOLUTE/SKILLS_ROOT/.org-wechat-release-manifests/RELEASE_SHA.json \
+  --skills-root /ABSOLUTE/SKILLS_ROOT
+```
 
 ## Mandatory runtime preflight
 
 Before opening source material, creating an organization pack, generating an article asset, or touching Ardot/WeChat, read [references/runtime-preflight.md](references/runtime-preflight.md) and bind the current harness to the project skill hashes and semantic capabilities. At the beginning of every workflow/organization migration into a new harness, machine, adapter, provider route, or changed trusted bundle, run `migration` first. It consumes one isolated neutral RGBA route probe and must complete in the current host trace before any organization facts or visuals are read. Then use `full` when an exact current Ardot file/root already exists. For a new organization with no Ardot workspace, use `bootstrap`, verify `ardot.create`, create only the blank design/page, then immediately rerun the requested terminal phase (`full` by default, or `authoring` when explicitly scoped) with its canonical file/root. `bootstrap` does not require a WeChat target or login. Use `delivery` only for an existing reviewed Ardot article.
 
-1. Enumerate the current runtime registry and map real callables to `image.generate.opaque`, `image.generate.rgba`, `chatgpt.session`, `image.inspect`, `ardot.create`, `ardot.read`, `ardot.write`, `ardot.export`, `browser.control` / `computer.use`, `wechat.draft`, and `secret.resolve`. Also detect optional `host.receipt.attest`: it upgrades delivery to `portable-signed-audit`, but its absence does not block `current-session-draft`. Codex Desktop uses local ImageGen only for opaque sources and defaults RGBA source acquisition to `chatgpt-web-image-route` + `codex-with-chatgpt` + the complete built-in Browser route. Another harness may bind a native RGBA API, but it must keep the same output contract. A generic shell or JavaScript executor does not prove any image or Browser capability.
-2. Write a temporary, Git-ignored runtime profile with the current project `SKILL.md` and publisher Skill hashes, the current host session/provider IDs, credential-free Ardot/WeChat links, and intended tool bindings. The profile expresses intent, not truth. Never put tokens, cookies, AppSecret, watermark keys, raw watermark IDs, secret values, or self-authored `passed` evidence in it.
-3. Run the binding check before sending either URL to an external tool:
+1. Run the platform audit first. It must match one explicitly reviewed OS/Python/locked-distribution row; an unknown platform may emit a candidate but must fail before any protected entrypoint runs:
 
    ```bash
-   python3 -I -S scripts/secure_runner.py scripts/runtime_preflight.py output/runtime/runtime-profile.json \
-     --phase full --binding-only \
-     --output output/runtime/binding-report-UNIQUE.json
+   python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" --platform-audit
    ```
 
-   The `-I -S` secure runner is mandatory for runtime preflight, final transport validation/compilation, and watermark verification. Never replace it with direct `python3 scripts/...`, `PYTHONPATH`, a user-site hook, or an unlocked dependency path. A new harness/Python/platform combination must first add reviewed distribution hashes to `runtime/python-dependency-lock.json` and update the trusted release digest.
+   The `-I -S` secure runner is mandatory for every public workflow CLI: organization-pack inspection/mutation and validation; visual-direction, storyboard, visual-kit, Ardot-manifest, and visual-review gates; Browser-download ingestion; Ardot handoff export; final transport validation/compilation; the WeChat publisher; watermark operations; cutout processing; and final pixel inspection. Never replace it with direct `python3 scripts/...`, `PYTHONPATH`, a user-site hook, or an unlocked dependency path.
 
-   For a migration start, substitute `--phase migration`. Its minimal profile has no organization, Ardot, or WeChat links; it binds opaque generation, the selected RGBA route, and image inspection. Every phase that uses RGBA must declare the adapter's real stable `generation_route_id`; `migration` additionally declares `migration_probe_contract: neutral-rgba-route-probe-v1`. Complete the emitted host-owned migration route gate in the same C2C-managed conversation before moving to `bootstrap`, `authoring`, or `full`; do not create a setup-only task, throwaway chat, or isolation transition. For the no-workspace bootstrap case, substitute `--phase bootstrap`; its profile omits the Ardot workspace link and uses `ardot_bootstrap` bound to `ardot.create`.
+2. Do not handwrite a runtime profile, host export, or `loaded/available` status. The release manifest must be the create-once copy installed under the Skill root by `release_skills.py`; a repository commit or working-tree file is not proof that the active harness loaded it. Current Codex Desktop has no authoritative `host.registry.export` callable, so initialize a non-attested, same-session census from the verified release, reviewed adapter allowlist, and the identifiers actually visible in the model's current registry:
 
-4. Continue only when the binding report has `ok: true` and `binding_ready: true`. Its `phase_ready` is intentionally always false: a workspace process cannot authenticate its own tool claims. Do not rerun the script without `--binding-only` and mistake profile fields for live evidence.
-5. Immediately execute the report's ordered `host_setup_actions` before reading source material. In `migration`, run the nonce/digest-bound neutral RGBA probe after the image routes are prepared and before any organization/Ardot/WeChat action. In `authoring`/`full`, prepare opaque generation and the selected RGBA route first without repeating that migration-only probe. For Codex Desktop, load the wrapper and C2C Skills, run the C2C update/sandbox/session checks, claim one visible built-in-browser ChatGPT tab, and stop once for login/CAPTCHA/2FA/consent if needed; Computer Use and external browsers are forbidden for ChatGPT. Then prepare Ardot and, for delivery-capable phases, WeChat. Resolve watermark references without displaying values. `bootstrap` prepares only `ardot.create`; `delivery` does not open ChatGPT or bind generation. Ardot MCP OAuth and Ardot web login remain separate checks. Never persist a ChatGPT conversation URL, pairing code, token-bearing redirect/editor URL, cookie, or session value.
-6. After preparation, perform the actual current-session probes through host-owned calls that are visible in the host tool trace. `migration` is the only startup phase that consumes image quota: generate the report's exact neutral prompt, observe completion and the provider-original download, record local PNG MIME/bytes/SHA, run the secure cutout processor, inspect the exact RGBA8 derivative on transparent/light/dark surfaces, and keep all outputs under its nonce-specific Git-ignored runtime directory. The local pixel chain and current host route trace are both required; neither can impersonate the other. Never register, upload, watermark, or reuse the probe as an article asset or style reference. For ChatGPT-web, obey the C2C one-conversation rule and do not open a throwaway verification chat. The probe must remain a nonsemantic, single-gray open-stroke calibration mark with deep negative space and no organization, object, material, palette, or artistic cues; official prompts must explicitly exclude that mark and test treatment. For `authoring`/`full`, the emitted `enforce-migration-rgba-route-gate` is a host-workflow hard gate, not a claim that this local CLI can authenticate an earlier host trace. Then inspect a neutral local image and read the exact Ardot file **and root** without editing while confirming write/export callables in the same provider/session; for `bootstrap`, confirm only the selected create-design/page callable and use it only to establish the blank target before rerunning the requested terminal phase; only for phases that include delivery, resolve the target WeChat account without creating a draft; only for phases that author visuals, resolve required watermark secret references without returning values. Regular article startup does not consume a second smoke image: the first official ChatGPT generation still needs its own observed original download, local raw SHA-256, RGBA derivation report, and final pixel inspection as article lineage. C2C doctor/workspace output, a ChatGPT text reply, a page preview, an old migration report, or a model-authored receipt proves neither chain.
-7. Do not continue unless every required selected-route probe succeeded in the current host trace. `needs_user_login`, an account/file/root identity mismatch, a stale trace, an unsafe URL, a missing required callable, an unresolved key, a different Skill SHA, or an installed stale publisher copy is blocking. A missing optional `host.receipt.attest` selects `current-session-draft` and blocks only the portable signed-audit claim. Never accept a user/LLM-authored profile, prior report, or rewritten timestamp as evidence.
-8. Repeat the Ardot file/root probe before full assembly. The last-mile publisher independently performs the `delivery` binding gate and fresh host probes; startup readiness never authorizes a write or formal publication.
+   ```bash
+   python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+     "$ORG_WECHAT_RUNTIME_ROOT/scripts/runtime_preflight.py" \
+     init-current-session-census \
+     --phase migration --session-id CURRENT_HOST_SESSION_ID \
+     --visible-tool-id image_gen__imagegen \
+     --visible-tool-id view_image \
+     --visible-tool-id codex-with-chatgpt \
+     --visible-tool-id browser:control-in-app-browser \
+     --visible-tool-id mcp__node_repl__js \
+     --skills-root /ABSOLUTE/INSTALLED/SKILLS/ROOT \
+     --release-manifest /ABSOLUTE/INSTALLED/SKILLS/ROOT/.org-wechat-release-manifests/RELEASE_SHA.json \
+     --workspace-root "$ORG_WECHAT_RUNTIME_ROOT" \
+     --output "$ORG_WECHAT_SESSION_ROOT/registry-census-UNIQUE.json"
+   ```
+
+   This path must report `current-session-model-visible-intent`, `host_attested_registry: false`, and later live probes. Only when another adapter exposes a real `host.registry.export` callable may the host produce the non-handwritten export and use the higher-assurance path:
+
+   ```bash
+   python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+     "$ORG_WECHAT_RUNTIME_ROOT/scripts/runtime_preflight.py" build-census \
+     "$ORG_WECHAT_SESSION_ROOT/HOST-CALLABLE-registry-export.json" \
+     --skills-root /ABSOLUTE/INSTALLED/SKILLS/ROOT \
+     --release-manifest /ABSOLUTE/INSTALLED/SKILLS/ROOT/.org-wechat-release-manifests/RELEASE_SHA.json \
+     --workspace-root "$ORG_WECHAT_RUNTIME_ROOT" \
+     --output "$ORG_WECHAT_SESSION_ROOT/registry-census-UNIQUE.json"
+   ```
+
+   The export must carry the adapter-declared callable's tool/provider/session/request trace; a synthetic JSON is rejected. Both census paths map actual registry identifiers to `host.registry.export`, `image.generate.opaque`, `image.generate.rgba`, optional `image.provider.acquire.authority` policy hook, `chatgpt.session`, `image.inspect`, `ardot.create`, `ardot.read`, `ardot.write`, `ardot.export`, `browser.control` / `computer.use`, `wechat.draft`, independent `wechat.current-session-authority`, and optional signer/lease capabilities. A generic shell or JavaScript executor proves none of them. Codex Desktop uses local ImageGen only for opaque sources and defaults RGBA acquisition to `chatgpt-web-image-route` + `codex-with-chatgpt` + the complete built-in Browser route; another harness may bind native RGBA only when it preserves the same downloaded-original and pixel contract. Formal current-session acquisition is operationally accepted only after the completed migration, canonical request, create-once ingestion, exact raw bytes, and RGBA pixel chain pass; it remains operator/harness-trusted, `host_attested=false`, and `portable=false`.
+
+3. Create a compact, Git-ignored target JSON and let the generator produce the profile. A migration target has empty links/targets and contains no organization, Ardot, or WeChat identity. Later `authoring` / `delivery` / `full` targets carry the exact artifact inventory and credential-free Ardot file/root; delivery-capable targets additionally carry the exact WeChat account reference and mode. Never put tokens, cookies, AppSecret, watermark keys, raw watermark IDs, secret values, ChatGPT conversation URLs, pairing codes, or self-authored `passed` evidence in either file:
+
+   ```bash
+   python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+     "$ORG_WECHAT_RUNTIME_ROOT/scripts/runtime_preflight.py" init-profile \
+     "$ORG_WECHAT_SESSION_ROOT/registry-census-UNIQUE.json" \
+     "$ORG_WECHAT_SESSION_ROOT/target.json" \
+     --workspace-root "$ORG_WECHAT_RUNTIME_ROOT" \
+     --phase migration \
+     --output "$ORG_WECHAT_SESSION_ROOT/migration-profile-UNIQUE.json"
+
+   python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+     "$ORG_WECHAT_RUNTIME_ROOT/scripts/runtime_preflight.py" \
+     "$ORG_WECHAT_SESSION_ROOT/migration-profile-UNIQUE.json" \
+     --workspace-root "$ORG_WECHAT_RUNTIME_ROOT" \
+     --session-root "$ORG_WECHAT_SESSION_ROOT" \
+     --phase migration --binding-only \
+     --output "$ORG_WECHAT_SESSION_ROOT/migration-binding-UNIQUE.json"
+   ```
+
+   `--session-root` is mandatory for migration. It must already exist, contain no
+   symlink hop, remain outside the installed runtime, and either be outside every
+   Git worktree or be ignored by its owning Git worktree. The report binds every
+   probe path and executable as an absolute path; omitting this root or pointing it
+   into the Skill fails before any probe. Continue only when `ok` and
+   `binding_ready` are both true. This proves installed bytes, safe paths and
+   bindings; it does not prove login or host actions.
+
+4. Execute the binding report's ordered `host_setup_actions` before reading organization material. For Codex Desktop, load the wrapper and C2C Skills, close tunnel/setup/project/connector/workspace-identity checks separately, claim one visible built-in-Browser ChatGPT tab, and ask once for login/CAPTCHA/2FA/consent only when the real page blocks. Computer Use and external browsers are forbidden for ChatGPT. Ardot MCP OAuth and Ardot web login are separate probes. For WeChat API mode, resolve the provider without opening a token-bearing editor URL; only a selected UI route opens the credential-free platform entry. `bootstrap` prepares only `ardot.create`; `delivery` does not prepare ChatGPT or generation.
+
+5. A new or changed harness/provider route must finish the report's nonce/digest-bound neutral RGBA probe in the same visible host session before any organization fact or visual is read. Observe the provider-original download, feed the returned absolute path through the create-once `ingest_browser_download.py`, record source/destination MIME/bytes/SHA, run the secure native-Alpha cutout processor, and inspect the exact RGBA8 derivative on transparent/light/dark surfaces. Keep this nonsemantic probe in its nonce-specific ignored runtime directory; never register, watermark, upload, reuse, or learn style from it. The local pixel chain and host route trace are both required and cannot impersonate each other.
+
+6. Finalize migration at one of two assurance levels. On a normal Codex host without a signer, consume the exact current-session evidence and require `operational_ready: true` while preserving `phase_ready: false`:
+
+   ```bash
+   python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+     "$ORG_WECHAT_RUNTIME_ROOT/scripts/runtime_preflight.py" \
+     finalize-current-session-migration \
+     "$ORG_WECHAT_SESSION_ROOT/migration-binding-UNIQUE.json" \
+     "$ORG_WECHAT_SESSION_ROOT/migration-session-evidence-UNIQUE.json" \
+     --workspace-root "$ORG_WECHAT_RUNTIME_ROOT" \
+     --consumption-record "$ORG_WECHAT_SESSION_ROOT/migration-session-consumption-UNIQUE.json" \
+     --output "$ORG_WECHAT_SESSION_ROOT/migration-session-final-UNIQUE.json"
+   ```
+
+   Only a real host finalizer with a protected Ed25519 trust store, file lease and replay ledger may issue the portable result with `phase_ready: true`:
+
+   ```bash
+   python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+     "$ORG_WECHAT_RUNTIME_ROOT/scripts/runtime_preflight.py" finalize-migration \
+     "$ORG_WECHAT_SESSION_ROOT/migration-binding-UNIQUE.json" HOST-RECEIPT.json \
+     --workspace-root "$ORG_WECHAT_RUNTIME_ROOT" \
+     --trust-store /PROTECTED/HOST-MIGRATION-PUBLIC-KEYS.json \
+     --consumption-record "$ORG_WECHAT_SESSION_ROOT/migration-consumption-UNIQUE.json" \
+     --output "$ORG_WECHAT_SESSION_ROOT/migration-final-UNIQUE.json"
+   ```
+
+   Missing optional `filesystem.access.lease`, `host.migration.finalize`, `host.receipt.attest`, or the provider policy hook is an assurance/policy downgrade, not a login failure and not by itself an authoring blocker. The current-session asset still needs the full migration/request/ingestion/raw/RGBA chain. A configured Python hook may veto but cannot upgrade assurance; only the protected portable double-signature route may claim host attestation and portability. Draft creation remains separate, and publication still follows its independent live publisher gate.
+
+7. After migration, regenerate—not edit—the census and profile for the requested terminal phase. On the current-session initializer, rerun `init-current-session-census --phase <terminal-phase>` with the then-visible registry ids; the phase-bound migration census is intentionally rejected for `authoring`, `delivery`, `bootstrap`, or `full`. A real host-export census may be reused only while its live Skill/tool status still matches. `bootstrap` verifies only `ardot.create`, creates a blank design/page, then immediately reruns `authoring` or `full` against the new canonical file/root. `authoring` and `full` reuse the exact consumed current-session migration result or portable receipt without spending a second smoke image. Read and inspect the exact Ardot file **and root** while confirming write/export callables; delivery-capable phases resolve the exact target account without creating a draft; watermark secrets are required only when the artifact inventory contains eligible opaque generated carriers. The first official article asset still needs its own original-download, raw SHA, derivation and pixel evidence.
+
+8. Stop on `needs_user_login`, an account/file/root mismatch, stale trace, unsafe URL, missing required callable, changed release/Skill SHA, unresolved required secret, or stale publisher installation. Repeat the exact Ardot file/root read immediately before assembly and again before handoff. The last-mile publisher independently runs the `delivery` binding and authoritative upload/draft/readback gates; startup readiness never authorizes a write or publication. See [the end-to-end breakpoint matrix](references/end-to-end-breakpoint-matrix.md) for every stage's recovery and truth boundary.
 
 ## Route the request
 
@@ -42,20 +150,26 @@ Before opening source material, creating an organization pack, generating an art
 3. If a pack exists, validate it before authoring:
 
    ```bash
-   python3 scripts/orgs.py validate path/to/organization-pack
-   python3 scripts/orgs.py recommend path/to/organization-pack ARTICLE_TYPE
+   python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+     "$ORG_WECHAT_RUNTIME_ROOT/scripts/orgs.py" validate path/to/organization-pack
+   python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+     "$ORG_WECHAT_RUNTIME_ROOT/scripts/orgs.py" recommend path/to/organization-pack ARTICLE_TYPE
    ```
 
 4. If no pack exists, perform source-zero onboarding before composing. Read [references/onboarding.md](references/onboarding.md) and [references/org-pack-schema.md](references/org-pack-schema.md). Initialize a destination only when the user has asked to create or save the workflow:
 
    ```bash
-   python3 scripts/orgs.py init ORGANIZATION_ID --name "Organization name" --root organizations
+   python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+     "$ORG_WECHAT_RUNTIME_ROOT/scripts/orgs.py" init ORGANIZATION_ID \
+     --name "Organization name" --root organizations
    ```
 
 5. Before the first full article for an organization or route, read [references/visual-calibration.md](references/visual-calibration.md) and create two or three small Ardot calibration strips. A reviewed style preset may be offered as one route-level option only when explicitly selected; it never replaces source-zero as the default or skips current-organization calibration:
 
    ```bash
-   python3 scripts/build_visual_directions.py path/to/organization-pack ARTICLE_TYPE \
+   python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+     "$ORG_WECHAT_RUNTIME_ROOT/scripts/build_visual_directions.py" \
+     path/to/organization-pack ARTICLE_TYPE \
      --output output/organization-id/visual-directions.json
    ```
 
@@ -63,7 +177,8 @@ Before opening source material, creating an organization pack, generating an art
 6. For an article, read [references/article-schema.md](references/article-schema.md), [references/storyboard.md](references/storyboard.md), [references/interaction-composition.md](references/interaction-composition.md), [references/expressive-typography.md](references/expressive-typography.md), [references/ardot-workflow.md](references/ardot-workflow.md), and [references/organic-layout.md](references/organic-layout.md). Write and approve a 4–10 chapter narrative storyboard before generating visuals:
 
    ```bash
-   python3 scripts/build_storyboard.py article.json \
+   python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+     "$ORG_WECHAT_RUNTIME_ROOT/scripts/build_storyboard.py" article.json \
      --output output/article-slug/storyboard-plan.json
    ```
 
@@ -71,17 +186,23 @@ Before opening source material, creating an organization pack, generating an art
 8. Build the mandatory article-specific micro-illustration kit:
 
    ```bash
-   python3 scripts/build_visual_kit.py article.json \
+   python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+     "$ORG_WECHAT_RUNTIME_ROOT/scripts/build_visual_kit.py" article.json \
      --org path/to/organization-pack \
      --output output/article-slug/visual-kit-plan.json
    ```
 
-   On Codex Desktop, use `chatgpt-web-image-route` by default. For each of `floating-spot`, `section-transition`, `inline-explainer`, and `closing-motif`, first ask ChatGPT for a provider-original PNG with genuine pixel transparency, download that original, and retain it under `assets/generated/`. Run the secure `scripts/prepare_micro_cutout.py` processor with `--require-native-alpha`; this route validates, normalizes, tightly crops, and zeroes transparent RGB but does not remove a background. Only when that original fails the strict native-Alpha or pixel gate may one second source be generated on the plan's controlled key color and processed with `--key-color`. Never use a screenshot, preview Canvas, clipboard image, or copied remote URL. Create a distinct file under `assets/derived/`, then run `python3 -I -S scripts/secure_runner.py scripts/inspect_asset.py DERIVED --role ROLE`. A provider claim of transparency is untrusted; only the downloaded pixels and complete derivation chain decide. Create four native Ardot components from the derivatives, then record each component `file_url`, `node_id`, exact `name`, asset ID, and derivative SHA in `article.visual_kit.assets`. Rerun the plan and do not continue while `ready_for_layout` is false.
+   On Codex Desktop, use `chatgpt-web-image-route` by default. For each of `floating-spot`, `section-transition`, `inline-explainer`, and `closing-motif`, first ask ChatGPT for a provider-original PNG with genuine pixel transparency, download that original, and retain it under `assets/generated/`. Every formal article source uses `org-wechat-provider-image-acquisition-v2`: it binds the verified installed-release census, the adapter-declared `generation_route_id`, the same-session migration result, canonical per-attempt request metadata, and a create-once Browser ingestion report whose target is the exact raw processor source. Run `scripts/prepare_micro_cutout.py` with `--require-native-alpha`; this route validates, normalizes, tightly crops, and zeroes transparent RGB but does not remove a background. Only when that original fails the strict native-Alpha or pixel gate may one second source be generated on the plan's controlled key color and processed with `--key-color`. Never use a screenshot, preview Canvas, clipboard image, or copied remote URL. A v1 ledger, copied trace, self-written callback/authorized field, arbitrary route string, or structural JSON alone can never unlock a formal derivative.
+
+   Current-session article acquisition can run through the normal API or standalone CLI after the exact same-session migration and every acquisition→ingestion→raw→derivative gate validate. Record `current-session-operator-harness-trusted`, `host_attested=false`, and `portable=false`; do not describe that result as an independent or portable proof. `live_provider_acquisition_authority(callback)` is a compatibility-named optional trusted-harness policy hook only: `True` leaves assurance unchanged, while `False` or an exception blocks. Ordinary Python cannot make this hook unforgeable. The checked-in Codex Desktop adapter therefore needs no hook or signer for normal current-session authoring. The stronger `portable-signed` path still verifies a real migration receipt and provider `host.receipt.attest` Ed25519 receipt against `--portable-trust-store`; the repository never signs either. Read [references/provider-acquisition-authority.md](references/provider-acquisition-authority.md) for the complete boundary and hash-cycle-free receipt contract.
+
+   Create a distinct file under `assets/derived/`, then run `python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" "$ORG_WECHAT_RUNTIME_ROOT/scripts/inspect_asset.py" DERIVED --role ROLE`. A provider claim of transparency is untrusted; only the downloaded pixels and complete derivation chain decide current-session operational use, while protected Ed25519 receipts separately upgrade portable assurance. Bind every report slot exactly as `kit.<role>`. Across the four roles, the accepted provider-original SHA, provider request ID, acquisition binding, and final derivative SHA must each be four-way distinct; recropping or copying one raw image can never satisfy multiple roles. Create four native Ardot components from the derivatives, then record each component `file_url`, `node_id`, exact `name`, asset ID, and derivative SHA in `article.visual_kit.assets`. Rerun the plan against the current chain (or with the protected portable trust store) and do not continue while `ready_for_layout` is false.
    Every slot must quote one exact `source_text`, name a specific `concrete_subject`, visible `action`, storyboard chapter, placement, and composition job. Never prompt from a bulk dump of the article. Each generated asset must be registered with its visual role and the current `article_id`; generic decorations do not satisfy this gate.
 9. After the four native micro components exist, build the deterministic Ardot assembly manifest:
 
    ```bash
-   python3 scripts/build_ardot_manifest.py article.json \
+   python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+     "$ORG_WECHAT_RUNTIME_ROOT/scripts/build_ardot_manifest.py" article.json \
      --org path/to/organization-pack \
      --output output/article-slug/ardot-manifest.json
    ```
@@ -90,7 +211,8 @@ Before opening source material, creating an organization pack, generating an art
 11. Read [references/visual-review.md](references/visual-review.md). Export five distinct 390 px Ardot nodes (`hero`, `chapter`, `evidence`, `complex-section`, `cta`) from the same article root. Use visual review schema v3 with local PNG paths, SHA-256, pixel dimensions, capture timestamps, chapter IDs, density-to-screenshot hash binding, and measured micro-component placement evidence, then validate it:
 
    ```bash
-   python3 scripts/build_visual_review.py visual-review.json --article article.json
+   python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+     "$ORG_WECHAT_RUNTIME_ROOT/scripts/build_visual_review.py" visual-review.json --article article.json
    ```
 
    Set `article.visual_review_file` to that file. Generate WeChat transport only after this screenshot-backed review passes.
@@ -118,18 +240,22 @@ Before opening source material, creating an organization pack, generating an art
 - Search the organization asset registry before generating a generic visual:
 
   ```bash
-  python3 scripts/orgs.py search path/to/organization-pack "QUERY"
+  python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+    "$ORG_WECHAT_RUNTIME_ROOT/scripts/orgs.py" search path/to/organization-pack "QUERY"
   ```
 - Before creating assets for a new account or article type, generate a route-specific asset plan. It distinguishes reusable assets, missing real photographs, allowed generated illustrations, and identity files that must come from the user:
 
   ```bash
-  python3 scripts/orgs.py asset-plan path/to/organization-pack ARTICLE_TYPE --output asset-plan.json
+  python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+    "$ORG_WECHAT_RUNTIME_ROOT/scripts/orgs.py" asset-plan \
+    path/to/organization-pack ARTICLE_TYPE --output asset-plan.json
   ```
 
 - Save approved files in the pack’s `assets/official`, `assets/photos`, `assets/generated`, or `assets/derived` directory, then register them:
 
   ```bash
-  python3 scripts/orgs.py register-asset path/to/organization-pack \
+  python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+    "$ORG_WECHAT_RUNTIME_ROOT/scripts/orgs.py" register-asset path/to/organization-pack \
     --id visual.hero-example --kind background --title "Hero background" \
     --location assets/generated/hero-example.png \
     --origin generated-illustrative --style STYLE_ID --use ARTICLE_TYPE
@@ -167,19 +293,36 @@ Before opening source material, creating an organization pack, generating an art
   - `current-session-draft`: when `host.receipt.attest` is unavailable, the same current host trace must show the exact Ardot file/root reread, candidate compilation, real WeChat draft write, reopen, and chapter-by-chapter readback. Compile only `wechat-candidate.html` plus `candidate-report.json`; require `candidate_valid: true`, `draft_write_eligible: false`, `portable_audit_verified: false`, `delivery_eligible: false`, and `finalization_verified: false`. The unsigned report is only a structural binding; the reversible write is a current-host action policy owned by the visible tool trace, never a portable artifact entitlement. This mode cannot be presented as portable audit or publication proof.
   - `portable-signed-audit`: a real `host.receipt.attest` callable signs both the Ardot live read and saved-draft readback with a host-only Ed25519 private key. The repository reads the public key only from a protected root-owned trust store. This mode retains the terminal `wechat.html` / `compile-report.json` artifact chain and portable verification.
 
+  Both modes first upload exact frozen body assets and the cover to the bound account. The returned `mmbiz.qpic.cn` URLs and permanent cover `thumb_media_id` are frozen in the account-scoped upload map; compilation without that map is invalid:
+
+  ```bash
+  python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+    "$ORG_WECHAT_RUNTIME_ROOT/scripts/wechat_publisher.py" \
+    --store delivery/publisher.sqlite3 prepare-uploads handoff.json \
+    --target-account appid:EXACT_APPID --output delivery/upload-map.json
+  ```
+
+  `delivery/` must already exist and the output is create-once. Before the first upload the publisher reserves `delivery/.upload-map.json.upload-journal.jsonl`; it appends a hash-chained record for every attempt and committed response, bound to the canonical `publisher.sqlite3` path and that database's persistent identity. Rerun the exact same command, store, and output path only after a known failure: completed SHA/account/kind rows are reused, while a changed/missing store, a missing committed row, or `pending` / `ambiguous` state fails closed for reconciliation. An existing final map, unsafe/symlinked parent, or unreservable journal stops with zero new uploads. Never delete or rewrite either artifact to force a replay.
+
   For `current-session-draft`, run:
 
   ```bash
-  python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py handoff.json \
+  python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+    "$ORG_WECHAT_RUNTIME_ROOT/scripts/validate_transport_fidelity.py" handoff.json \
     --intended-html output/article-slug/wechat-candidate.html \
     --live-root-export qa/live-current-root.json \
+    --upload-map delivery/upload-map.json --require-upload-map \
     --require-live-root --session-draft
-  python3 -I -S scripts/secure_runner.py scripts/compile_wechat.py --transport-fidelity handoff.json \
+  python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+    "$ORG_WECHAT_RUNTIME_ROOT/scripts/compile_wechat.py" --transport-fidelity handoff.json \
     --live-root-export qa/live-current-root.json \
+    --upload-map delivery/upload-map.json \
     --session-draft --output output/article-slug --check
-  python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py handoff.json \
+  python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+    "$ORG_WECHAT_RUNTIME_ROOT/scripts/validate_transport_fidelity.py" handoff.json \
     --html output/article-slug/wechat-candidate.html \
     --live-root-export qa/live-current-root.json \
+    --upload-map delivery/upload-map.json --require-upload-map \
     --compile-report output/article-slug/candidate-report.json \
     --require-compile-report --session-draft
   ```
@@ -187,19 +330,25 @@ Before opening source material, creating an organization pack, generating an art
   For `portable-signed-audit`, run:
 
   ```bash
-  python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py handoff.json \
+  python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+    "$ORG_WECHAT_RUNTIME_ROOT/scripts/validate_transport_fidelity.py" handoff.json \
     --intended-html output/article-slug/wechat.html \
     --live-root-export qa/live-current-root.json \
     --live-root-receipt qa/live-current-root-receipt.json \
+    --upload-map delivery/upload-map.json --require-upload-map \
     --require-live-root
-  python3 -I -S scripts/secure_runner.py scripts/compile_wechat.py --transport-fidelity handoff.json \
+  python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+    "$ORG_WECHAT_RUNTIME_ROOT/scripts/compile_wechat.py" --transport-fidelity handoff.json \
     --live-root-export qa/live-current-root.json \
     --live-root-receipt qa/live-current-root-receipt.json \
+    --upload-map delivery/upload-map.json \
     --output output/article-slug --check
-  python3 -I -S scripts/secure_runner.py scripts/validate_transport_fidelity.py handoff.json \
+  python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+    "$ORG_WECHAT_RUNTIME_ROOT/scripts/validate_transport_fidelity.py" handoff.json \
     --html output/article-slug/wechat.html \
     --live-root-export qa/live-current-root.json \
     --live-root-receipt qa/live-current-root-receipt.json \
+    --upload-map delivery/upload-map.json --require-upload-map \
     --compile-report output/article-slug/compile-report.json \
     --require-compile-report
   ```
@@ -208,23 +357,23 @@ Before opening source material, creating an organization pack, generating an art
 - `index.html`, `wechat-candidate.html`, and final `wechat.html` are transport/debug artifacts, not the design source. Both draft paths must contain one chapter section per frozen Ardot section node and one native text marker per frozen text node. The session path binds the exact fresh live export, candidate HTML bytes and `candidate-report.json` structurally and must be revalidated in the same host immediately before paste. The signed path additionally terminally binds the intended path, path identity, device/inode, SHA-256, byte length, handoff SHA and transport revision in `compile-report.json` with the original live receipt.
 - Freeze handoff schema v5 with both the hash-bound `ardot-current-root-export` and full transport layer export, then run `validate_workflow_attribution.py` and the selected transport gate. After saving and reopening the WeChat draft, export actual visible body text plus `wechat-saved-draft-readback-v1`. In current-session mode rerun the validator with the candidate HTML/report, live export, `--readback ... --require-readback --session-draft`, and require `session_readback_structural_match: true`; the active host trace must independently show the real account/draft reopen. In portable mode the host also issues `wechat-host-saved-draft-receipt-v1` and the validator uses both receipts. Neither mode permits formal publication without separate explicit confirmation.
 - The final adapter must carry every approved cutout as an independent, true-alpha, partial-width layer at its Ardot-derived geometry. It must not silently drop the visual kit, bake it into a background/composite, or send it through a generic full-width image/card renderer.
-- The authoring layer normally hands 2–3 approved interaction modules to the last-mile publisher under policy `wechat-svg-smil-self-v1`. The only dynamic candidates are no-ID self-trigger `<set>` / `<animateTransform begin="click">` SVG and inline CSS horizontal swipe. JavaScript, `<details>`, transport IDs, cross-ID timing, fragment references, and unprobed SMIL are forbidden. Every transport instance requires a unique semantic-hash-matched static fallback.
+- The authoring layer normally hands 2–3 approved interaction modules to the last-mile publisher under policy `wechat-svg-smil-self-v1`. The only dynamic candidates are no-ID self-trigger `<set>` / `<animateTransform begin="click">` SVG and inline CSS horizontal swipe. JavaScript, `<details>`, transport IDs, cross-ID timing, fragment references, and unprobed SMIL are forbidden. Every transport instance requires a unique semantic-hash-matched static fallback. Current-session iOS/Android evidence is accepted only through an in-process host live-authority callback; a local host-trace/profile JSON cannot self-attest it.
 - Before creating a WeChat draft, upload body images to the organization’s connected account and replace local paths with returned WeChat URLs. Upload the cover through the account’s supported cover-material flow.
 - For every locally verified marked carrier, download the actual WeChat-hosted body image or cover derivative after draft save and run authenticated detection. Only `transport_verified` proves that the mark survived WeChat; HTML structure and URL readback are insufficient. In required mode, unresolved `transport_lost` blocks publication.
 - A dynamic candidate remains disabled until saved-draft structure readback and an unexpired target-account iOS/Android capability profile both pass. Structure preservation alone is not runtime proof; otherwise update the same draft with the static fallback.
-- Default to draft creation only. Formal publication always requires a separate explicit confirmation.
+- Default to draft creation only. Formal publication always requires a separate explicit confirmation. In `current-session-live`, the active host must inject a live authority that freshly rereads the exact Ardot root/account/draft and consumes the user's bound confirmation event; the standalone CLI intentionally has no such authority and must reject file-only current-session publication. A portable signed chain or a separately declared UI live route remains available when applicable.
 
 ## Quality gate
 
 Treat any of the following as blocking for final delivery:
 
-- missing, stale, unsafe, self-reported-only, or failing runtime preflight for the active phase; a workflow/organization migration that skipped its current nonce/digest-bound neutral RGBA route probe; a binding-only report presented as phase readiness; a different project or provider-wrapper Skill SHA; local ImageGen presented as an RGBA route; C2C doctor/workspace output, a local derivation report alone, or a model-authored download receipt presented as host-route proof; a generic executor presented as ImageGen/Browser/Computer Use; an untrusted Ardot/WeChat URL; or a target file/account mismatch;
+- missing, stale, unsafe, self-reported-only, or failing runtime preflight for the active phase; a workflow/organization migration that skipped its current nonce/digest-bound neutral RGBA route probe; a binding-only report presented as phase readiness; a different project or provider-wrapper Skill SHA; local ImageGen presented as an RGBA route; C2C doctor/workspace output, a local derivation report alone, a v1/self-authored provider ledger, copied callback field, or model-authored download receipt presented as host-route proof; an article acquisition whose adapter/census/migration/route/ingestion/raw chain is not exact; any current-session claim of host attestation/portability, a configured policy hook that denies or fails, an invalid/tampered portable receipt or repository-writable trust store; a generic executor presented as ImageGen/Browser/Computer Use; an untrusted Ardot/WeChat URL; or a target file/account mismatch;
 - failed organization-pack validation;
 - missing valid visual-reference provenance: for source-zero, allowed visual input source IDs, all excluded legacy-visual categories, and isolation review time; for `explicit-style-grammar`, registered style source IDs, abstract-only scope, review time, all six non-copy constraints, at least one selected route, or a matching canonical grammar SHA-256;
 - reference text, photographs, logos, specific layout, component geometry, artwork, or unsupported reference-shaped fields entering a route grammar, prompt, visual kit, or Ardot manifest;
 - unresolved placeholders;
 - missing local assets;
-- missing or incomplete `article.visual_kit`, fewer than four distinct derived micro assets, any missing visual role, absent original-download evidence, missing source/prompt/route/processor/config/report lineage, RGB or all-opaque pseudo-RGBA, non-RGBA8/undecodable Alpha, low-Alpha residue, chromatic/neutral halo, detached debris, oversized transparent canvas, clipped subject, rectangular/rounded/solid/textured matte, stale cutout SHA/evidence, or missing native Ardot component node evidence;
+- missing or incomplete `article.visual_kit`, fewer than four distinct derived micro assets, any role whose lineage slot is not exactly `kit.<role>`, fewer than four distinct accepted raw-source SHA / provider-request ID / acquisition-authority binding values, any missing visual role, absent original-download evidence, missing source/prompt/route/processor/config/report lineage, RGB or all-opaque pseudo-RGBA, non-RGBA8/undecodable Alpha, low-Alpha residue, chromatic/neutral halo, detached debris, oversized transparent canvas, clipped subject, rectangular/rounded/solid/textured matte, stale cutout SHA/evidence, or missing native Ardot component node evidence;
 - article layout started before the micro illustrations were made into Ardot components;
 - more than 20% boxed content sections, two consecutive boxes, or every block owning a background/border/radius container;
 - missing organization/route calibration benchmark or provisional organization status;
@@ -236,7 +385,7 @@ Treat any of the following as blocking for final delivery:
 - a visual-kit item without grounded source copy, a specific subject/action, or a chapter/composition role;
 - missing or failing screenshot-backed schema-v3 `visual_review_file` before final transport;
 - missing, changed, hidden, rasterized, duplicated, or non-terminal workflow attribution in Ardot, compiled transport, handoff v5, or saved-draft normalized text;
-- missing/failing `ardot-current-root-layer-export-v1`; missing fresh live-root reread; in `portable-signed-audit`, a missing/invalid short-lived host-signed receipt; in `current-session-draft`, a missing current-host reread/write/reopen trace, a candidate report that does not bind the exact live export and candidate HTML, any claim with `portable_audit_verified` other than false, or an attempt to publish/group-send; a frozen export reused, renamed, copied or hard-linked as live evidence; a non-later or timezone-less live capture time; discontinuous/overlapping chapter y geometry; current-root visible component/section/layer/source/style/body-asset census mismatch; an unsupported or silently substituted font/crop/rotation/mask; duplicate/missing interaction state node IDs or tree hashes; any final renderer driven by article JSON; mixed screenshot/template/freehand-SVG sources; unsigned nested DOM or extra attributes; a final/candidate HTML artifact binding mismatch; a QA/contact/section-composite body image; a background without exact 3x geometry or zero-text node evidence; a decoration not independently bound to its approved cutout and source node; a supplied rather than recomputed SVG structure signature; detached readback without the bound compile artifact; a non-`mmbiz.qpic.cn` hosted asset; or missing chapter-level revision/asset/SVG/screenshot readback;
+- missing/failing `ardot-current-root-layer-export-v1`; missing fresh live-root reread; in `portable-signed-audit`, a missing/invalid short-lived host-signed receipt; in `current-session-draft`, a missing current-host reread/write/reopen trace, a candidate report that does not bind the exact live export and candidate HTML, any claim with `portable_audit_verified` other than false, or any publication attempt that lacks an in-process host live-authority callback, the publisher's fresh authoritative draft read, current-session/portable publication-input validation, and separately consumed exact confirmation; a frozen export reused, renamed, copied or hard-linked as live evidence; a non-later or timezone-less live capture time; discontinuous/overlapping chapter y geometry; current-root visible component/section/layer/source/style/body-asset census mismatch; an unsupported or silently substituted font/crop/rotation/mask; duplicate/missing interaction state node IDs or tree hashes; any final renderer driven by article JSON; mixed screenshot/template/freehand-SVG sources; unsigned nested DOM or extra attributes; a final/candidate HTML artifact binding mismatch; a QA/contact/section-composite body image; a background without exact 3x geometry or zero-text node evidence; a decoration not independently bound to its approved cutout and source node; a supplied rather than recomputed SVG structure signature; detached readback without the bound compile artifact; a non-`mmbiz.qpic.cn` hosted asset; or missing chapter-level revision/asset/SVG/screenshot readback;
 - missing measured evidence for all four micro-component roles; an image wider than 72% of the row; a component wider than 82%; fewer than three screenshot sections, three distinct offsets, three composition relations, both left/right offsets, or visible scale variation; framed copy; or copy-bearing micro components without native text nodes, 22 px / 1.35× primary scale contrast, and a second non-frame emphasis technique;
 - missing `information_density` / `background_family_coherence` / `background_surface_unity` / `reading_surface_contrast` / `expressive_typography` / `art_type_construction` / `no_baked_art_text` screenshot checks, unhashed/non-390 px Ardot exports, fewer than five density samples, measured body-text contrast below 4.5, `compact-editorial` major gaps outside 24–40 px, body line-height outside the selected mode, or an accidental empty region larger than 20% of a sampled section;
 - a metric without a source ID;

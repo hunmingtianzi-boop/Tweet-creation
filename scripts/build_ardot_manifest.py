@@ -9,9 +9,15 @@ import re
 from pathlib import Path
 from typing import Any
 
+if __name__ == "__main__":
+    from secure_runtime import require_secure_runtime
+
+    require_secure_runtime("scripts/build_ardot_manifest.py")
+
 from build_visual_kit import build_visual_kit_plan
 from build_storyboard import build_storyboard_plan
 from orgs import load_pack, validate_pack
+from pack_assets import PackAssetResolutionError, resolve_pack_asset
 from workflow_quality import (
     WORKFLOW_ATTRIBUTION_MARKER,
     WORKFLOW_ATTRIBUTION_TEXT,
@@ -21,6 +27,26 @@ from workflow_quality import (
     validate_typography_plan,
     watermark_inventory,
 )
+
+try:
+    from safe_paths import (
+        SafePathError,
+        existing_directory,
+        existing_regular_file,
+        new_file_path,
+        write_text_create_once,
+    )
+except ImportError:  # pragma: no cover - package import fallback
+    from .safe_paths import (  # type: ignore
+        SafePathError,
+        existing_directory,
+        existing_regular_file,
+        new_file_path,
+        write_text_create_once,
+    )
+
+
+RUNTIME_ROOT = Path(__file__).resolve().parent.parent
 
 
 TOKEN_NAMES = {
@@ -130,9 +156,16 @@ def resolve_asset(ref: str, pack: dict[str, Any], article_path: Path) -> dict[st
     item = registry.get(ref)
     if item:
         location = item.get("location")
-        local_path = None
-        if isinstance(location, str) and not re.match(r"^(?:https?://|data:)", location):
-            local_path = str((pack["path"] / location).resolve())
+        try:
+            local_path = str(
+                resolve_pack_asset(
+                    pack["path"],
+                    location,
+                    label=f"registered asset {ref} location",
+                )
+            )
+        except PackAssetResolutionError as exc:
+            raise ValueError(str(exc)) from exc
         return {
             "ref": ref,
             "registered": True,
@@ -142,12 +175,14 @@ def resolve_asset(ref: str, pack: dict[str, Any], article_path: Path) -> dict[st
             "local_path": local_path,
             "watermark": item.get("watermark"),
         }
-    local_path = (article_path.parent / ref).resolve()
     return {
         "ref": ref,
         "registered": False,
         "location": ref,
-        "local_path": str(local_path) if local_path.exists() else None,
+        # Article-local and remote paths are not an alternate asset registry.
+        # Requiring registration prevents another pack, old output or arbitrary
+        # external file from entering a source-zero compile.
+        "local_path": None,
     }
 
 
@@ -252,7 +287,7 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
         resolve_asset(ref, pack, article_path)
         for ref in dict.fromkeys(used_assets)
     ]
-    unresolved = [item["ref"] for item in assets if not item.get("local_path") and not re.match(r"^https?://", str(item.get("location", "")))]
+    unresolved = [item["ref"] for item in assets if not item.get("local_path")]
     block_by_index = {item["index"]: item for item in blocks}
     chapters = []
     for chapter in storyboard["chapters"]:
@@ -496,15 +531,23 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     try:
-        manifest = build_manifest(args.article.resolve(), args.org.resolve())
-    except ValueError as exc:
+        article = existing_regular_file(args.article, label="article")
+        organization = existing_directory(args.org, label="organization pack")
+        output = new_file_path(
+            args.output,
+            label="Ardot manifest output",
+            forbidden_root=RUNTIME_ROOT,
+        )
+        manifest = build_manifest(article, organization)
+        write_text_create_once(
+            output,
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+            label="Ardot manifest output",
+            forbidden_root=RUNTIME_ROOT,
+        )
+    except (SafePathError, ValueError) as exc:
         raise SystemExit(str(exc)) from exc
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    print(json.dumps({"created": str(args.output.resolve()), "blocks": len(manifest["blocks"]), "ok": not manifest["qa"]["unresolved_assets"]}, ensure_ascii=False, indent=2))
+    print(json.dumps({"created": str(output), "blocks": len(manifest["blocks"]), "ok": not manifest["qa"]["unresolved_assets"]}, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

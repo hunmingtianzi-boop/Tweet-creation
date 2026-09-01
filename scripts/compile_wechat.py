@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import html
 import json
+import os
 import re
 import shutil
 from dataclasses import dataclass, field
@@ -22,11 +23,16 @@ if __name__ == "__main__":
 from build_storyboard import build_storyboard_plan
 from build_visual_kit import build_visual_kit_plan
 from asset_quality import file_sha256
-from wechat_interaction_policy import audit_transport
+from wechat_interaction_policy import CurrentSessionMobileAuthority, audit_transport
 from transport_fidelity import (
     CURRENT_ROOT_SOURCE,
     LIVE_RECEIPT_SOURCE,
     TRANSPORT_SOURCE,
+    WECHAT_CONTENT_MAX_BYTES,
+    WECHAT_CONTENT_MAX_CHARS,
+    WECHAT_DIGEST_MAX_CHARS,
+    WECHAT_AUTHOR_MAX_CHARS,
+    WECHAT_TITLE_MAX_CHARS,
     asset_layer_contract,
     interaction_layer_contract,
     path_identity_sha256,
@@ -35,8 +41,25 @@ from transport_fidelity import (
     text_layer_contract,
     transport_position_style as frozen_transport_position_style,
     _validate_transport_fidelity_contract,
+    validate_wechat_upload_map,
     validate_transport_fidelity_diagnostic,
 )
+from asset_role_policy import validate_asset_role
+from pack_assets import PackAssetResolutionError, canonical_pack_root, resolve_pack_asset
+try:
+    from safe_paths import (
+        SafePathError,
+        existing_directory,
+        existing_regular_file,
+        new_directory_path,
+    )
+except ImportError:  # package import in repository tests
+    from .safe_paths import (  # type: ignore
+        SafePathError,
+        existing_directory,
+        existing_regular_file,
+        new_directory_path,
+    )
 from validate_workflow_attribution import validate_workflow_attribution_handoff
 from workflow_quality import (
     WORKFLOW_ATTRIBUTION_MARKER,
@@ -96,6 +119,23 @@ MICRO_TRANSPORT_ALIGNMENTS = {
     "inline-explainer": "right",
     "closing-motif": "left",
 }
+
+
+def _write_text_create_once(path: Path, value: str) -> None:
+    """Write one compiler-owned artifact without following or replacing paths."""
+
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags, 0o600)
+    try:
+        encoded = value.encode("utf-8")
+        with os.fdopen(descriptor, "wb", closefd=True) as destination:
+            descriptor = -1
+            destination.write(encoded)
+            destination.flush()
+            os.fsync(destination.fileno())
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
 
 
 def esc(value: Any) -> str:
@@ -278,24 +318,26 @@ class CompileContext:
         if not isinstance(source, str) or not source.strip():
             self.errors.append(f"{label} requires a non-empty image src")
             return ""
-        if REMOTE_SRC.match(source):
-            return source
         registered = {
             item.get("id"): item
             for item in self.assets_doc.get("assets", [])
             if isinstance(item, dict) and item.get("id")
         }
         registered_asset = registered.get(source)
-        candidate = (self.spec_path.parent / source).resolve()
-        if not candidate.exists():
-            if registered_asset is not None:
-                location = registered_asset.get("location")
-                if isinstance(location, str) and REMOTE_SRC.match(location):
-                    return location
-                if isinstance(location, str):
-                    candidate = (self.org_dir / location).resolve()
-        if not candidate.exists() or not candidate.is_file():
-            self.errors.append(f"missing local asset for {label}: {source}")
+        if registered_asset is None:
+            self.errors.append(
+                f"{label} must reference an asset ID registered in this organization pack: {source}"
+            )
+            return source
+        registered_location = registered_asset.get("location")
+        try:
+            candidate = resolve_pack_asset(
+                self.org_dir,
+                registered_location,
+                label=f"registered asset {source} location",
+            )
+        except PackAssetResolutionError as exc:
+            self.errors.append(str(exc))
             return source
         digest = hashlib.sha1(str(candidate).encode("utf-8")).hexdigest()[:10]
         target_name = f"{slug_part(candidate.stem)}-{digest}{candidate.suffix.lower()}"
@@ -307,25 +349,9 @@ class CompileContext:
         relative = f"assets/{target_name}"
         source_sha256 = file_sha256(candidate)
         output_sha256 = file_sha256(target)
-        registered_location = (
-            registered_asset.get("location")
-            if isinstance(registered_asset, dict)
-            else None
-        )
-        if (
-            isinstance(registered_location, str)
-            and registered_location
-            and not Path(registered_location).is_absolute()
-            and ".." not in Path(registered_location).parts
-        ):
-            public_source = Path(registered_location).as_posix()
-        else:
-            try:
-                public_source = candidate.relative_to(
-                    self.spec_path.parent.resolve()
-                ).as_posix()
-            except ValueError:
-                public_source = candidate.name
+        # The resolver has already proven this exact serialized location is a
+        # canonical pack-relative path.
+        public_source = str(registered_location)
         record = {
             "source": public_source,
             "output": relative,
@@ -499,8 +525,18 @@ def _render_frozen_asset_layer(
     chapter_height: float,
     role: str,
     cover: bool = False,
+    upload_map: dict[str, Any] | None = None,
 ) -> str:
-    source = _copy_frozen_transport_asset(manifest_path, output_dir, asset, copied)
+    if upload_map is None:
+        source = _copy_frozen_transport_asset(manifest_path, output_dir, asset, copied)
+    else:
+        mapped = upload_map.get("_body_by_id", {}).get(str(asset.get("asset_id")))
+        if not isinstance(mapped, dict) or not isinstance(mapped.get("hosted_url"), str):
+            raise ValueError(
+                f"target-account upload map is missing {asset.get('asset_id')}"
+            )
+        source = mapped["hosted_url"]
+        copied[str(asset["asset_id"])] = source
     contract = asset_layer_contract(
         asset, chapter_height=chapter_height, role=role, cover=cover
     )
@@ -515,6 +551,97 @@ def _render_frozen_asset_layer(
     )
 
 
+def _wechat_asset_src(
+    manifest_path: Path,
+    output_dir: Path,
+    asset: dict[str, Any],
+    copied: dict[str, str],
+    upload_map: dict[str, Any] | None,
+) -> str:
+    if upload_map is None:
+        return _copy_frozen_transport_asset(
+            manifest_path, output_dir, asset, copied
+        )
+    mapped = upload_map.get("_body_by_id", {}).get(str(asset.get("asset_id")))
+    if not isinstance(mapped, dict) or not isinstance(mapped.get("hosted_url"), str):
+        raise ValueError(
+            f"target-account upload map is missing {asset.get('asset_id')}"
+        )
+    copied[str(asset["asset_id"])] = mapped["hosted_url"]
+    return str(mapped["hosted_url"])
+
+
+def _validate_wechat_article_limits(handoff: dict[str, Any], content: str) -> list[str]:
+    article = handoff.get("article")
+    if not isinstance(article, dict):
+        return ["handoff article metadata is missing"]
+    errors: list[str] = []
+    title = article.get("title")
+    digest = article.get("digest")
+    author = article.get("author", "")
+    if not isinstance(title, str) or not title.strip() or len(title) > WECHAT_TITLE_MAX_CHARS:
+        errors.append(f"article title must contain 1-{WECHAT_TITLE_MAX_CHARS} characters")
+    if not isinstance(digest, str) or len(digest) > WECHAT_DIGEST_MAX_CHARS:
+        errors.append(f"article digest must contain at most {WECHAT_DIGEST_MAX_CHARS} characters")
+    if not isinstance(author, str) or len(author) > WECHAT_AUTHOR_MAX_CHARS:
+        errors.append(f"article author must contain at most {WECHAT_AUTHOR_MAX_CHARS} characters")
+    if len(content) >= WECHAT_CONTENT_MAX_CHARS:
+        errors.append(f"article HTML must contain fewer than {WECHAT_CONTENT_MAX_CHARS} characters")
+    if len(content.encode("utf-8")) >= WECHAT_CONTENT_MAX_BYTES:
+        errors.append(f"article HTML must contain fewer than {WECHAT_CONTENT_MAX_BYTES} UTF-8 bytes")
+    return errors
+
+
+_UPLOAD_TAG = re.compile(r"<(?:img|image)\b[^>]*>", re.I)
+_UPLOAD_ID_ATTR = re.compile(
+    r"\bdata-upload-asset-id\s*=\s*(['\"])([A-Za-z0-9._:-]{1,160})\1",
+    re.I,
+)
+
+
+def _materialize_interaction_uploads(
+    fragment: str,
+    upload_map: dict[str, Any] | None,
+) -> str:
+    """Replace only explicit SHA-mapped interaction image placeholders.
+
+    No unrestricted URL replacement is permitted.  Source fragments must bind
+    each nested bitmap as both ``data-upload-asset-id=X`` and
+    ``wechat-asset://X``; the final value comes from the validated account map.
+    """
+
+    if upload_map is None:
+        return fragment
+
+    def replace_tag(match: re.Match[str]) -> str:
+        tag = match.group(0)
+        marker = _UPLOAD_ID_ATTR.search(tag)
+        if marker is None:
+            return tag
+        asset_id = marker.group(2)
+        mapped = upload_map.get("_body_by_id", {}).get(asset_id)
+        if not isinstance(mapped, dict):
+            raise ValueError(
+                f"interaction image {asset_id} is missing from the target-account upload map"
+            )
+        hosted_url = mapped.get("hosted_url")
+        if not isinstance(hosted_url, str):
+            raise ValueError(f"interaction image {asset_id} has no hosted URL")
+        placeholder = f"wechat-asset://{asset_id}"
+        attributes = list(
+            re.finditer(r"\b(?:src|href|xlink:href)\s*=\s*(['\"])(.*?)\1", tag, re.I)
+        )
+        targets = [item for item in attributes if item.group(2) == placeholder]
+        if len(targets) != 1:
+            raise ValueError(
+                f"interaction image {asset_id} must contain exactly one matching wechat-asset placeholder"
+            )
+        target = targets[0]
+        return tag[: target.start(2)] + hosted_url + tag[target.end(2) :]
+
+    return _UPLOAD_TAG.sub(replace_tag, fragment)
+
+
 def _compile_frozen_transport_contract(
     manifest_path: Path,
     output_dir: Path,
@@ -524,10 +651,17 @@ def _compile_frozen_transport_contract(
     check: bool = True,
     finalization: bool,
     session_draft: bool = False,
+    interaction_probe: bool = False,
+    upload_map_path: Path | None = None,
+    mobile_profile_path: Path | None = None,
+    interaction_readback_path: Path | None = None,
+    current_session_mobile_authority: CurrentSessionMobileAuthority | None = None,
 ) -> dict[str, Any]:
     """Compile a frozen layer export after the caller selects its trust scope."""
     if finalization and session_draft:
         raise ValueError("finalization and session_draft modes are mutually exclusive")
+    if interaction_probe and not session_draft:
+        raise ValueError("interaction_probe requires session_draft mode")
     if finalization or session_draft:
         # Keep the private engine fail-closed as well.  Importing this module
         # and calling a write-eligible implementation directly must not bypass
@@ -535,11 +669,31 @@ def _compile_frozen_transport_contract(
         from secure_runtime import require_secure_runtime
 
         require_secure_runtime("scripts/compile_wechat.py")
-    manifest_path = manifest_path.resolve()
-    output_dir = output_dir.resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        manifest_path = existing_regular_file(
+            manifest_path, label="frozen handoff manifest"
+        )
+        output_dir = new_directory_path(
+            output_dir,
+            label="frozen compile output directory",
+            forbidden_root=Path(__file__).resolve().parent.parent,
+        )
+    except SafePathError as exc:
+        raise ValueError(str(exc)) from exc
+    try:
+        output_dir.mkdir(mode=0o700, parents=False, exist_ok=False)
+    except OSError as exc:
+        raise ValueError(
+            f"cannot create frozen compile output directory safely: {exc}"
+        ) from exc
     artifact_path = output_dir / (
         "wechat.html" if finalization else "wechat-candidate.html"
+    )
+    dynamic_path = output_dir / (
+        "wechat-dynamic.html" if finalization else "wechat-dynamic-candidate.html"
+    )
+    static_path = output_dir / (
+        "wechat-static.html" if finalization else "wechat-static-candidate.html"
     )
     preview_path = output_dir / (
         "index.html" if finalization else "candidate-preview.html"
@@ -547,9 +701,7 @@ def _compile_frozen_transport_contract(
     report_path = output_dir / (
         "compile-report.json" if finalization else "candidate-report.json"
     )
-    for stale in (artifact_path, preview_path, report_path):
-        if stale.is_file():
-            stale.unlink()
+    owned_outputs: set[Path] = set()
     try:
         if finalization:
             preflight = _validate_transport_fidelity_contract(
@@ -558,6 +710,8 @@ def _compile_frozen_transport_contract(
                 live_root_path=live_root_path,
                 live_receipt_path=live_receipt_path,
                 require_live_root=True,
+                upload_map_path=upload_map_path,
+                require_upload_map=True,
                 diagnostic=False,
             )
         else:
@@ -567,6 +721,8 @@ def _compile_frozen_transport_contract(
                 live_root_path=live_root_path,
                 live_receipt_path=live_receipt_path,
                 require_live_root=True,
+                upload_map_path=upload_map_path,
+                require_upload_map=session_draft,
             )
     except ValueError as exc:
         preflight = {
@@ -612,6 +768,7 @@ def _compile_frozen_transport_contract(
             receipt_payload = read_json(resolved_receipt)
             live_receipt_binding = {
                 "source": LIVE_RECEIPT_SOURCE,
+                "path": str(resolved_receipt),
                 "path_identity_sha256": path_identity_sha256(resolved_receipt),
                 "sha256": f"sha256:{file_sha256(resolved_receipt)}",
                 "key_id": receipt_payload.get("key_id"),
@@ -642,15 +799,30 @@ def _compile_frozen_transport_contract(
         )
     copied: dict[str, str] = {}
     fragment = ""
+    dynamic_fragment = ""
+    static_fragment = ""
+    selected_payload = "dynamic"
     fallback_fragments: list[str] = []
     if preflight.get("ok"):
         handoff = read_json(manifest_path)
         export = handoff["transport_fidelity"]["export"]
-        rendered_chapters: list[str] = []
+        upload_map: dict[str, Any] | None = None
+        if upload_map_path is not None:
+            try:
+                upload_map = validate_wechat_upload_map(
+                    upload_map_path,
+                    manifest_path=manifest_path,
+                    handoff=handoff,
+                    export=export,
+                )
+            except (OSError, ValueError) as exc:
+                errors.append({"code": "transport.upload_map", "message": str(exc)})
+        rendered_dynamic_chapters: list[str] = []
+        rendered_static_chapters: list[str] = []
         try:
             for chapter in export["chapters"]:
                 chapter_height = float(chapter["geometry"]["height"])
-                layers = [
+                base_layers = [
                     _render_frozen_asset_layer(
                         manifest_path,
                         output_dir,
@@ -659,9 +831,10 @@ def _compile_frozen_transport_contract(
                         chapter_height=chapter_height,
                         role="background",
                         cover=True,
+                        upload_map=upload_map,
                     )
                 ]
-                layers.extend(
+                base_layers.extend(
                     _render_frozen_asset_layer(
                         manifest_path,
                         output_dir,
@@ -669,10 +842,11 @@ def _compile_frozen_transport_contract(
                         copied,
                         chapter_height=chapter_height,
                         role="article-micro",
+                        upload_map=upload_map,
                     )
                     for item in chapter["decorations"]
                 )
-                layers.extend(
+                base_layers.extend(
                     _render_frozen_asset_layer(
                         manifest_path,
                         output_dir,
@@ -680,13 +854,16 @@ def _compile_frozen_transport_contract(
                         copied,
                         chapter_height=chapter_height,
                         role="documentary-evidence",
+                        upload_map=upload_map,
                     )
                     for item in chapter["photos"]
                 )
-                layers.extend(
+                base_layers.extend(
                     _render_frozen_text_node(item, chapter_height=chapter_height)
                     for item in chapter["visible_text_nodes"]
                 )
+                dynamic_layers = list(base_layers)
+                static_layers = list(base_layers)
                 interactions = chapter.get("interaction")
                 interaction_items = interactions if isinstance(interactions, list) else [interactions]
                 for item in interaction_items:
@@ -696,22 +873,23 @@ def _compile_frozen_transport_contract(
                         item, chapter_height=chapter_height
                     )
                     wrapper_style = contract["style"]
-                    if item["mode"] == "static-fallback":
-                        fallback = item["fallback_asset"]
-                        fallback_src = _copy_frozen_transport_asset(
-                            manifest_path, output_dir, fallback, copied
-                        )
-                        payload = (
-                            f'<img src="{esc(fallback_src)}" '
-                            f'data-transport-asset-id="{esc(fallback["asset_id"])}" '
-                            'data-transport-role="interaction-fallback" alt="" '
-                            'style="display:block;width:100%;height:100%;object-fit:contain;">'
-                        )
-                    else:
+                    fallback = item["fallback_asset"]
+                    fallback_src = _wechat_asset_src(
+                        manifest_path,
+                        output_dir,
+                        fallback,
+                        copied,
+                        upload_map,
+                    )
+                    fallback_payload = (
+                        f'<img src="{esc(fallback_src)}" '
+                        f'data-transport-asset-id="{esc(fallback["asset_id"])}" '
+                        'data-transport-role="interaction-fallback" alt="" '
+                        'style="display:block;width:100%;height:100%;object-fit:contain;">'
+                    )
+                    dynamic_payload = fallback_payload
+                    if item["mode"] == "svg":
                         svg_asset = item["svg"]
-                        _copy_frozen_transport_asset(
-                            manifest_path, output_dir, svg_asset, copied
-                        )
                         svg_path = resolve_local_asset(manifest_path, svg_asset["path"])
                         if svg_path is None:
                             raise ValueError(
@@ -722,15 +900,14 @@ def _compile_frozen_transport_contract(
                             raise ValueError(
                                 f"frozen SVG root is invalid: {svg_asset['asset_id']}"
                             )
-                        payload = re.sub(
+                        svg_text = _materialize_interaction_uploads(
+                            svg_text, upload_map
+                        )
+                        dynamic_payload = re.sub(
                             r"<svg\b",
                             f'<svg data-transport-interaction-id="{esc(item["interaction_id"])}"',
                             svg_text,
                             count=1,
-                        )
-                        fallback = item["fallback_asset"]
-                        fallback_src = _copy_frozen_transport_asset(
-                            manifest_path, output_dir, fallback, copied
                         )
                         fallback_fragments.append(
                             f'<img src="{esc(fallback_src)}" '
@@ -739,7 +916,26 @@ def _compile_frozen_transport_contract(
                             f'data-transport-asset-id="{esc(fallback["asset_id"])}" '
                             'alt="">'
                         )
-                    layers.append(
+                    elif item["mode"] == "horizontal-swipe":
+                        swipe_asset = item.get("swipe")
+                        swipe_path = resolve_local_asset(
+                            manifest_path,
+                            swipe_asset.get("path") if isinstance(swipe_asset, dict) else None,
+                        )
+                        if swipe_path is None:
+                            raise ValueError(
+                                f"frozen horizontal-swipe fragment is unavailable: {item.get('interaction_id')}"
+                            )
+                        dynamic_payload = _materialize_interaction_uploads(
+                            swipe_path.read_text(encoding="utf-8"), upload_map
+                        )
+                        fallback_fragments.append(
+                            f'<img src="{esc(fallback_src)}" '
+                            f'data-fallback-key="{esc(item["fallback_key"])}" '
+                            f'data-fallback-hash="{esc(item["fallback_semantic_sha256"])}" '
+                            f'data-transport-asset-id="{esc(fallback["asset_id"])}" alt="">'
+                        )
+                    wrapper_prefix = (
                         f'<div data-transport-interaction-id="{esc(item["interaction_id"])}" '
                         f'data-transport-interaction-mode="{esc(item["mode"])}" '
                         f'data-transport-layer-kind="{contract["kind"]}" '
@@ -747,64 +943,160 @@ def _compile_frozen_transport_contract(
                         f'data-transport-role="{esc(contract["role"])}" '
                         f'data-transport-source-sha256="{esc(contract["source_sha256"])}" '
                         f'data-transport-render-signature="{esc(contract["render_signature"])}" '
-                        f'style="{wrapper_style}">{payload}</div>'
+                        f'style="{wrapper_style}">'
                     )
+                    dynamic_layers.append(wrapper_prefix + dynamic_payload + "</div>")
+                    static_layers.append(wrapper_prefix + fallback_payload + "</div>")
                 # The section aspect-ratio wrapper is itself frozen. A correct
                 # child layer sequence inside a hidden/resized wrapper is not a
                 # faithful transport.
                 section_contract = section_render_contract(
                     chapter, revision_hash=export["revision_hash"]
                 )
-                rendered_chapters.append(
+                section_prefix = (
                     f'<section data-transport-chapter-id="{esc(chapter["chapter_id"])}" '
                     f'data-ardot-section-node="{esc(chapter["section_node_id"])}" '
                     f'data-transport-revision="{esc(export["revision_hash"])}" '
                     f'data-transport-section-signature="{esc(section_contract["render_signature"])}" '
-                    f'style="{section_contract["style"]}">{"".join(layers)}</section>'
+                    f'style="{section_contract["style"]}">'
                 )
-            fragment = (
+                rendered_dynamic_chapters.append(
+                    section_prefix + "".join(dynamic_layers) + "</section>"
+                )
+                rendered_static_chapters.append(
+                    section_prefix + "".join(static_layers) + "</section>"
+                )
+            root_prefix = (
                 f'<div data-transport-source="{TRANSPORT_SOURCE}" '
                 f'data-ardot-root-node="{esc(export["root_node_id"])}" '
-                f'style="width:100%;margin:0;padding:0;background:transparent;">'
-                + "".join(rendered_chapters)
+            )
+            dynamic_fragment = (
+                root_prefix
+                + 'data-transport-payload-variant="dynamic" '
+                + 'style="width:100%;margin:0;padding:0;background:transparent;">'
+                + "".join(rendered_dynamic_chapters)
+                + "</div>"
+            )
+            static_fragment = (
+                root_prefix
+                + 'data-transport-payload-variant="static" '
+                + 'style="width:100%;margin:0;padding:0;background:transparent;">'
+                + "".join(rendered_static_chapters)
                 + "</div>"
             )
         except (KeyError, OSError, UnicodeError, ValueError, TypeError) as exc:
             errors.append({"code": "transport.mapping", "message": str(exc)})
     if not errors:
-        artifact_path.write_text(fragment, encoding="utf-8")
+        _write_text_create_once(dynamic_path, dynamic_fragment)
+        owned_outputs.add(dynamic_path)
+        _write_text_create_once(static_path, static_fragment)
+        owned_outputs.add(static_path)
+        mobile_profile = (
+            read_json(mobile_profile_path) if mobile_profile_path is not None else None
+        )
+        interaction_readback = (
+            interaction_readback_path.read_text(encoding="utf-8")
+            if interaction_readback_path is not None
+            else None
+        )
+        interaction_policy = audit_transport(
+            dynamic_fragment,
+            fallback_html="".join(fallback_fragments) if fallback_fragments else None,
+            readback_html=interaction_readback,
+            mobile_profile=mobile_profile,
+            target_account_id=(
+                upload_map.get("target_account_ref")
+                if isinstance(upload_map, dict)
+                else None
+            ),
+            allow_upload_placeholders=upload_map is None,
+            mobile_profile_path=mobile_profile_path,
+            current_session_mobile_authority=current_session_mobile_authority,
+        )
+        selected_payload = (
+            "dynamic"
+            if interaction_probe
+            or (not finalization and not session_draft)
+            or interaction_policy.get("recommended_payload") == "dynamic"
+            else "static"
+        )
+        fragment = dynamic_fragment if selected_payload == "dynamic" else static_fragment
+        _write_text_create_once(artifact_path, fragment)
+        owned_outputs.add(artifact_path)
         if finalization:
-            postflight = _validate_transport_fidelity_contract(
-                manifest_path, html_path=artifact_path, diagnostic=False
+            dynamic_postflight = _validate_transport_fidelity_contract(
+                manifest_path,
+                html_path=dynamic_path,
+                upload_map_path=upload_map_path,
+                require_upload_map=True,
+                diagnostic=False,
+            )
+            static_postflight = _validate_transport_fidelity_contract(
+                manifest_path,
+                html_path=static_path,
+                upload_map_path=upload_map_path,
+                require_upload_map=True,
+                diagnostic=False,
             )
         else:
-            postflight = validate_transport_fidelity_diagnostic(
-                manifest_path, html_path=artifact_path
+            dynamic_postflight = validate_transport_fidelity_diagnostic(
+                manifest_path,
+                html_path=dynamic_path,
+                upload_map_path=upload_map_path,
+                require_upload_map=session_draft,
             )
-        errors.extend(postflight.get("errors", []))
-        interaction_policy = audit_transport(
-            fragment,
-            fallback_html="".join(fallback_fragments) if fallback_fragments else None,
+            static_postflight = validate_transport_fidelity_diagnostic(
+                manifest_path,
+                html_path=static_path,
+                upload_map_path=upload_map_path,
+                require_upload_map=session_draft,
+            )
+        selected_postflight = (
+            dynamic_postflight if selected_payload == "dynamic" else static_postflight
         )
+        postflight = {
+            "ok": bool(dynamic_postflight.get("ok") and static_postflight.get("ok")),
+            "contract_ok": bool(
+                dynamic_postflight.get("contract_ok")
+                and static_postflight.get("contract_ok")
+            ),
+            "selected_payload": selected_payload,
+            "selected": selected_postflight,
+            "dynamic": dynamic_postflight,
+            "static": static_postflight,
+            "errors": list(dynamic_postflight.get("errors", []))
+            + list(static_postflight.get("errors", [])),
+        }
+        errors.extend(postflight["errors"])
         errors.extend(
             {"code": "transport.interaction.policy", "message": message}
             for message in interaction_policy.get("errors", [])
+        )
+        errors.extend(
+            {"code": "transport.wechat_limit", "message": message}
+            for message in _validate_wechat_article_limits(handoff, fragment)
         )
     else:
         postflight = {"ok": False, "error_codes": []}
         interaction_policy = {"status": "not-checked", "errors": []}
     if errors:
-        for stale in (artifact_path, preview_path):
-            if stale.is_file():
-                stale.unlink()
+        # Only remove artifacts created by this invocation inside its brand-new
+        # mode-0700 output directory.  Pre-existing evidence can never reach
+        # this branch because the directory itself is create-once.
+        for owned in owned_outputs:
+            try:
+                owned.unlink()
+            except FileNotFoundError:
+                pass
     else:
-        preview_path.write_text(
+        _write_text_create_once(
+            preview_path,
             '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width,initial-scale=1">'
             '<style>*{box-sizing:border-box}body{margin:0;background:#ddd}main{width:min(390px,100%);margin:auto}</style>'
             f'</head><body><main>{fragment}</main></body></html>',
-            encoding="utf-8",
         )
+        owned_outputs.add(preview_path)
     artifact_binding = None
     if not errors and artifact_path.is_file():
         artifact_stat = artifact_path.stat()
@@ -824,7 +1116,33 @@ def _compile_frozen_transport_contract(
             "device": artifact_stat.st_dev,
             "inode": artifact_stat.st_ino,
         }
+    interaction_evidence_binding = None
+    if not errors and mobile_profile_path is not None:
+        resolved_mobile_profile = mobile_profile_path.resolve(strict=True)
+        resolved_interaction_readback = (
+            interaction_readback_path.resolve(strict=True)
+            if interaction_readback_path is not None
+            else None
+        )
+        interaction_evidence_binding = {
+            "mobile_profile": {
+                "path": str(resolved_mobile_profile),
+                "sha256": "sha256:" + file_sha256(resolved_mobile_profile),
+            },
+            "interaction_readback": (
+                {
+                    "path": str(resolved_interaction_readback),
+                    "sha256": "sha256:" + file_sha256(resolved_interaction_readback),
+                }
+                if resolved_interaction_readback is not None
+                else None
+            ),
+            "current_session_live_authority_used": (
+                current_session_mobile_authority is not None
+            ),
+        }
     report = {
+        "schema_version": 2,
         "ok": not errors,
         "compiled_at": datetime.now(timezone.utc).isoformat(),
         "candidate_valid": not errors and not finalization,
@@ -837,9 +1155,12 @@ def _compile_frozen_transport_contract(
         "portable_audit_verified": False,
         "publication_preflight_eligible": False,
         "publication_authorized": False,
+        "interaction_probe_only": bool(interaction_probe),
         "assurance_scope": (
             "portable-signed-draft-candidate"
             if finalization
+            else "current-session-interaction-probe"
+            if interaction_probe
             else "current-session-draft"
             if session_draft
             else "diagnostic-candidate"
@@ -848,6 +1169,21 @@ def _compile_frozen_transport_contract(
         "source": TRANSPORT_SOURCE,
         "revision_hash": preflight.get("revision_hash"),
         "handoff_sha256": f"sha256:{file_sha256(manifest_path)}",
+        "selected_payload": selected_payload if not errors else None,
+        "upload_map_binding": (
+            {
+                "source": upload_map.get("source"),
+                "target_account_ref": upload_map.get("target_account_ref"),
+                "path": upload_map.get("_resolved_path"),
+                "sha256": upload_map.get("_sha256"),
+                "path_identity_sha256": path_identity_sha256(
+                    Path(str(upload_map.get("_resolved_path")))
+                ),
+                "cover_media_id": upload_map.get("cover", {}).get("media_id"),
+            }
+            if not errors and isinstance(locals().get("upload_map"), dict)
+            else None
+        ),
         "artifact_binding": {
             "wechat_html": artifact_binding if finalization else None,
             "candidate_html": artifact_binding if not finalization else None,
@@ -858,6 +1194,7 @@ def _compile_frozen_transport_contract(
         "attribution_preflight": attribution_preflight,
         "postflight": postflight,
         "interaction_policy": interaction_policy,
+        "interaction_evidence_binding": interaction_evidence_binding,
         "copied_assets": copied,
         "error_codes": sorted({item.get("code", "transport.mapping") for item in errors}),
         "errors": errors,
@@ -867,12 +1204,15 @@ def _compile_frozen_transport_contract(
                 artifact_path.name if not errors and not finalization else None
             ),
             "preview": preview_path.name if not errors else None,
+            "dynamic": dynamic_path.name if not errors else None,
+            "static": static_path.name if not errors else None,
+            "selected_payload": selected_payload if not errors else None,
             "report": report_path.name,
         },
     }
-    report_path.write_text(
+    _write_text_create_once(
+        report_path,
         json.dumps(report, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
     )
     return report
 
@@ -884,6 +1224,10 @@ def compile_frozen_transport_candidate(
     live_root_path: Path | None = None,
     live_receipt_path: Path | None = None,
     check: bool = True,
+    upload_map_path: Path | None = None,
+    mobile_profile_path: Path | None = None,
+    interaction_readback_path: Path | None = None,
+    current_session_mobile_authority: CurrentSessionMobileAuthority | None = None,
 ) -> dict[str, Any]:
     """Build a diagnostic candidate that is never write-eligible.
 
@@ -900,6 +1244,10 @@ def compile_frozen_transport_candidate(
         check=check,
         finalization=False,
         session_draft=False,
+        upload_map_path=upload_map_path,
+        mobile_profile_path=mobile_profile_path,
+        interaction_readback_path=interaction_readback_path,
+        current_session_mobile_authority=current_session_mobile_authority,
     )
 
 
@@ -910,6 +1258,11 @@ def compile_frozen_session_draft(
     live_root_path: Path | None = None,
     live_receipt_path: Path | None = None,
     check: bool = True,
+    upload_map_path: Path | None = None,
+    mobile_profile_path: Path | None = None,
+    interaction_readback_path: Path | None = None,
+    current_session_mobile_authority: CurrentSessionMobileAuthority | None = None,
+    interaction_probe: bool = False,
 ) -> dict[str, Any]:
     """Build a current-session structural candidate in the isolated runner.
 
@@ -925,6 +1278,11 @@ def compile_frozen_session_draft(
         check=check,
         finalization=False,
         session_draft=True,
+        interaction_probe=interaction_probe,
+        upload_map_path=upload_map_path,
+        mobile_profile_path=mobile_profile_path,
+        interaction_readback_path=interaction_readback_path,
+        current_session_mobile_authority=current_session_mobile_authority,
     )
 
 
@@ -935,6 +1293,11 @@ def compile_frozen_transport(
     live_root_path: Path | None = None,
     live_receipt_path: Path | None = None,
     check: bool = True,
+    upload_map_path: Path | None = None,
+    mobile_profile_path: Path | None = None,
+    interaction_readback_path: Path | None = None,
+    current_session_mobile_authority: CurrentSessionMobileAuthority | None = None,
+    interaction_probe: bool = False,
 ) -> dict[str, Any]:
     """Compile final ``wechat.html`` only inside the isolated runner."""
     from secure_runtime import require_secure_runtime
@@ -948,6 +1311,11 @@ def compile_frozen_transport(
         check=check,
         finalization=True,
         session_draft=False,
+        interaction_probe=interaction_probe,
+        upload_map_path=upload_map_path,
+        mobile_profile_path=mobile_profile_path,
+        interaction_readback_path=interaction_readback_path,
+        current_session_mobile_authority=current_session_mobile_authority,
     )
 
 
@@ -1184,7 +1552,7 @@ def render_block(ctx: CompileContext, block: dict[str, Any], index: int) -> str:
 
 def load_context(spec_path: Path, org_dir: Path, output_dir: Path, check: bool) -> tuple[CompileContext, dict[str, Any]]:
     spec_path = spec_path.resolve()
-    org_dir = org_dir.resolve()
+    org_dir = canonical_pack_root(org_dir)
     spec = read_json(spec_path)
     organization = read_json(org_dir / "organization.json")
     sources_doc = read_json(org_dir / "sources.json")
@@ -1292,13 +1660,15 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
         if registered is None:
             ctx.errors.append(f"visual kit role {role} references unknown asset: {asset_id}")
             continue
-        if registered.get("origin") != "generated-illustrative":
-            ctx.errors.append(f"visual kit role {role} must use a generated-illustrative asset")
+        role_errors = validate_asset_role(registered, "article-micro")
+        ctx.errors.extend(
+            f"visual kit role {role}: {message}" for message in role_errors
+        )
         if article_id not in (registered.get("generated_for_articles") or []):
             ctx.errors.append(
                 f"visual kit role {role} must use an asset freshly generated for article {article_id}"
             )
-        elif registered.get("origin") == "generated-illustrative" and isinstance(asset_id, str):
+        elif not role_errors and isinstance(asset_id, str):
             fresh_kit_asset_ids.add(asset_id)
         ctx.asset_src(asset_id, f"visual kit role {role}")
     if len(fresh_kit_asset_ids) < 4:
@@ -1388,22 +1758,18 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
                         f"gallery evidence {block_index}.{image_index} must use a registered documentary photo"
                     )
                     continue
-                if asset.get("kind") != "photo" or asset.get("visual_role") != "documentary-evidence":
-                    ctx.errors.append(
-                        f"gallery evidence asset must be a documentary photo: {ref}"
-                    )
-                if not asset.get("source_id"):
-                    ctx.errors.append(f"documentary photo requires source_id: {ref}")
+                ctx.errors.extend(
+                    f"gallery evidence asset {ref}: {message}"
+                    for message in validate_asset_role(asset, "evidence-use")
+                )
         background_ref = block.get("background")
         if isinstance(background_ref, str) and background_ref in registered_assets:
             background = registered_assets[background_ref]
             if background.get("origin") == "generated-illustrative":
-                if background.get("kind") != "background":
-                    ctx.errors.append(f"generated block background must be registered as background: {background_ref}")
-                if background.get("visual_role") != "illustrative-atmosphere":
-                    ctx.errors.append(
-                        f"generated background must declare visual_role=illustrative-atmosphere: {background_ref}"
-                    )
+                ctx.errors.extend(
+                    f"generated background {background_ref}: {message}"
+                    for message in validate_asset_role(background, "background-use")
+                )
                 if background.get("background_family_id") != family_id:
                     ctx.errors.append(
                         f"generated background is outside the calibrated family {family_id}: {background_ref}"
@@ -1608,6 +1974,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="compile a current-session draft candidate without claiming portable signed audit",
     )
     parser.add_argument(
+        "--interaction-probe",
+        action="store_true",
+        help=(
+            "select the dynamic payload only for a reversible existing-draft "
+            "sanitizer/mobile probe; never publication eligible"
+        ),
+    )
+    parser.add_argument(
         "--live-root-export",
         type=Path,
         help="fresh host-owned Ardot current-root export required for final compilation",
@@ -1616,6 +1990,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--live-root-receipt",
         type=Path,
         help="short-lived host-signed receipt for the actual Ardot live read",
+    )
+    parser.add_argument(
+        "--upload-map",
+        type=Path,
+        help="target-account SHA upload map; mandatory for session/final draft compilation",
+    )
+    parser.add_argument(
+        "--mobile-profile",
+        type=Path,
+        help="host-signed short-lived iOS/Android compatibility profile",
+    )
+    parser.add_argument(
+        "--interaction-readback",
+        type=Path,
+        help="saved probe-draft HTML used to certify the dynamic payload",
     )
     parser.add_argument("--org", type=Path, help="Organization pack directory for authoring preview")
     parser.add_argument("--output", type=Path, required=True)
@@ -1641,21 +2030,32 @@ def main() -> None:
             live_root_path=args.live_root_export,
             live_receipt_path=args.live_root_receipt,
             check=args.check,
+            upload_map_path=args.upload_map,
+            mobile_profile_path=args.mobile_profile,
+            interaction_readback_path=args.interaction_readback,
+            interaction_probe=args.interaction_probe,
         )
         print(json.dumps(report, ensure_ascii=False, indent=2))
         if args.check and not report["ok"]:
             raise SystemExit(1)
         return
-    if args.session_draft:
-        raise SystemExit("--session-draft requires --transport-fidelity")
+    if args.session_draft or args.interaction_probe:
+        raise SystemExit("--session-draft/--interaction-probe require --transport-fidelity")
     if not args.article or not args.org or not args.authoring_preview:
         raise SystemExit(
             "article.json is authoring-only: pass --authoring-preview and --org, or use "
             "--transport-fidelity with a frozen Ardot layer handoff for final WeChat delivery"
         )
     try:
-        report = compile_article(args.article, args.org, args.output, args.check)
-    except ValueError as exc:
+        article = existing_regular_file(args.article, label="article")
+        organization = existing_directory(args.org, label="organization pack")
+        output = new_directory_path(
+            args.output,
+            label="authoring preview output directory",
+            forbidden_root=Path(__file__).resolve().parent.parent,
+        )
+        report = compile_article(article, organization, output, args.check)
+    except (SafePathError, ValueError) as exc:
         raise SystemExit(str(exc)) from exc
     print(json.dumps(report, ensure_ascii=False, indent=2))
     if args.check and not report["ok"]:

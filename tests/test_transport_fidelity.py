@@ -30,6 +30,8 @@ from transport_fidelity import (  # noqa: E402
     READBACK_SOURCE,
     TRANSPORT_REVISION_ALGORITHM,
     TRANSPORT_SOURCE,
+    UPLOAD_MAP_SOURCE,
+    canonical_html_fragment_sha256,
     canonical_svg_structure_sha256,
     canonical_transport_revision_hash,
     current_root_transport_snapshot,
@@ -478,6 +480,76 @@ class TransportFidelityTests(unittest.TestCase):
         export["revision_hash"] = canonical_transport_revision_hash(export)
         path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
 
+    def write_valid_upload_map(self, path: Path, manifest: dict) -> Path:
+        export = manifest["transport_fidelity"]["export"]
+        uploaded_at = datetime.now(timezone.utc).isoformat()
+        body_assets: dict[str, dict] = {}
+        for chapter in export["chapters"]:
+            candidates = [chapter["background_layer"]]
+            candidates.extend(chapter.get("decorations", []))
+            candidates.extend(chapter.get("photos", []))
+            interactions = chapter.get("interaction")
+            for interaction in (
+                interactions if isinstance(interactions, list) else [interactions]
+            ):
+                if isinstance(interaction, dict):
+                    candidates.append(interaction.get("fallback_asset"))
+            for asset in candidates:
+                if not isinstance(asset, dict):
+                    continue
+                source = path.parent / asset["path"]
+                body_assets[asset["asset_id"]] = {
+                    "asset_id": asset["asset_id"],
+                    "source_sha256": asset["sha256"],
+                    "source_byte_length": source.stat().st_size,
+                    "source_content_type": "image/png",
+                    "hosted_url": f"https://mmbiz.qpic.cn/{asset['asset_id']}",
+                    "uploaded_at": uploaded_at,
+                    "response_sha256": "sha256:" + "8" * 64,
+                    "status": "uploaded",
+                }
+        cover = next(
+            item
+            for item in manifest["assets"]
+            if item["id"] == manifest["article"]["cover_asset_id"]
+        )
+        cover_path = path.parent / cover["path"]
+        upload_map = path.parent / "wechat-upload-map.json"
+        upload_map.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "source": UPLOAD_MAP_SOURCE,
+                    "target_account_ref": "test-visible-account",
+                    "handoff_sha256": "sha256:" + file_sha256(path),
+                    "transport_revision_hash": export["revision_hash"],
+                    "account_preflight": {
+                        "status": "passed",
+                        "target_account_ref": "test-visible-account",
+                        "checked_at": datetime.now(timezone.utc).isoformat(),
+                        "capabilities": {
+                            "draft_read": True,
+                            "material_read": True,
+                        },
+                    },
+                    "body_assets": list(body_assets.values()),
+                    "cover": {
+                        "asset_id": cover["id"],
+                        "source_sha256": cover["sha256"],
+                        "source_byte_length": cover_path.stat().st_size,
+                        "source_content_type": "image/png",
+                        "media_id": "thumb-test-100001",
+                        "uploaded_at": uploaded_at,
+                        "response_sha256": "sha256:" + "9" * 64,
+                        "status": "uploaded",
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return upload_map
+
     def rewrite_root(self, path: Path, manifest: dict, node_export: dict) -> None:
         node_export_path = path.parent / "qa" / "ardot-root-nodes.json"
         root_revision = current_root_revision_hash(node_export)
@@ -667,15 +739,22 @@ class TransportFidelityTests(unittest.TestCase):
             "digest": readback_payload["digest"],
             "cover_asset_id": readback_payload["cover_asset_id"],
             "thumb_media_id": readback_payload["thumb_media_id"],
-            "cover_hosted_url": readback_payload["cover_hosted_derivative"][
-                "url"
-            ],
+            "cover_hosted_url": readback_payload["cover_hosted_derivative"].get(
+                "request_url"
+            )
+            or readback_payload["cover_hosted_derivative"].get("url"),
             "cover_downloaded_sha256": readback_payload[
                 "cover_hosted_derivative"
-            ]["downloaded_sha256"],
+            ].get("sha256")
+            or readback_payload["cover_hosted_derivative"].get(
+                "downloaded_sha256"
+            ),
             "cover_downloaded_byte_length": readback_payload[
                 "cover_hosted_derivative"
-            ]["downloaded_byte_length"],
+            ].get("byte_length")
+            or readback_payload["cover_hosted_derivative"].get(
+                "downloaded_byte_length"
+            ),
             "handoff_sha256": "sha256:" + file_sha256(path),
             "transport_revision_hash": export["revision_hash"],
             "output_html_path_identity_sha256": path_identity_sha256(
@@ -868,6 +947,42 @@ class TransportFidelityTests(unittest.TestCase):
         self.assertFalse((output / "wechat.html").exists())
         self.assertFalse((output / "compile-report.json").exists())
 
+    def test_frozen_compile_output_is_external_create_once_and_symlink_free(self) -> None:
+        temporary, path, _ = self.make_bundle()
+        self.addCleanup(temporary.cleanup)
+
+        existing = path.parent / "existing-compile-output"
+        existing.mkdir()
+        sentinel = existing / "sentinel.txt"
+        sentinel.write_text("keep", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, r"new and absent"):
+            compile_frozen_transport_candidate(path, existing, check=True)
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep")
+
+        real_parent = path.parent / "real-compile-parent"
+        nested = real_parent / "nested"
+        nested.mkdir(parents=True)
+        alias = path.parent / "compile-parent-alias"
+        alias.symlink_to(real_parent, target_is_directory=True)
+        linked_output = alias / "nested" / "candidate"
+        with self.assertRaisesRegex(ValueError, r"symlink"):
+            compile_frozen_transport_candidate(path, linked_output, check=True)
+        self.assertFalse((nested / "candidate").exists())
+
+        forbidden = ROOT / "forbidden-compile-output-unit-test"
+        self.assertFalse(os.path.lexists(forbidden))
+        with self.assertRaisesRegex(ValueError, r"outside the installed runtime"):
+            compile_frozen_transport_candidate(path, forbidden, check=True)
+        self.assertFalse(os.path.lexists(forbidden))
+
+        manifest_alias = path.parent / "manifest-parent-alias"
+        manifest_alias.symlink_to(path.parent, target_is_directory=True)
+        via_alias = manifest_alias / path.name
+        fresh_output = path.parent / "manifest-alias-output"
+        with self.assertRaisesRegex(ValueError, r"symlink"):
+            compile_frozen_transport_candidate(via_alias, fresh_output, check=True)
+        self.assertFalse(fresh_output.exists())
+
     def test_unsigned_candidate_report_cannot_claim_draft_write_eligibility(self) -> None:
         temporary, path, _ = self.make_bundle()
         self.addCleanup(temporary.cleanup)
@@ -907,11 +1022,13 @@ class TransportFidelityTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         output = path.parent / "session-draft-output"
         live_root = self.live_root(path, output / "wechat-candidate.html")
+        upload_map = self.write_valid_upload_map(path, manifest)
         with patch("secure_runtime.require_secure_runtime"):
             report = compile_frozen_session_draft(
                 path,
                 output,
                 live_root_path=live_root,
+                upload_map_path=upload_map,
                 check=True,
             )
 
@@ -943,6 +1060,8 @@ class TransportFidelityTests(unittest.TestCase):
             require_compile_report=True,
             readback_path=readback,
             require_readback=True,
+            upload_map_path=upload_map,
+            require_upload_map=True,
         )
         self.assertTrue(verified["ok"], verified)
         self.assertFalse(verified["draft_write_eligible"])
@@ -951,10 +1070,11 @@ class TransportFidelityTests(unittest.TestCase):
         self.assertFalse(verified["readback_receipt_verified"])
 
     def test_secure_cli_supports_current_session_draft_chain(self) -> None:
-        temporary, path, _ = self.make_bundle()
+        temporary, path, manifest = self.make_bundle()
         self.addCleanup(temporary.cleanup)
         output = path.parent / "secure-session-output"
         live_root = self.live_root(path, output / "wechat-candidate.html")
+        upload_map = self.write_valid_upload_map(path, manifest)
         runner = [
             sys.executable,
             "-I",
@@ -969,6 +1089,8 @@ class TransportFidelityTests(unittest.TestCase):
                 str(path),
                 "--live-root-export",
                 str(live_root),
+                "--upload-map",
+                str(upload_map),
                 "--session-draft",
                 "--output",
                 str(output),
@@ -993,6 +1115,8 @@ class TransportFidelityTests(unittest.TestCase):
                 str(output / "wechat-candidate.html"),
                 "--live-root-export",
                 str(live_root),
+                "--upload-map",
+                str(upload_map),
                 "--require-live-root",
                 "--compile-report",
                 str(output / "candidate-report.json"),
@@ -1017,6 +1141,7 @@ class TransportFidelityTests(unittest.TestCase):
         output = path.parent / "signed-output"
         live_root = self.live_root(path, output / "wechat.html")
         live_receipt = self.live_receipt(path)
+        upload_map = self.write_valid_upload_map(path, manifest)
         with (
             patch("secure_runtime.require_secure_runtime"),
             patch(
@@ -1028,6 +1153,7 @@ class TransportFidelityTests(unittest.TestCase):
                 output,
                 live_root_path=live_root,
                 live_receipt_path=live_receipt,
+                upload_map_path=upload_map,
                 check=True,
             )
         self.assertTrue(compiled["ok"], compiled)
@@ -1049,6 +1175,8 @@ class TransportFidelityTests(unittest.TestCase):
                 require_live_root=True,
                 compile_report_path=output / "compile-report.json",
                 require_compile_report=True,
+                upload_map_path=upload_map,
+                require_upload_map=True,
                 diagnostic=False,
             )
         self.assertTrue(before_readback["ok"], before_readback)
@@ -1079,13 +1207,16 @@ class TransportFidelityTests(unittest.TestCase):
                 readback_receipt_path=readback_receipt,
                 require_readback=True,
                 expected_target_account_ref="test-visible-account",
+                upload_map_path=upload_map,
+                require_upload_map=True,
                 diagnostic=False,
             )
-        self.assertTrue(portable["ok"], portable)
-        self.assertTrue(portable["portable_audit_verified"])
-        self.assertTrue(portable["delivery_eligible"])
-        self.assertTrue(portable["publication_preflight_eligible"])
-        self.assertTrue(portable["finalization_verified"])
+        self.assertFalse(portable["ok"], portable)
+        self.assertIn("transport.readback", portable["error_codes"])
+        self.assertFalse(portable["portable_audit_verified"])
+        self.assertFalse(portable["delivery_eligible"])
+        self.assertFalse(portable["publication_preflight_eligible"])
+        self.assertFalse(portable["finalization_verified"])
         self.assertFalse(portable["publication_authorized"])
 
     def test_imported_finalization_apis_require_the_isolated_runner(self) -> None:
@@ -1343,11 +1474,13 @@ class TransportFidelityTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         output = path.parent / "session-readback-output"
         live_root = self.live_root(path, output / "wechat-candidate.html")
+        upload_map = self.write_valid_upload_map(path, manifest)
         with patch("secure_runtime.require_secure_runtime"):
             compiled = compile_frozen_session_draft(
                 path,
                 output,
                 live_root_path=live_root,
+                upload_map_path=upload_map,
                 check=True,
             )
         self.assertTrue(compiled["ok"], compiled)
@@ -1366,6 +1499,8 @@ class TransportFidelityTests(unittest.TestCase):
             require_compile_report=True,
             readback_path=readback,
             require_readback=True,
+            upload_map_path=upload_map,
+            require_upload_map=True,
         )
         self.assertIn("transport.readback_target", wrong_target["error_codes"])
         self.assertFalse(wrong_target["session_readback_structural_match"])
@@ -1383,6 +1518,8 @@ class TransportFidelityTests(unittest.TestCase):
             require_compile_report=True,
             readback_path=readback,
             require_readback=True,
+            upload_map_path=upload_map,
+            require_upload_map=True,
         )
         self.assertIn("transport.readback_time", stale_order["error_codes"])
         self.assertFalse(stale_order["session_readback_structural_match"])
@@ -1400,15 +1537,17 @@ class TransportFidelityTests(unittest.TestCase):
         self.assertFalse(missing_target["session_readback_structural_match"])
 
     def test_compile_report_must_be_recent_and_not_future_dated(self) -> None:
-        temporary, path, _ = self.make_bundle()
+        temporary, path, manifest = self.make_bundle()
         self.addCleanup(temporary.cleanup)
         output = path.parent / "future-compile-output"
         live_root = self.live_root(path, output / "wechat-candidate.html")
+        upload_map = self.write_valid_upload_map(path, manifest)
         with patch("secure_runtime.require_secure_runtime"):
             compiled = compile_frozen_session_draft(
                 path,
                 output,
                 live_root_path=live_root,
+                upload_map_path=upload_map,
                 check=True,
             )
         self.assertTrue(compiled["ok"], compiled)
@@ -1426,6 +1565,8 @@ class TransportFidelityTests(unittest.TestCase):
             live_root_path=live_root,
             compile_report_path=compile_report,
             require_compile_report=True,
+            upload_map_path=upload_map,
+            require_upload_map=True,
         )
         self.assertIn("transport.compile_artifact", future["error_codes"])
 
@@ -1875,6 +2016,93 @@ class TransportFidelityTests(unittest.TestCase):
             path, readback_path=readback, require_readback=True
         )
         self.assertIn("transport.compile_artifact", detached["error_codes"])
+
+    def test_horizontal_swipe_is_frozen_and_compiled_with_static_fallback(self) -> None:
+        temporary, path, manifest = self.make_bundle()
+        self.addCleanup(temporary.cleanup)
+        fallback_hash = "sha256:" + "7" * 64
+        swipe_text = (
+            '<div data-interaction="horizontal-swipe" '
+            'data-fallback-key="toggle-1" '
+            f'data-fallback-hash="{fallback_hash}" '
+            'style="overflow-x:auto;white-space:nowrap;">'
+            '<span data-swipe-cue="true">\u2192</span><span>One</span><span>Two</span>'
+            "</div>"
+        )
+        swipe_path = path.parent / "interaction-swipe.html"
+        swipe_path.write_text(swipe_text, encoding="utf-8")
+        swipe_sha = "sha256:" + file_sha256(swipe_path)
+        structure_sha = canonical_html_fragment_sha256(swipe_text)
+
+        export = manifest["transport_fidelity"]["export"]
+        interaction = export["chapters"][0]["interaction"]
+        interaction["mode"] = "horizontal-swipe"
+        interaction["swipe"] = {
+            "asset_id": "chapter-1-swipe",
+            "path": swipe_path.name,
+            "sha256": swipe_sha,
+        }
+        interaction.pop("svg")
+        interaction["structure_sha256"] = structure_sha
+        state_path = path.parent / interaction["ardot_state_export"]["path"]
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state.pop("svg_structure_sha256")
+        state["interaction_structure_sha256"] = structure_sha
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+        interaction["ardot_state_sha256"] = "sha256:" + file_sha256(state_path)
+        interaction["ardot_state_export"]["sha256"] = interaction[
+            "ardot_state_sha256"
+        ]
+        manifest["assets"] = [
+            item
+            for item in manifest["assets"]
+            if item["id"] != "chapter-1-toggle-svg"
+        ]
+        manifest["assets"].append(
+            {
+                "id": "chapter-1-swipe",
+                "path": swipe_path.name,
+                "sha256": swipe_sha,
+                "role": "body-interaction-source",
+            }
+        )
+        root_path = path.parent / "qa" / "ardot-root-nodes.json"
+        root = json.loads(root_path.read_text(encoding="utf-8"))
+        root["assets"] = [
+            item
+            for item in root["assets"]
+            if item["id"] != "chapter-1-toggle-svg"
+        ]
+        root["assets"].append(
+            {"id": "chapter-1-swipe", "sha256": swipe_sha}
+        )
+        snapshot = current_root_transport_snapshot(export)
+        root["transport_sections"] = snapshot["sections"]
+        root["body_asset_ids"] = snapshot["body_asset_ids"]
+        self.rewrite_root(path, manifest, root)
+
+        diagnostic = self.report(path)
+        self.assertTrue(diagnostic["ok"], diagnostic)
+        output = path.parent / "swipe-output"
+        compiled = compile_frozen_transport_candidate(
+            path,
+            output,
+            live_root_path=self.live_root(
+                path, output / "wechat-candidate.html"
+            ),
+            check=True,
+        )
+        self.assertTrue(compiled["ok"], compiled)
+        dynamic = (output / "wechat-dynamic-candidate.html").read_text(
+            encoding="utf-8"
+        )
+        static = (output / "wechat-static-candidate.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('data-interaction="horizontal-swipe"', dynamic)
+        self.assertIn('data-swipe-cue="true"', dynamic)
+        self.assertNotIn('data-interaction="horizontal-swipe"', static)
+        self.assertIn("interaction-fallback", static)
 
     def test_geometry_style_and_background_changes_invalidate_transport_revision(self) -> None:
         for label, mutate in (

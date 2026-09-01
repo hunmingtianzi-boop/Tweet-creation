@@ -203,6 +203,11 @@ def inspect_background_asset(
     sample_step = max(1, math.ceil(math.sqrt((width * height) / 250_000)))
     grid_size = 12
     cells = [[[0, 0, 0] for _ in range(grid_size)] for _ in range(grid_size)]
+    spatial_sums = [[0.0 for _ in range(grid_size)] for _ in range(grid_size)]
+    spatial_counts = [[0 for _ in range(grid_size)] for _ in range(grid_size)]
+    horizontal_gradient_total = vertical_gradient_total = 0.0
+    horizontal_gradient_count = vertical_gradient_count = 0
+    previous_sample_row: list[float] | None = None
     luminances: list[float] = []
     zone_luminances: list[float] = []
     red_total = green_total = blue_total = 0
@@ -213,6 +218,8 @@ def inspect_background_asset(
     zone_bottom = max(zone_top + 1, int((zone_y + zone_h) * height))
     for y in range(0, height, sample_step):
         row = rows[y]
+        current_sample_row: list[float] = []
+        previous_luminance: float | None = None
         for x in range(0, width, sample_step):
             offset = x * channels
             if channels in {1, 2}:
@@ -223,6 +230,15 @@ def inspect_background_asset(
                 non_opaque += int(row[offset + channels - 1] < 255)
             luminance = _relative_luminance(red, green, blue)
             luminances.append(luminance)
+            current_sample_row.append(luminance)
+            if previous_luminance is not None:
+                horizontal_gradient_total += abs(luminance - previous_luminance)
+                horizontal_gradient_count += 1
+            previous_luminance = luminance
+            sample_column = len(current_sample_row) - 1
+            if previous_sample_row is not None and sample_column < len(previous_sample_row):
+                vertical_gradient_total += abs(luminance - previous_sample_row[sample_column])
+                vertical_gradient_count += 1
             red_total += red
             green_total += green
             blue_total += blue
@@ -235,8 +251,13 @@ def inspect_background_asset(
             cell[0] += 1
             cell[1] += int(is_dark)
             cell[2] += int(is_light)
+            grid_y = min(grid_size - 1, y * grid_size // height)
+            grid_x = min(grid_size - 1, x * grid_size // width)
+            spatial_sums[grid_y][grid_x] += luminance
+            spatial_counts[grid_y][grid_x] += 1
             if zone_left <= x < zone_right and zone_top <= y < zone_bottom:
                 zone_luminances.append(luminance)
+        previous_sample_row = current_sample_row
     mean = sum(luminances) / samples
     variance = sum((value - mean) ** 2 for value in luminances) / samples
     zone_mean = sum(zone_luminances) / len(zone_luminances)
@@ -247,6 +268,14 @@ def inspect_background_asset(
     ]
     contrasts.sort()
     percentile_index = max(0, int(len(contrasts) * 0.05) - 1)
+    spatial_signature = [
+        round(spatial_sums[row][column] / max(1, spatial_counts[row][column]), 5)
+        for row in range(grid_size)
+        for column in range(grid_size)
+    ]
+    horizontal_gradient = horizontal_gradient_total / max(1, horizontal_gradient_count)
+    vertical_gradient = vertical_gradient_total / max(1, vertical_gradient_count)
+    total_gradient = horizontal_gradient + vertical_gradient
     return {
         "path": str(path),
         "sha256": file_sha256(path),
@@ -263,6 +292,12 @@ def inspect_background_asset(
         "copy_safe_mean_luminance": round(zone_mean, 6),
         "copy_safe_luminance_stddev": round(math.sqrt(zone_variance), 6),
         "copy_safe_contrast_p05": round(contrasts[percentile_index], 3),
+        "spatial_luminance_signature": spatial_signature,
+        "texture_gradient_energy": round(total_gradient / 2, 6),
+        "texture_orientation_ratio": round(
+            horizontal_gradient / total_gradient if total_gradient > 1e-9 else 0.5,
+            6,
+        ),
     }
 
 
@@ -274,11 +309,14 @@ def validate_background_family_assets(
     body_text_color: str,
     minimum_contrast_ratio: float = 4.5,
     maximum_copy_safe_stddev: float = 0.10,
+    family_lineage: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     errors: list[str] = []
     inspections: dict[str, dict[str, Any]] = {}
     if surface_mode not in {"light", "dark"}:
         errors.append("background family surface_mode must be light or dark")
+    if not isinstance(family_lineage, dict):
+        errors.append("background family requires generation lineage for every variant")
     for asset_id, path in assets:
         try:
             inspection = inspect_background_asset(path, copy_safe_zone, body_text_color)
@@ -325,6 +363,74 @@ def validate_background_family_assets(
         )
         if maximum_distance > 0.28:
             errors.append("background family average colors diverge beyond the allowed family range")
+        texture_energies = [item["texture_gradient_energy"] for item in inspections.values()]
+        if max(texture_energies) - min(texture_energies) > 0.055:
+            errors.append("background family texture energy diverges; variants do not share one material grammar")
+        orientations = [item["texture_orientation_ratio"] for item in inspections.values()]
+        if max(texture_energies) > 0.015 and max(orientations) - min(orientations) > 0.28:
+            errors.append("background family dominant texture orientation is inconsistent")
+        signatures = [item["spatial_luminance_signature"] for item in inspections.values()]
+        normalized: list[list[float]] = []
+        for signature in signatures:
+            mean_signature = sum(signature) / len(signature)
+            deviation = math.sqrt(
+                sum((value - mean_signature) ** 2 for value in signature) / len(signature)
+            )
+            normalized.append(
+                [
+                    (value - mean_signature) / max(0.025, deviation)
+                    for value in signature
+                ]
+            )
+        maximum_spatial_distance = max(
+            math.sqrt(sum((x - y) ** 2 for x, y in zip(first, second)) / len(first))
+            for first in normalized
+            for second in normalized
+        )
+        if maximum_spatial_distance > 1.35:
+            errors.append("background family spatial luminance grammar is structurally inconsistent")
+    if isinstance(family_lineage, dict):
+        asset_ids = [asset_id for asset_id, _ in assets]
+        master_ids = {
+            item.get("master_asset_id")
+            for item in family_lineage.values()
+            if isinstance(item, dict)
+        }
+        family_ids = {
+            item.get("family_id")
+            for item in family_lineage.values()
+            if isinstance(item, dict)
+        }
+        routes = {
+            item.get("generation_route")
+            for item in family_lineage.values()
+            if isinstance(item, dict)
+        }
+        prompt_hashes = {
+            item.get("family_prompt_sha256")
+            for item in family_lineage.values()
+            if isinstance(item, dict)
+        }
+        if set(family_lineage) != set(asset_ids):
+            errors.append("background family lineage must cover every analyzed variant exactly once")
+        if len(master_ids) != 1 or next(iter(master_ids), None) not in asset_ids:
+            errors.append("background family lineage must bind one analyzed master asset")
+        if len(family_ids) != 1 or not next(iter(family_ids), None):
+            errors.append("background family lineage must bind one family_id")
+        if len(routes) != 1 or not next(iter(routes), None):
+            errors.append("background family variants must share one generation_route")
+        if (
+            len(prompt_hashes) != 1
+            or not re.fullmatch(r"sha256:[0-9a-f]{64}", str(next(iter(prompt_hashes), "")))
+        ):
+            errors.append("background family variants must share one valid family_prompt_sha256")
+        for asset_id in asset_ids:
+            lineage = family_lineage.get(asset_id)
+            if not isinstance(lineage, dict):
+                continue
+            variant_hash = lineage.get("variant_prompt_sha256")
+            if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(variant_hash or "")):
+                errors.append(f"background family asset {asset_id} requires variant_prompt_sha256")
     return {"ok": not errors, "surface_mode": surface_mode, "inspections": inspections, "errors": errors}
 
 

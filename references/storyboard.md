@@ -8,13 +8,14 @@
 - 一句 `thesis`；
 - 一个可见的 `composition`，如图像主导开场、错落角色带、连续旅程、插图式结尾；
 - `visual_intent`，说明主体如何进入、连接或结束页面；
-- `density_intent`，说明本章采用紧凑、标准或留白强调，以及正文、图片和转场如何占据纵向空间；
-- 不重复的 `block_indices`。
+- 结构化 `density_intent`：`mode` 为 `compact-editorial` / `standard` / `spacious-feature`，`target_content_occupancy_ratio` 必须落在该 mode 的区间，`intentional_whitespace` 为布尔值；为 true 时还必须填 `whitespace_reason`；
+- 不重复且章内递增的 `block_indices`；章与章之间也必须严格保持 article block 顺序，不允许用视觉分镜悄悄重排文案。
 
 分镜必须覆盖除 references/footer 外的所有正文 block，并使用至少三种构图模式。运行：
 
 ```bash
-python3 scripts/build_storyboard.py article.json \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/build_storyboard.py" article.json \
   --output output/article-slug/storyboard-plan.json
 ```
 

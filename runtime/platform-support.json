@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "kind": "org-wechat-platform-support-matrix",
+  "policy": "Only exact keys present in python-dependency-lock.json are executable. Candidate reports are review material and never expand this matrix automatically.",
+  "supported": [
+    {
+      "platform_key": "darwin-arm64-cpython-39",
+      "status": "locked",
+      "notes": "Validated against the bundled CPython 3.9 runtime on Apple Silicon macOS."
+    }
+  ],
+  "unsupported_until_reviewed": [
+    "darwin-arm64-cpython-310+",
+    "darwin-x86_64",
+    "linux",
+    "windows"
+  ]
+}

@@ -25,6 +25,7 @@ import math
 import os
 import re
 import stat
+import subprocess
 from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from pathlib import Path
@@ -33,8 +34,10 @@ from urllib.parse import urlsplit
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from PIL import Image, ImageChops, ImageStat
 
 from asset_quality import file_sha256, inspect_png, validate_micro_asset
+from asset_role_policy import validate_asset_role
 from wechat_interaction_policy import SVG_SELF_INTERACTION, inspect_html
 from workflow_quality import WORKFLOW_ATTRIBUTION_TEXT
 from validate_workflow_attribution import current_root_revision_hash
@@ -44,16 +47,28 @@ from runtime_preflight import _trusted_bundle_digest
 TRANSPORT_SOURCE = "ardot-current-root-layer-export-v1"
 CURRENT_ROOT_SOURCE = "ardot-current-root-export"
 TRANSPORT_REVISION_ALGORITHM = "ardot-transport-revision-v1"
-READBACK_SOURCE = "wechat-saved-draft-readback-v1"
+READBACK_SOURCE = "wechat-saved-draft-readback-v2"
 LIVE_RECEIPT_SOURCE = "ardot-host-live-read-receipt-v1"
 READBACK_RECEIPT_SOURCE = "wechat-host-saved-draft-receipt-v1"
+MOBILE_PROFILE_RECEIPT_SOURCE = "wechat-host-mobile-compatibility-profile-v2"
+PUBLICATION_CONFIRMATION_RECEIPT_SOURCE = (
+    "wechat-host-publication-confirmation-receipt-v1"
+)
 HOST_RECEIPT_TRUST_STORE_ENV = "ORG_WECHAT_HOST_RECEIPT_TRUST_STORE"
-HOST_RECEIPT_TRUST_STORE_DEFAULT = Path(
-    "/Library/Application Support/OpenAI/Codex/org-wechat-receipt-trust.json"
+HOST_RECEIPT_TRUST_STORE_DEFAULT = (
+    Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData"))
+    / "OpenAI"
+    / "Codex"
+    / "org-wechat-receipt-trust.json"
+    if os.name == "nt"
+    else Path(
+        "/Library/Application Support/OpenAI/Codex/org-wechat-receipt-trust.json"
+    )
 )
 HOST_RECEIPT_TRUST_STORE_KIND = "org-wechat-host-receipt-trust-store"
 WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
 LIVE_RECEIPT_MAX_TTL_SECONDS = 600
+PUBLICATION_CONFIRMATION_MAX_TTL_SECONDS = 600
 LIVE_ROOT_MAX_AGE_SECONDS = 3600
 COMPILE_REPORT_MAX_AGE_SECONDS = 3600
 READBACK_MAX_AGE_SECONDS = 3600
@@ -95,6 +110,277 @@ INTERACTION_RENDER_STYLE = {
     "overflow": "hidden",
 }
 
+UPLOAD_MAP_SOURCE = "wechat-account-upload-map-v1"
+WECHAT_BODY_IMAGE_MAX_BYTES = 1_000_000
+WECHAT_COVER_IMAGE_MAX_BYTES = 10 * 1024 * 1024
+WECHAT_CONTENT_MAX_CHARS = 20_000
+WECHAT_CONTENT_MAX_BYTES = 1_000_000
+WECHAT_TITLE_MAX_CHARS = 32
+WECHAT_AUTHOR_MAX_CHARS = 16
+WECHAT_DIGEST_MAX_CHARS = 120
+WECHAT_MEDIA_ID_MAX_CHARS = 128
+
+
+def _export_delivery_assets(export: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Return every raster payload that final HTML must address through WeChat.
+
+    Inline SVG source files are deliberately excluded.  Their nested bitmap
+    references, if any, must name one of these SHA-bound raster assets via a
+    ``wechat-asset://<asset_id>`` placeholder before final materialization.
+    """
+
+    assets: dict[str, dict[str, Any]] = {}
+    chapters = export.get("chapters")
+    if not isinstance(chapters, list):
+        return assets
+    for chapter in chapters:
+        if not isinstance(chapter, dict):
+            continue
+        candidates: list[Any] = [chapter.get("background_layer")]
+        for field in ("decorations", "photos"):
+            value = chapter.get(field)
+            if isinstance(value, list):
+                candidates.extend(value)
+        interactions = chapter.get("interaction")
+        interaction_items = interactions if isinstance(interactions, list) else [interactions]
+        for item in interaction_items:
+            if isinstance(item, dict):
+                candidates.append(item.get("fallback_asset"))
+                svg = item.get("svg")
+                if isinstance(svg, dict) and isinstance(svg.get("assets"), list):
+                    candidates.extend(svg["assets"])
+                if item.get("mode") == "horizontal-swipe":
+                    swipe = item.get("swipe")
+                    if isinstance(swipe, dict):
+                        nested = swipe.get("assets")
+                        if isinstance(nested, list):
+                            candidates.extend(nested)
+        for asset in candidates:
+            if not isinstance(asset, dict):
+                continue
+            asset_id = asset.get("asset_id")
+            if isinstance(asset_id, str) and asset_id:
+                assets[asset_id] = asset
+    return assets
+
+
+def _handoff_cover_asset(handoff: dict[str, Any]) -> dict[str, Any] | None:
+    cover_id = handoff.get("article", {}).get("cover_asset_id")
+    assets = handoff.get("assets")
+    if not isinstance(assets, list):
+        return None
+    for asset in assets:
+        if not isinstance(asset, dict):
+            continue
+        if asset.get("id") == cover_id and asset.get("role") == "cover":
+            return asset
+    return None
+
+
+def validate_wechat_upload_map(
+    upload_map_path: Path,
+    *,
+    manifest_path: Path,
+    handoff: dict[str, Any],
+    export: dict[str, Any],
+    expected_target_account_ref: str | None = None,
+) -> dict[str, Any]:
+    """Load and fail-closed validate the target-account upload transaction.
+
+    The final compiler consumes this map directly.  Consequently no valid
+    workflow has a later "replace local URL" step: changing a URL after this
+    point changes the compiled artifact hash and invalidates its report.
+    """
+
+    resolved = upload_map_path.resolve(strict=True)
+    if upload_map_path.is_symlink() or resolved.is_symlink():
+        raise ValueError("upload map must be a non-symlink file")
+    payload = _read_object(resolved, "WeChat account upload map")
+    errors: list[str] = []
+    if payload.get("schema_version") != 1 or payload.get("source") != UPLOAD_MAP_SOURCE:
+        errors.append(f"upload map must use schema_version=1 and source={UPLOAD_MAP_SOURCE}")
+    account_ref = payload.get("target_account_ref")
+    if (
+        not isinstance(account_ref, str)
+        or not account_ref.strip()
+        or len(account_ref) > 256
+        or any(ord(char) < 32 for char in account_ref)
+    ):
+        errors.append("upload map target_account_ref must be one bounded visible identifier")
+    elif expected_target_account_ref is not None and account_ref != expected_target_account_ref:
+        errors.append("upload map target account differs from the active delivery preflight")
+    if payload.get("handoff_sha256") != _asset_digest(manifest_path.resolve()):
+        errors.append("upload map is not bound to the exact frozen handoff bytes")
+    if payload.get("transport_revision_hash") != export.get("revision_hash"):
+        errors.append("upload map transport revision differs from the frozen Ardot export")
+    preflight = payload.get("account_preflight")
+    if not isinstance(preflight, dict):
+        errors.append("upload map requires a completed target-account preflight")
+    else:
+        capabilities = preflight.get("capabilities")
+        if (
+            preflight.get("status") != "passed"
+            or preflight.get("target_account_ref") != account_ref
+            or not isinstance(preflight.get("checked_at"), str)
+            or not isinstance(capabilities, dict)
+            or capabilities.get("draft_read") is not True
+            or capabilities.get("material_read") is not True
+        ):
+            errors.append("target-account preflight must prove read-only draft and material access")
+        else:
+            try:
+                checked_at = _parse_rfc3339(
+                    preflight.get("checked_at"), label="target-account preflight"
+                )
+            except ValueError as exc:
+                errors.append(str(exc))
+            else:
+                now = datetime.now(timezone.utc)
+                if (
+                    checked_at > now + timedelta(seconds=30)
+                    or (now - checked_at).total_seconds() > 3600
+                ):
+                    errors.append("target-account preflight must be fresh and not future-dated")
+
+    expected = _export_delivery_assets(export)
+    body_assets = payload.get("body_assets")
+    mapped: dict[str, dict[str, Any]] = {}
+    if not isinstance(body_assets, list) or any(not isinstance(item, dict) for item in body_assets):
+        errors.append("upload map body_assets must be an object array")
+    else:
+        for item in body_assets:
+            asset_id = item.get("asset_id")
+            if not isinstance(asset_id, str) or not asset_id or asset_id in mapped:
+                errors.append("upload map body assets require unique asset_id values")
+                continue
+            mapped[asset_id] = item
+            source = expected.get(asset_id)
+            if source is None:
+                errors.append(f"upload map contains unknown body asset {asset_id}")
+                continue
+            source_path = resolve_local_asset(manifest_path, source.get("path"))
+            if source_path is None:
+                errors.append(f"frozen body asset {asset_id} is unavailable")
+                continue
+            expected_sha = source.get("sha256")
+            if item.get("source_sha256") != expected_sha:
+                errors.append(f"upload map body asset {asset_id} source SHA differs from handoff")
+            if item.get("source_byte_length") != source_path.stat().st_size:
+                errors.append(f"upload map body asset {asset_id} byte length differs from handoff")
+            if source_path.stat().st_size >= WECHAT_BODY_IMAGE_MAX_BYTES:
+                errors.append(f"body image {asset_id} must be smaller than the official 1 MB upload limit")
+            header = source_path.read_bytes()[:12]
+            detected_type = (
+                "image/png"
+                if header.startswith(b"\x89PNG\r\n\x1a\n")
+                else "image/jpeg"
+                if header.startswith(b"\xff\xd8")
+                else None
+            )
+            if (
+                source_path.suffix.lower() not in {".png", ".jpg", ".jpeg"}
+                or detected_type is None
+                or _image_dimensions(source_path) is None
+                or item.get("source_content_type") != detected_type
+            ):
+                errors.append(f"body image {asset_id} must be PNG or JPEG")
+            if not _is_wechat_cdn_url(item.get("hosted_url")):
+                errors.append(f"upload map body asset {asset_id} requires the returned mmbiz.qpic.cn URL")
+            if (
+                item.get("status") != "uploaded"
+                or not _is_sha256(item.get("response_sha256"))
+                or not isinstance(item.get("uploaded_at"), str)
+            ):
+                errors.append(f"upload map body asset {asset_id} is not atomically committed as uploaded")
+            else:
+                try:
+                    uploaded_at = _parse_rfc3339(
+                        item.get("uploaded_at"), label=f"body upload {asset_id}"
+                    )
+                except ValueError as exc:
+                    errors.append(str(exc))
+                else:
+                    now = datetime.now(timezone.utc)
+                    if (
+                        uploaded_at > now + timedelta(seconds=30)
+                        or (now - uploaded_at).total_seconds() > 24 * 3600
+                    ):
+                        errors.append(f"body upload {asset_id} is stale or future-dated")
+    missing = sorted(set(expected) - set(mapped))
+    if missing:
+        errors.append("upload map is missing body assets: " + ", ".join(missing))
+
+    cover_source = _handoff_cover_asset(handoff)
+    cover = payload.get("cover")
+    if cover_source is None:
+        errors.append("handoff requires one article-bound role=cover asset")
+    elif not isinstance(cover, dict):
+        errors.append("upload map requires a cover material record before final compilation")
+    else:
+        cover_path = resolve_local_asset(manifest_path, cover_source.get("path"))
+        if cover.get("asset_id") != cover_source.get("id"):
+            errors.append("upload map cover asset differs from article.cover_asset_id")
+        if cover.get("source_sha256") != cover_source.get("sha256"):
+            errors.append("upload map cover source SHA differs from the frozen cover")
+        if cover_path is None:
+            errors.append("frozen cover asset is unavailable")
+        else:
+            if cover.get("source_byte_length") != cover_path.stat().st_size:
+                errors.append("upload map cover byte length differs from frozen cover")
+            if cover_path.stat().st_size > WECHAT_COVER_IMAGE_MAX_BYTES:
+                errors.append("cover image exceeds the official 10 MB material limit")
+            cover_header = cover_path.read_bytes()[:12]
+            detected_cover_type = (
+                "image/png"
+                if cover_header.startswith(b"\x89PNG\r\n\x1a\n")
+                else "image/jpeg"
+                if cover_header.startswith(b"\xff\xd8")
+                else "image/gif"
+                if cover_header.startswith((b"GIF87a", b"GIF89a"))
+                else "image/bmp"
+                if cover_header.startswith(b"BM")
+                else None
+            )
+            if (
+                cover_path.suffix.lower()
+                not in {".bmp", ".png", ".jpg", ".jpeg", ".gif"}
+                or detected_cover_type is None
+                or _image_dimensions(cover_path) is None
+                or cover.get("source_content_type") != detected_cover_type
+            ):
+                errors.append("cover image must be BMP, PNG, JPEG, or GIF")
+        thumb = cover.get("media_id")
+        if (
+            not isinstance(thumb, str)
+            or not thumb.strip()
+            or len(thumb) > WECHAT_MEDIA_ID_MAX_CHARS
+            or any(ord(char) < 32 for char in thumb)
+            or cover.get("status") != "uploaded"
+            or not _is_sha256(cover.get("response_sha256"))
+            or not isinstance(cover.get("uploaded_at"), str)
+        ):
+            errors.append("thumb_media_id must exist and be committed before final compilation")
+        else:
+            try:
+                cover_uploaded_at = _parse_rfc3339(
+                    cover.get("uploaded_at"), label="cover material upload"
+                )
+            except ValueError as exc:
+                errors.append(str(exc))
+            else:
+                now = datetime.now(timezone.utc)
+                if (
+                    cover_uploaded_at > now + timedelta(seconds=30)
+                    or (now - cover_uploaded_at).total_seconds() > 24 * 3600
+                ):
+                    errors.append("cover material upload is stale or future-dated")
+    if errors:
+        raise ValueError("; ".join(dict.fromkeys(errors)))
+    payload["_resolved_path"] = str(resolved)
+    payload["_sha256"] = _asset_digest(resolved)
+    payload["_body_by_id"] = mapped
+    return payload
+
 
 def _require_secure_transport_finalization_runtime() -> None:
     """Accept only a fully validated compiler or validator runner marker.
@@ -111,6 +397,7 @@ def _require_secure_transport_finalization_runtime() -> None:
         {
             "scripts/compile_wechat.py",
             "scripts/validate_transport_fidelity.py",
+            "scripts/wechat_publisher.py",
         }
     )
 
@@ -207,24 +494,57 @@ def _host_receipt_trust_material() -> tuple[str, Ed25519PublicKey]:
         raise ValueError(
             "host receipt trust store is unavailable; bind host.receipt.attest before delivery"
         ) from exc
-    chain = [resolved, *resolved.parents]
-    for item in chain:
+    if os.name == "nt":
         try:
-            metadata = item.lstat()
-        except OSError as exc:
-            raise ValueError("host receipt trust-store protection cannot be inspected") from exc
-        if stat.S_ISLNK(metadata.st_mode):
-            raise ValueError("host receipt trust-store path must not contain symlinks")
-        if metadata.st_uid != 0:
-            raise ValueError("host receipt trust store and every parent must be root-owned")
-        if metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
-            raise ValueError(
-                "host receipt trust store and every parent must not be group/other writable"
+            completed = subprocess.run(
+                ["icacls", str(resolved)],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
-        if os.access(item, os.W_OK):
+        except (OSError, subprocess.SubprocessError) as exc:
             raise ValueError(
-                "repository process must not have ACL or effective write access to the host receipt trust store path"
+                "Windows host receipt trust-store ACL cannot be inspected"
+            ) from exc
+        acl = completed.stdout.lower()
+        protected_writers = ("nt authority\\system", "builtin\\administrators")
+        if not all(principal in acl for principal in protected_writers):
+            raise ValueError(
+                "Windows host receipt trust store must be controlled by SYSTEM and Administrators"
             )
+        forbidden_principals = (
+            "everyone",
+            "authenticated users",
+            "builtin\\users",
+            (os.environ.get("USERNAME") or "").lower(),
+        )
+        for line in acl.splitlines():
+            if any(name and name in line for name in forbidden_principals) and re.search(
+                r"\((?:f|m|w|wd|ad|dc|wa)\)", line
+            ):
+                raise ValueError(
+                    "repository process or an untrusted Windows principal can write the host receipt trust store"
+                )
+    else:
+        chain = [resolved, *resolved.parents]
+        for item in chain:
+            try:
+                metadata = item.lstat()
+            except OSError as exc:
+                raise ValueError("host receipt trust-store protection cannot be inspected") from exc
+            if stat.S_ISLNK(metadata.st_mode):
+                raise ValueError("host receipt trust-store path must not contain symlinks")
+            if metadata.st_uid != 0:
+                raise ValueError("host receipt trust store and every parent must be root-owned")
+            if metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+                raise ValueError(
+                    "host receipt trust store and every parent must not be group/other writable"
+                )
+            if os.access(item, os.W_OK):
+                raise ValueError(
+                    "repository process must not have ACL or effective write access to the host receipt trust store path"
+                )
     if not resolved.is_file():
         raise ValueError("host receipt trust store must be a regular file")
     try:
@@ -247,7 +567,12 @@ def _host_receipt_trust_material() -> tuple[str, Ed25519PublicKey]:
         or not isinstance(key_id, str)
         or re.fullmatch(r"[A-Za-z0-9._:/-]{1,128}", key_id) is None
         or payload.get("allowed_receipt_sources")
-        != [LIVE_RECEIPT_SOURCE, READBACK_RECEIPT_SOURCE]
+        != [
+            LIVE_RECEIPT_SOURCE,
+            READBACK_RECEIPT_SOURCE,
+            MOBILE_PROFILE_RECEIPT_SOURCE,
+            PUBLICATION_CONFIRMATION_RECEIPT_SOURCE,
+        ]
     ):
         raise ValueError("host receipt trust store schema, key id, or source allowlist is invalid")
     return key_id, _decode_host_receipt_public_key(payload.get("public_key"))
@@ -270,6 +595,144 @@ def _live_receipt_payload(receipt: dict[str, Any]) -> bytes:
     return json.dumps(
         payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     ).encode("utf-8")
+
+
+def verify_host_publication_confirmation_receipt(
+    receipt: dict[str, Any],
+    *,
+    target_account_ref: str,
+    article_revision: str,
+    draft_media_id: str,
+    draft_payload_sha256: str,
+    compile_report_sha256: str,
+    readback_sha256: str,
+    now: datetime | None = None,
+) -> tuple[str, datetime]:
+    """Authenticate one exact user publication decision from a trusted host.
+
+    This is deliberately distinct from the Ardot and saved-draft receipts:
+    those receipts authenticate observations, not user intent.  Only a
+    protected-host signature over the exact account/draft/payload/readback
+    chain may make a portable publication confirmation transferable between
+    processes.
+    """
+
+    required_fields = {
+        "schema_version",
+        "source",
+        "signature_algorithm",
+        "key_id",
+        "nonce",
+        "provider",
+        "session_id",
+        "request_id",
+        "confirmation_event_id",
+        "action",
+        "user_intent",
+        "target_account_ref",
+        "article_revision",
+        "draft_media_id",
+        "draft_payload_sha256",
+        "compile_report_sha256",
+        "readback_sha256",
+        "confirmed_at",
+        "expires_at",
+        "signature",
+    }
+    if not isinstance(receipt, dict) or set(receipt) != required_fields:
+        raise ValueError(
+            "portable publication confirmation receipt has missing or unsigned extra fields"
+        )
+    identifiers = (
+        "key_id",
+        "provider",
+        "session_id",
+        "request_id",
+        "confirmation_event_id",
+    )
+    if any(
+        not isinstance(receipt.get(field), str)
+        or re.fullmatch(r"[A-Za-z0-9._:/-]{1,128}", receipt[field]) is None
+        for field in identifiers
+    ):
+        raise ValueError(
+            "portable publication confirmation requires bounded host event identifiers"
+        )
+    if (
+        receipt.get("schema_version") != 1
+        or receipt.get("source") != PUBLICATION_CONFIRMATION_RECEIPT_SOURCE
+        or receipt.get("signature_algorithm") != "ed25519"
+        or receipt.get("action") != "freepublish"
+        or receipt.get("user_intent") != "explicit-publish-confirmation"
+    ):
+        raise ValueError("portable publication confirmation receipt schema is invalid")
+    nonce = receipt.get("nonce")
+    if not isinstance(nonce, str) or re.fullmatch(r"[0-9a-f]{32,64}", nonce) is None:
+        raise ValueError("portable publication confirmation nonce is invalid")
+    for field in (
+        "target_account_ref",
+        "article_revision",
+        "draft_media_id",
+    ):
+        if (
+            not isinstance(receipt.get(field), str)
+            or not receipt[field]
+            or len(receipt[field]) > 256
+        ):
+            raise ValueError(
+                f"portable publication confirmation {field} is invalid"
+            )
+    expected_bindings = {
+        "target_account_ref": target_account_ref,
+        "article_revision": article_revision,
+        "draft_media_id": draft_media_id,
+        "draft_payload_sha256": draft_payload_sha256,
+        "compile_report_sha256": compile_report_sha256,
+        "readback_sha256": readback_sha256,
+    }
+    if any(receipt.get(field) != value for field, value in expected_bindings.items()):
+        raise ValueError(
+            "portable publication confirmation is not bound to the exact account, revision, draft, payload, compile report, and readback"
+        )
+    if any(
+        not _is_sha256(receipt.get(field))
+        for field in (
+            "draft_payload_sha256",
+            "compile_report_sha256",
+            "readback_sha256",
+        )
+    ):
+        raise ValueError("portable publication confirmation hashes are invalid")
+    confirmed_at = _parse_rfc3339(
+        receipt.get("confirmed_at"), label="publication confirmation receipt"
+    )
+    expires_at = _parse_rfc3339(
+        receipt.get("expires_at"), label="publication confirmation receipt expiry"
+    )
+    current = now or datetime.now(timezone.utc)
+    if (
+        confirmed_at > current + timedelta(seconds=30)
+        or expires_at <= current
+        or expires_at <= confirmed_at
+        or (expires_at - confirmed_at).total_seconds()
+        > PUBLICATION_CONFIRMATION_MAX_TTL_SECONDS
+    ):
+        raise ValueError(
+            "portable publication confirmation is stale, future-dated, or overlong"
+        )
+    expected_key_id, public_key = _host_receipt_trust_material()
+    if receipt.get("key_id") != expected_key_id:
+        raise ValueError(
+            "portable publication confirmation key_id does not match the trusted host"
+        )
+    signature = _host_receipt_signature(receipt.get("signature"))
+    try:
+        public_key.verify(signature, _live_receipt_payload(receipt))
+    except InvalidSignature as exc:
+        raise ValueError(
+            "portable publication confirmation is not authenticated by the trusted host"
+        ) from exc
+    return nonce, expires_at
 
 
 def _is_wechat_cdn_url(value: Any) -> bool:
@@ -412,6 +875,18 @@ def current_root_transport_snapshot(export: dict[str, Any]) -> dict[str, Any]:
                         "svg_asset_id": svg["asset_id"],
                         "svg_asset_sha256": svg["sha256"],
                         "svg_structure_sha256": item["structure_sha256"],
+                        "ardot_state_sha256": item["ardot_state_sha256"],
+                        "ardot_states": item["ardot_states"],
+                    }
+                )
+            elif item["mode"] == "horizontal-swipe":
+                swipe = item["swipe"]
+                body_asset_ids.add(str(swipe["asset_id"]))
+                layer.update(
+                    {
+                        "swipe_asset_id": swipe["asset_id"],
+                        "swipe_asset_sha256": swipe["sha256"],
+                        "interaction_structure_sha256": item["structure_sha256"],
                         "ardot_state_sha256": item["ardot_state_sha256"],
                         "ardot_states": item["ardot_states"],
                     }
@@ -595,7 +1070,7 @@ def interaction_layer_contract(
     mode = str(item["mode"])
     source_sha = str(
         item["structure_sha256"]
-        if mode == "svg"
+        if mode in {"svg", "horizontal-swipe"}
         else item["fallback_semantic_sha256"]
     )
     layer_id = str(item["source_node_id"])
@@ -657,11 +1132,17 @@ class _SVGCanonicalParser(HTMLParser):
 
     @staticmethod
     def attrs(attrs: list[tuple[str, str | None]]) -> list[tuple[str, str]]:
-        return sorted(
-            (str(key).lower(), "" if value is None else str(value))
+        values = {
+            str(key).lower(): "" if value is None else str(value)
             for key, value in attrs
             if str(key).lower() != "data-transport-interaction-id"
-        )
+        }
+        upload_id = values.get("data-upload-asset-id")
+        if upload_id:
+            for name in ("href", "xlink:href", "src"):
+                if name in values:
+                    values[name] = f"wechat-asset://{upload_id}"
+        return sorted(values.items())
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         name = tag.lower()
@@ -695,6 +1176,72 @@ def canonical_svg_structure_sha256(svg_text: str) -> str:
     parser.close()
     if parser.invalid or parser.depth != 0 or parser.root_count != 1 or not parser.events:
         raise ValueError("SVG must contain exactly one balanced root")
+    return _canonical_sha256(parser.events)
+
+
+def _canonical_fragment_attrs(
+    attrs: list[tuple[str, str | None]],
+) -> list[tuple[str, str]]:
+    values = {
+        str(key).lower(): "" if value is None else str(value)
+        for key, value in attrs
+    }
+    upload_id = values.get("data-upload-asset-id")
+    if upload_id:
+        for name in ("href", "xlink:href", "src"):
+            if name in values:
+                values[name] = f"wechat-asset://{upload_id}"
+    return sorted(values.items())
+
+
+class _FragmentCanonicalParser(HTMLParser):
+    VOID_TAGS = _TransportHTML.VOID_TAGS if "_TransportHTML" in globals() else {
+        "area", "base", "br", "col", "embed", "hr", "img", "input", "link",
+        "meta", "param", "source", "track", "wbr",
+    }
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.events: list[Any] = []
+        self.depth = 0
+        self.roots = 0
+        self.invalid = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        name = tag.lower()
+        if self.depth == 0:
+            self.roots += 1
+        self.events.append(
+            [
+                "startend" if name in self.VOID_TAGS else "start",
+                name,
+                _canonical_fragment_attrs(attrs),
+            ]
+        )
+        if name not in self.VOID_TAGS:
+            self.depth += 1
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.handle_starttag(tag, attrs)
+
+    def handle_endtag(self, tag: str) -> None:
+        self.events.append(["end", tag.lower()])
+        self.depth -= 1
+        if self.depth < 0:
+            self.invalid = True
+
+    def handle_data(self, data: str) -> None:
+        visible = normalize_visible_text(data)
+        if visible:
+            self.events.append(["text", visible])
+
+
+def canonical_html_fragment_sha256(fragment: str) -> str:
+    parser = _FragmentCanonicalParser()
+    parser.feed(fragment)
+    parser.close()
+    if parser.invalid or parser.depth != 0 or parser.roots != 1 or not parser.events:
+        raise ValueError("interaction HTML must contain exactly one balanced root")
     return _canonical_sha256(parser.events)
 
 
@@ -737,6 +1284,12 @@ def _image_dimensions(path: Path) -> tuple[int, int] | None:
     data = path.read_bytes()
     if data.startswith(b"\x89PNG\r\n\x1a\n") and len(data) >= 24:
         return int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+    if data.startswith((b"GIF87a", b"GIF89a")) and len(data) >= 10:
+        return int.from_bytes(data[6:8], "little"), int.from_bytes(data[8:10], "little")
+    if data.startswith(b"BM") and len(data) >= 26:
+        width = int.from_bytes(data[18:22], "little", signed=True)
+        height = abs(int.from_bytes(data[22:26], "little", signed=True))
+        return (width, height) if width > 0 and height > 0 else None
     if not data.startswith(b"\xff\xd8"):
         return None
     cursor = 2
@@ -775,11 +1328,33 @@ def _asset_digest(path: Path) -> str:
     return f"sha256:{file_sha256(path)}"
 
 
+def _visual_similarity(reference: Path, observed: Path) -> float:
+    """Return a conservative 0..1 pixel similarity after size normalization."""
+
+    with Image.open(reference) as reference_image, Image.open(observed) as observed_image:
+        reference_rgb = reference_image.convert("RGBA")
+        observed_rgb = observed_image.convert("RGBA")
+        white = Image.new("RGBA", reference_rgb.size, (255, 255, 255, 255))
+        reference_flat = Image.alpha_composite(white, reference_rgb).convert("RGB")
+        observed_resized = observed_rgb.resize(
+            reference_rgb.size, Image.Resampling.LANCZOS
+        )
+        observed_flat = Image.alpha_composite(white, observed_resized).convert("RGB")
+        difference = ImageChops.difference(reference_flat, observed_flat)
+        mean = sum(ImageStat.Stat(difference).mean) / 3.0
+        return max(0.0, min(1.0, 1.0 - mean / 255.0))
+
+
 class _TransportHTML(HTMLParser):
     """Read exact frozen layers without executing page code."""
 
     VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
-    ROOT_ATTRS = {"data-transport-source", "data-ardot-root-node", "style"}
+    ROOT_ATTRS = {
+        "data-transport-source",
+        "data-ardot-root-node",
+        "data-transport-payload-variant",
+        "style",
+    }
     SECTION_ATTRS = {
         "data-transport-chapter-id",
         "data-ardot-section-node",
@@ -833,10 +1408,13 @@ class _TransportHTML(HTMLParser):
         self.image_occurrences: list[tuple[str, str, str, str]] = []
         self.sections: list[tuple[str, str, str, str, str]] = []
         self.sources: list[str] = []
-        self.roots: list[tuple[str, str]] = []
+        self.roots: list[tuple[str, str, str]] = []
+        self.payload_variant = ""
         self.interactions: list[str | None] = []
         self.raw_svgs: list[str | None] = []
         self.svg_structures: list[tuple[str | None, str | None]] = []
+        self.swipe_structures: list[tuple[str | None, str | None]] = []
+        self.interaction_uploads: list[tuple[str, str]] = []
         self.layers_by_chapter: dict[str, list[dict[str, str]]] = {}
         self.unmarked_top_level: list[str] = []
         self.unexpected_descendants: list[str] = []
@@ -852,6 +1430,9 @@ class _TransportHTML(HTMLParser):
         self._svg_identifier: str | None = None
         self._active_layer: dict[str, str] | None = None
         self._active_layer_child_count = 0
+        self._swipe_events: list[Any] | None = None
+        self._swipe_depth = 0
+        self._swipe_identifier: str | None = None
 
     @staticmethod
     def _values(attrs: list[tuple[str, str | None]]) -> dict[str, str]:
@@ -899,6 +1480,15 @@ class _TransportHTML(HTMLParser):
             self.unexpected_document.append(f"duplicate-attributes:{tag}")
             return
         values = self._values(attrs)
+        upload_asset_id = values.get("data-upload-asset-id")
+        if upload_asset_id:
+            upload_url = (
+                values.get("src")
+                or values.get("href")
+                or values.get("xlink:href")
+                or ""
+            )
+            self.interaction_uploads.append((upload_asset_id, upload_url))
         if values.get("data-transport-source"):
             self.sources.append(values["data-transport-source"])
 
@@ -919,9 +1509,15 @@ class _TransportHTML(HTMLParser):
                 self.roots.append(
                     (
                         values.get("data-ardot-root-node", ""),
+                        values.get("data-transport-payload-variant", ""),
                         values.get("style", ""),
                     )
                 )
+                self.payload_variant = values.get(
+                    "data-transport-payload-variant", ""
+                )
+                if self.payload_variant not in {"dynamic", "static"}:
+                    self.unexpected_document.append("payload-variant")
                 return
             if tag != "section":
                 self.unexpected_document.append(f"root-child:{tag}")
@@ -993,12 +1589,28 @@ class _TransportHTML(HTMLParser):
                 direct_child = len(self._section_stack) == 1
                 mode = active.get("mode")
                 allowed = False
-                if active.get("kind") == "interaction" and direct_child:
+                if self._swipe_events is not None:
+                    allowed = True
+                elif active.get("kind") == "interaction" and direct_child:
                     if mode == "svg" and tag == "svg":
                         allowed = (
                             self._active_layer_child_count == 0
                             and values.get("data-transport-interaction-id")
                             == active.get("interaction_id")
+                        )
+                    elif (
+                        self.payload_variant == "static"
+                        and mode in {"svg", "horizontal-swipe"}
+                        and tag == "img"
+                    ):
+                        allowed = (
+                            self._active_layer_child_count == 0
+                            and set(values) == self.STATIC_FALLBACK_ATTRS
+                            and values.get("data-transport-role")
+                            == "interaction-fallback"
+                            and values.get("alt") == ""
+                            and values.get("style")
+                            == "display:block;width:100%;height:100%;object-fit:contain;"
                         )
                     elif mode == "static-fallback" and tag == "img":
                         allowed = (
@@ -1010,11 +1622,30 @@ class _TransportHTML(HTMLParser):
                             and values.get("style")
                             == "display:block;width:100%;height:100%;object-fit:contain;"
                         )
+                    elif mode == "horizontal-swipe":
+                        allowed = (
+                            self._active_layer_child_count == 0
+                            and values.get("data-interaction")
+                            == "horizontal-swipe"
+                        )
+                        if allowed:
+                            self._swipe_events = []
+                            self._swipe_identifier = active.get("interaction_id")
                     self._active_layer_child_count += 1
                 if not allowed:
                     self._flag_descendant(tag)
-                if tag == "img":
+                if tag == "img" and not values.get("data-upload-asset-id"):
                     self._record_image(values, active.get("layer_id", ""))
+        if self._swipe_events is not None:
+            self._swipe_events.append(
+                [
+                    "startend" if tag in self.VOID_TAGS else "start",
+                    tag,
+                    _canonical_fragment_attrs(attrs),
+                ]
+            )
+            if tag not in self.VOID_TAGS:
+                self._swipe_depth += 1
         if tag == "svg":
             identifier = values.get("data-transport-interaction-id")
             self.raw_svgs.append(identifier)
@@ -1043,13 +1674,17 @@ class _TransportHTML(HTMLParser):
             chunks.append(data)
         if self._svg_parser is not None:
             self._svg_parser.handle_data(data)
+        if self._swipe_events is not None:
+            visible = normalize_visible_text(data)
+            if visible:
+                self._swipe_events.append(["text", visible])
         if not normalize_visible_text(data):
             return
         if self._section_id is None:
             self.unexpected_document.append("visible-text-outside-section")
         elif not self._section_stack:
             self.unmarked_top_level.append(f"{self._section_id}:text")
-        elif self._svg_parser is None and (
+        elif self._svg_parser is None and self._swipe_events is None and (
             self._active_layer is None
             or self._active_layer.get("kind") != "text"
         ):
@@ -1066,6 +1701,18 @@ class _TransportHTML(HTMLParser):
 
     def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
+        if self._swipe_events is not None and self._swipe_depth > 0:
+            self._swipe_events.append(["end", tag])
+            self._swipe_depth -= 1
+            if self._swipe_depth == 0:
+                self.swipe_structures.append(
+                    (
+                        self._swipe_identifier,
+                        _canonical_sha256(self._swipe_events),
+                    )
+                )
+                self._swipe_events = None
+                self._swipe_identifier = None
         # A stack keeps nested native text wrappers deterministic without
         # accidentally closing a tracked node for an ordinary <em>/<strong>.
         if self._text_stack and self._text_stack[-1][0] == tag:
@@ -1129,6 +1776,27 @@ class _Validator:
         self.bound_session_candidate = False
         self.bound_compile_assurance_scope: str | None = None
         self.bound_compile_observed_at: datetime | None = None
+        self.asset_registry: dict[str, dict[str, Any]] = {}
+        self.upload_map: dict[str, Any] | None = None
+        self.readback_evidence_verified = False
+        self.watermark_transport_status: str | None = None
+        # Legacy readback is retained only so old diagnostic fixtures can be
+        # inspected.  It is never accepted by the delivery/publication path.
+        self.allow_legacy_readback = False
+
+    def bind_asset_registry(self, handoff: dict[str, Any]) -> None:
+        raw_assets = handoff.get("assets")
+        if not isinstance(raw_assets, list):
+            return
+        for item in raw_assets:
+            if not isinstance(item, dict):
+                continue
+            asset_id = item.get("id")
+            if isinstance(asset_id, str) and asset_id:
+                self.asset_registry[asset_id] = item
+
+    def bind_upload_map(self, upload_map: dict[str, Any] | None) -> None:
+        self.upload_map = upload_map
 
     def fail(self, code: str, message: str) -> None:
         self.errors.append({"code": code, "message": message})
@@ -1186,6 +1854,33 @@ class _Validator:
         if known is not None and known != descriptor:
             self.fail("transport.mapping", f"asset_id {asset_id} maps to more than one frozen payload")
         self.asset_ids[asset_id] = descriptor
+        registry_record = self.asset_registry.get(asset_id)
+        role_context = {
+            "documentary-evidence": "evidence-use",
+            "article-micro": "article-micro",
+            "background": "background-use",
+        }.get(role)
+        # Documentary use is always fail-closed.  For older non-documentary
+        # handoffs, apply the shared duty matrix once the registry metadata is
+        # present without inventing a second transport-only truth table.
+        if role == "documentary-evidence" and registry_record is None:
+            self.fail(
+                "transport.asset_role",
+                f"{chapter_id} {role} requires a source-bound registry record",
+            )
+        elif (
+            registry_record is not None
+            and role_context is not None
+            and (
+                role == "documentary-evidence"
+                or {"kind", "origin", "visual_role"}.issubset(registry_record)
+            )
+        ):
+            for message in validate_asset_role(registry_record, role_context):
+                self.fail(
+                    "transport.asset_role",
+                    f"{chapter_id} {role} {asset_id}: {message}",
+                )
         if body_image:
             self.chapter_assets.setdefault(chapter_id, set()).add(asset_id)
         if require_alpha:
@@ -1323,6 +2018,7 @@ class _Validator:
         chapter_id: str,
         section_node_id: str,
         structure_sha256: str,
+        structure_field: str = "svg_structure_sha256",
     ) -> None:
         evidence_raw = item.get("ardot_state_export")
         evidence, path = self.json_evidence(
@@ -1344,7 +2040,7 @@ class _Validator:
             "root_node_id": self.export_root_node_id,
             "section_node_id": section_node_id,
             "source_node_id": item.get("source_node_id"),
-            "svg_structure_sha256": structure_sha256,
+            structure_field: structure_sha256,
         }
         for field, value in expected.items():
             if evidence.get(field) != value:
@@ -1608,7 +2304,11 @@ class _Validator:
                                     "transport.interaction.freehand_svg",
                                     f"{label} structure_sha256 does not match the actual frozen SVG",
                                 )
-                            policy = inspect_html(svg_text, label)
+                            policy = inspect_html(
+                                svg_text,
+                                label,
+                                allow_upload_placeholders=True,
+                            )
                             if (
                                 policy.get("errors")
                                 or policy.get("interactions", {}).get(SVG_SELF_INTERACTION) != 1
@@ -1666,15 +2366,116 @@ class _Validator:
                         "transport.interaction.fallback",
                         f"{label} static fallback requires fallback_semantic_sha256",
                     )
+            elif mode == "horizontal-swipe":
+                if item.get("authored_from") != "ardot-state-export-v1":
+                    self.fail(
+                        "transport.interaction.horizontal_swipe",
+                        f"{label} horizontal swipe must be derived from an Ardot state export",
+                    )
+                if not _is_sha256(item.get("ardot_state_sha256")):
+                    self.fail(
+                        "transport.interaction.horizontal_swipe",
+                        f"{label} needs ardot_state_sha256",
+                    )
+                swipe = item.get("swipe")
+                if not isinstance(swipe, dict):
+                    self.fail(
+                        "transport.interaction.horizontal_swipe",
+                        f"{label} requires one frozen swipe HTML fragment",
+                    )
+                else:
+                    self.asset(
+                        swipe,
+                        chapter_id=chapter_id,
+                        role="horizontal-swipe",
+                        require_alpha=False,
+                        body_image=False,
+                    )
+                    swipe_path = resolve_local_asset(
+                        self.manifest_path, swipe.get("path")
+                    )
+                    if swipe_path is not None:
+                        try:
+                            swipe_text = swipe_path.read_text(encoding="utf-8")
+                        except (OSError, UnicodeError) as exc:
+                            self.fail(
+                                "transport.interaction.horizontal_swipe",
+                                f"{label} swipe HTML cannot be read: {exc}",
+                            )
+                        else:
+                            try:
+                                actual_signature = canonical_html_fragment_sha256(
+                                    swipe_text
+                                )
+                            except ValueError as exc:
+                                self.fail(
+                                    "transport.interaction.horizontal_swipe",
+                                    f"{label} swipe HTML is not one balanced fragment: {exc}",
+                                )
+                                actual_signature = None
+                            policy = inspect_html(
+                                swipe_text,
+                                label,
+                                allow_upload_placeholders=True,
+                            )
+                            if (
+                                policy.get("errors")
+                                or policy.get("interactions", {}).get(
+                                    "horizontal-swipe"
+                                )
+                                != 1
+                                or policy.get("fallback_sequence")
+                                != [item.get("fallback_key")]
+                                or policy.get("fallback_hashes", {}).get(
+                                    item.get("fallback_key")
+                                )
+                                != item.get("fallback_semantic_sha256")
+                            ):
+                                self.fail(
+                                    "transport.interaction.horizontal_swipe",
+                                    f"{label} is not one policy-valid swipe with a visible cue and matching fallback markers: "
+                                    + "; ".join(policy.get("errors", [])),
+                                )
+                            if item.get("structure_sha256") != actual_signature:
+                                self.fail(
+                                    "transport.interaction.horizontal_swipe",
+                                    f"{label} structure_sha256 must equal the frozen swipe fragment bytes",
+                                )
+                            if actual_signature is not None:
+                                self.interaction_state_evidence(
+                                    item,
+                                    chapter_id=chapter_id,
+                                    section_node_id=section_node_id,
+                                    structure_sha256=actual_signature,
+                                    structure_field="interaction_structure_sha256",
+                                )
+                fallback = item.get("fallback_asset")
+                if fallback is None:
+                    self.fail(
+                        "transport.interaction.fallback",
+                        f"{label} horizontal swipe requires an information-equivalent fallback_asset",
+                    )
+                else:
+                    self.asset(
+                        fallback,
+                        chapter_id=chapter_id,
+                        role="horizontal-swipe fallback",
+                        require_alpha=False,
+                        body_image=False,
+                    )
             else:
-                self.fail("transport.interaction.freehand_svg", f"{label} mode must be svg or static-fallback")
+                self.fail(
+                    "transport.interaction.freehand_svg",
+                    f"{label} mode must be svg, horizontal-swipe, or static-fallback",
+                )
             if isinstance(interaction_id, str) and interaction_id and mode in {
                 "svg",
+                "horizontal-swipe",
                 "static-fallback",
             }:
                 signature = (
                     actual_signature or item.get("structure_sha256")
-                    if mode == "svg"
+                    if mode in {"svg", "horizontal-swipe"}
                     else item.get("fallback_semantic_sha256")
                 )
                 self.chapter_interactions.setdefault(chapter_id, []).append(
@@ -1968,7 +2769,8 @@ class _Validator:
                         interaction_layer_contract(item, chapter_height=chapter_height)
                         for item in interactions
                         if isinstance(item, dict)
-                        and item.get("mode") in {"svg", "static-fallback"}
+                        and item.get("mode")
+                        in {"svg", "horizontal-swipe", "static-fallback"}
                     )
                     self.chapter_layers[chapter_id] = expected_layers
                 except (KeyError, TypeError, ValueError, ZeroDivisionError) as exc:
@@ -2531,7 +3333,21 @@ class _Validator:
             self.fail("transport.compile_artifact", str(exc))
             return None
         article = handoff.get("article")
-        postflight_ok_field = "diagnostic_ok" if diagnostic else "ok"
+        postflight = payload.get("postflight")
+        selected_payload = payload.get("selected_payload")
+        selected_postflight = (
+            postflight.get("selected") if isinstance(postflight, dict) else None
+        )
+        postflight_valid = bool(
+            isinstance(postflight, dict)
+            and postflight.get("ok") is True
+            and postflight.get("contract_ok") is True
+            and postflight.get("selected_payload") == selected_payload
+            and selected_payload in {"dynamic", "static"}
+            and isinstance(selected_postflight, dict)
+            and selected_postflight.get("ok") is True
+            and selected_postflight.get("contract_ok") is True
+        )
         preflight_root_field = (
             "session_live_root_structural_match"
             if diagnostic
@@ -2551,7 +3367,14 @@ class _Validator:
                 and payload.get("draft_write_eligible") is False
                 and common_unfinished_state
                 and compile_assurance_scope
-                in {"current-session-draft", "diagnostic-candidate"}
+                in {
+                    "current-session-draft",
+                    "current-session-interaction-probe",
+                    "diagnostic-candidate",
+                }
+                and isinstance(payload.get("interaction_probe_only"), bool)
+                and payload.get("interaction_probe_only")
+                == (compile_assurance_scope == "current-session-interaction-probe")
             )
         else:
             report_mode_valid = (
@@ -2559,15 +3382,16 @@ class _Validator:
                 and payload.get("draft_write_eligible") is True
                 and compile_assurance_scope == "portable-signed-draft-candidate"
                 and common_unfinished_state
+                and payload.get("interaction_probe_only") is False
             )
         if (
-            payload.get("ok") is not True
+            payload.get("schema_version") != 2
+            or payload.get("ok") is not True
             or not report_mode_valid
             or payload.get("source") != TRANSPORT_SOURCE
             or payload.get("revision_hash") != export.get("revision_hash")
             or payload.get("handoff_sha256") != _asset_digest(self.manifest_path)
-            or not isinstance(payload.get("postflight"), dict)
-            or payload["postflight"].get(postflight_ok_field) is not True
+            or not postflight_valid
             or not isinstance(payload.get("preflight"), dict)
             or payload["preflight"].get(preflight_root_field) is not True
             or not isinstance(outputs, dict)
@@ -2632,6 +3456,7 @@ class _Validator:
             return None
         required_receipt_binding = {
             "source",
+            "path",
             "path_identity_sha256",
             "sha256",
             "key_id",
@@ -2666,6 +3491,7 @@ class _Validator:
                 return None
             expected_receipt_binding = {
                 "source": LIVE_RECEIPT_SOURCE,
+                "path": str(resolved_receipt),
                 "path_identity_sha256": path_identity_sha256(resolved_receipt),
                 "sha256": _asset_digest(resolved_receipt),
                 "key_id": receipt_payload.get("key_id"),
@@ -2700,7 +3526,8 @@ class _Validator:
         }
         expected_binding_source = (
             "wechat-session-draft-candidate-v1"
-            if compile_assurance_scope == "current-session-draft"
+            if compile_assurance_scope
+            in {"current-session-draft", "current-session-interaction-probe"}
             else "wechat-diagnostic-candidate-v1"
             if diagnostic
             else "wechat-compiled-artifact-v1"
@@ -2813,6 +3640,7 @@ class _Validator:
         expected_root = [
             (
                 str(export.get("root_node_id", "")),
+                parser.payload_variant,
                 "width:100%;margin:0;padding:0;background:transparent;",
             )
         ]
@@ -2857,13 +3685,25 @@ class _Validator:
             if not isinstance(asset_id, str) or asset_id not in self.asset_ids:
                 self.fail("transport.mapping", "every compiled body image needs a known data-transport-asset-id")
             elif source:
-                compiled_asset = resolve_local_asset(path, source)
                 expected_digest = self.asset_ids[asset_id][1]
-                if compiled_asset is None or _asset_digest(compiled_asset) != expected_digest:
-                    self.fail(
-                        "transport.render_signature",
-                        f"compiled image {asset_id} source does not match its frozen bytes",
-                    )
+                if self.upload_map is None:
+                    compiled_asset = resolve_local_asset(path, source)
+                    if compiled_asset is None or _asset_digest(compiled_asset) != expected_digest:
+                        self.fail(
+                            "transport.render_signature",
+                            f"compiled image {asset_id} source does not match its frozen bytes",
+                        )
+                else:
+                    mapped = self.upload_map.get("_body_by_id", {}).get(asset_id)
+                    if (
+                        not isinstance(mapped, dict)
+                        or mapped.get("source_sha256") != expected_digest
+                        or mapped.get("hosted_url") != source
+                    ):
+                        self.fail(
+                            "transport.render_signature",
+                            f"compiled image {asset_id} is not the exact target-account upload-map URL",
+                        )
         expected_image_assets = {
             asset_id
             for chapter in chapters
@@ -2882,6 +3722,21 @@ class _Validator:
             if isinstance(item, dict) and item.get("mode") == "svg"
         }
         expected_image_assets -= {item for item in svg_asset_ids if isinstance(item, str)}
+        if parser.payload_variant == "static":
+            expected_image_assets.update(
+                str(item.get("fallback_asset", {}).get("asset_id"))
+                for chapter in chapters
+                if isinstance(chapter, dict)
+                for item in (
+                    chapter.get("interaction")
+                    if isinstance(chapter.get("interaction"), list)
+                    else [chapter.get("interaction")]
+                )
+                if isinstance(item, dict)
+                and item.get("mode") in {"svg", "horizontal-swipe"}
+                and isinstance(item.get("fallback_asset"), dict)
+                and item.get("fallback_asset", {}).get("asset_id")
+            )
         expected_image_occurrences: list[tuple[str, str, str, str]] = []
         for chapter in chapters:
             if not isinstance(chapter, dict):
@@ -2924,7 +3779,13 @@ class _Validator:
                 else [interaction_raw]
             )
             for item in interactions:
-                if isinstance(item, dict) and item.get("mode") == "static-fallback":
+                if isinstance(item, dict) and (
+                    item.get("mode") == "static-fallback"
+                    or (
+                        parser.payload_variant == "static"
+                        and item.get("mode") in {"svg", "horizontal-swipe"}
+                    )
+                ):
                     fallback = item.get("fallback_asset")
                     if isinstance(fallback, dict):
                         expected_image_occurrences.append(
@@ -2967,14 +3828,73 @@ class _Validator:
             if isinstance(chapter, dict)
             for entry in self.chapter_interactions.get(str(chapter.get("chapter_id")), [])
             if entry.get("mode") == "svg"
-        ]
+        ] if parser.payload_variant == "dynamic" else []
         if parser.svg_structures != expected_svg_structures:
             self.fail(
                 "transport.interaction.freehand_svg",
                 "compiled inline SVG structure signatures differ from the actual frozen SVG files",
             )
+        expected_swipe_structures = [
+            (entry["interaction_id"], entry["signature_sha256"])
+            for chapter in chapters
+            if isinstance(chapter, dict)
+            for entry in self.chapter_interactions.get(str(chapter.get("chapter_id")), [])
+            if entry.get("mode") == "horizontal-swipe"
+        ] if parser.payload_variant == "dynamic" else []
+        if parser.swipe_structures != expected_swipe_structures:
+            self.fail(
+                "transport.interaction.horizontal_swipe",
+                "compiled horizontal-swipe structure differs from the frozen Ardot-derived fragment",
+            )
+        expected_interaction_upload_ids: list[str] = []
+        if parser.payload_variant == "dynamic":
+            for chapter in chapters:
+                if not isinstance(chapter, dict):
+                    continue
+                interaction_raw = chapter.get("interaction")
+                interactions = (
+                    interaction_raw
+                    if isinstance(interaction_raw, list)
+                    else [interaction_raw]
+                )
+                for item in interactions:
+                    if not isinstance(item, dict):
+                        continue
+                    source = (
+                        item.get("svg")
+                        if item.get("mode") == "svg"
+                        else item.get("swipe")
+                        if item.get("mode") == "horizontal-swipe"
+                        else None
+                    )
+                    if isinstance(source, dict) and isinstance(source.get("assets"), list):
+                        expected_interaction_upload_ids.extend(
+                            str(asset.get("asset_id"))
+                            for asset in source["assets"]
+                            if isinstance(asset, dict) and asset.get("asset_id")
+                        )
+        actual_interaction_upload_ids = [item[0] for item in parser.interaction_uploads]
+        if actual_interaction_upload_ids != expected_interaction_upload_ids:
+            self.fail(
+                "transport.interaction.upload_map",
+                "compiled interaction bitmap placeholders differ from the frozen interaction asset list",
+            )
+        for asset_id, url in parser.interaction_uploads:
+            if self.upload_map is None:
+                if url != f"wechat-asset://{asset_id}":
+                    self.fail(
+                        "transport.interaction.upload_map",
+                        f"diagnostic interaction bitmap {asset_id} changed its frozen upload placeholder",
+                    )
+            else:
+                mapped = self.upload_map.get("_body_by_id", {}).get(asset_id)
+                if not isinstance(mapped, dict) or mapped.get("hosted_url") != url:
+                    self.fail(
+                        "transport.interaction.upload_map",
+                        f"interaction bitmap {asset_id} is not the exact target-account upload-map URL",
+                    )
 
-    def readback(
+    def _legacy_readback(
         self,
         path: Path,
         export: dict[str, Any],
@@ -3292,6 +4212,560 @@ class _Validator:
                     f"readback chapter {index} interaction mode/signature differs from frozen export",
                 )
 
+    def readback(
+        self,
+        path: Path,
+        export: dict[str, Any],
+        *,
+        expected_target_account_ref: str | None = None,
+        not_before: datetime | None = None,
+        now: datetime | None = None,
+    ) -> None:
+        """Verify v2 readback from real API/DOM bytes and downloaded objects.
+
+        This definition intentionally supersedes the legacy v1 self-report
+        reader above.  Chapter JSON is an index into independently bound raw
+        responses/downloads/screenshots; it is never accepted as evidence by
+        itself.
+        """
+
+        starting_error_count = len(self.errors)
+        if path.is_symlink():
+            self.fail("transport.readback", "saved-draft readback must not be a symlink")
+            return
+        try:
+            payload = _read_object(path, "saved-draft readback")
+        except ValueError as exc:
+            self.fail("transport.readback", str(exc))
+            return
+        if payload.get("schema_version") == 1 and self.allow_legacy_readback:
+            self._legacy_readback(
+                path,
+                export,
+                expected_target_account_ref=expected_target_account_ref,
+                not_before=not_before,
+                now=now,
+            )
+            # Legacy evidence may support structural diagnostics, but never
+            # the real-response or watermark gates used for live delivery.
+            self.readback_evidence_verified = not any(
+                item["code"].startswith("transport.readback")
+                for item in self.errors[starting_error_count:]
+            )
+            self.watermark_transport_status = None
+            return
+        required_fields = {
+            "schema_version",
+            "source",
+            "target_account_ref",
+            "draft_id",
+            "title",
+            "digest",
+            "cover_asset_id",
+            "thumb_media_id",
+            "cover_hosted_derivative",
+            "transport_revision_hash",
+            "observed_at",
+            "raw_draft",
+            "watermark_transport",
+            "chapters",
+        }
+        if set(payload) != required_fields:
+            self.fail("transport.readback", "v2 readback has missing or unsigned extra fields")
+            return
+        if payload.get("schema_version") != 2 or payload.get("source") != READBACK_SOURCE:
+            self.fail(
+                "transport.readback",
+                f"readback must use schema_version=2 and source={READBACK_SOURCE}",
+            )
+            return
+        target_account = payload.get("target_account_ref")
+        if target_account != expected_target_account_ref:
+            self.fail(
+                "transport.readback_target",
+                "saved-draft readback target differs from the active exact-account preflight",
+            )
+        if (
+            not isinstance(target_account, str)
+            or not target_account
+            or len(target_account) > 256
+            or any(ord(char) < 32 for char in target_account)
+        ):
+            self.fail("transport.readback_target", "readback target account is invalid")
+        try:
+            observed_at = _parse_rfc3339(
+                payload.get("observed_at"), label="saved-draft readback"
+            )
+        except ValueError as exc:
+            self.fail("transport.readback_time", str(exc))
+            return
+        current_time = now or datetime.now(timezone.utc)
+        if (
+            observed_at > current_time + timedelta(seconds=30)
+            or (current_time - observed_at).total_seconds() > READBACK_MAX_AGE_SECONDS
+            or (not_before is not None and observed_at <= not_before)
+        ):
+            self.fail(
+                "transport.readback_time",
+                "readback must be fresh, after exact compilation, and not future-dated",
+            )
+        if payload.get("transport_revision_hash") != export.get("revision_hash"):
+            self.fail("transport.readback", "readback transport revision is stale")
+
+        raw = payload.get("raw_draft")
+        raw_fields = {
+            "source",
+            "path",
+            "sha256",
+            "byte_length",
+            "provider",
+            "request_id",
+            "request_url",
+            "request_method",
+            "http_status",
+            "response_headers",
+            "response_headers_sha256",
+            "observed_at",
+            "content_path",
+            "content_sha256",
+            "content_byte_length",
+        }
+        raw_payload: dict[str, Any] | None = None
+        content_path: Path | None = None
+        raw_path: Path | None = None
+        if not isinstance(raw, dict) or set(raw) != raw_fields:
+            self.fail("transport.readback_raw", "readback requires one complete raw API/DOM response binding")
+        else:
+            raw_path = resolve_local_asset(path, raw.get("path"))
+            content_path = resolve_local_asset(path, raw.get("content_path"))
+            if (
+                raw.get("source") not in {
+                    "wechat-api-draft-get-raw-v1",
+                    "wechat-editor-dom-export-raw-v1",
+                }
+                or raw.get("provider") not in {"wechat-official-api", "wechat-editor-dom"}
+                or raw.get("request_method") not in {"POST", "DOM_READ"}
+                or raw.get("http_status") != 200
+                or not isinstance(raw.get("request_id"), str)
+                or not raw.get("request_id")
+                or not isinstance(raw.get("request_url"), str)
+                or not raw.get("request_url")
+                or not isinstance(raw.get("response_headers"), dict)
+                or raw.get("response_headers_sha256")
+                != _canonical_sha256(raw.get("response_headers"))
+                or raw_path is None
+                or content_path is None
+                or _asset_digest(raw_path) != raw.get("sha256")
+                or raw_path.stat().st_size != raw.get("byte_length")
+                or _asset_digest(content_path) != raw.get("content_sha256")
+                or content_path.stat().st_size != raw.get("content_byte_length")
+            ):
+                self.fail("transport.readback_raw", "raw response/content bytes or HTTP provenance are invalid")
+            else:
+                try:
+                    raw_payload = _read_object(raw_path, "raw saved-draft response")
+                    raw_observed = _parse_rfc3339(
+                        raw.get("observed_at"), label="raw saved-draft response"
+                    )
+                except ValueError as exc:
+                    self.fail("transport.readback_raw", str(exc))
+                else:
+                    if raw_observed != observed_at:
+                        self.fail("transport.readback_raw", "raw response time differs from readback observation")
+                    expected_raw_fields = {
+                        "schema_version",
+                        "source",
+                        "target_account_ref",
+                        "draft_id",
+                        "request",
+                        "observed_at",
+                        "http_status",
+                        "response_headers",
+                        "response",
+                        "response_sha256",
+                    }
+                    raw_request = raw_payload.get("request")
+                    raw_response = raw_payload.get("response")
+                    api_raw = raw.get("source") == "wechat-api-draft-get-raw-v1"
+                    expected_endpoint = (
+                        "/cgi-bin/draft/get"
+                        if api_raw
+                        else raw.get("request_url")
+                    )
+                    expected_method = "POST" if api_raw else "DOM_READ"
+                    if (
+                        set(raw_payload) != expected_raw_fields
+                        or raw_payload.get("schema_version") != 1
+                        or raw_payload.get("source") != raw.get("source")
+                        or raw_payload.get("observed_at") != raw.get("observed_at")
+                        or raw_payload.get("http_status") != raw.get("http_status")
+                        or raw_payload.get("response_headers")
+                        != raw.get("response_headers")
+                        or not isinstance(raw_request, dict)
+                        or set(raw_request) != {"endpoint", "method", "request_id"}
+                        or raw_request.get("endpoint") != expected_endpoint
+                        or raw_request.get("method") != expected_method
+                        or raw_request.get("method") != raw.get("request_method")
+                        or raw_request.get("request_id") != raw.get("request_id")
+                        or raw_payload.get("response_sha256")
+                        != _canonical_sha256(raw_response)
+                    ):
+                        self.fail(
+                            "transport.readback_raw",
+                            "raw wrapper metadata/response digest differs from the bound API observation",
+                        )
+        article: dict[str, Any] | None = None
+        if raw_payload is not None and content_path is not None:
+            if raw_payload.get("target_account_ref") != target_account or raw_payload.get(
+                "draft_id"
+            ) != payload.get("draft_id"):
+                self.fail("transport.readback_raw", "raw response account/draft binding differs")
+            response = raw_payload.get("response")
+            news_items = response.get("news_item") if isinstance(response, dict) else None
+            if not isinstance(news_items, list) or len(news_items) != 1 or not isinstance(news_items[0], dict):
+                self.fail("transport.readback_raw", "raw draft response must contain exactly one article")
+            else:
+                article = news_items[0]
+                try:
+                    content = content_path.read_text(encoding="utf-8")
+                except (OSError, UnicodeError) as exc:
+                    self.fail("transport.readback_raw", f"raw draft content is unreadable: {exc}")
+                else:
+                    if article.get("content") != content:
+                        self.fail("transport.readback_raw", "content file is not derived from raw draft/get bytes")
+                    else:
+                        self.html(content_path, export)
+                expected_article_values = {
+                    "title": article.get("title"),
+                    "digest": article.get("digest", ""),
+                    "thumb_media_id": article.get("thumb_media_id"),
+                }
+                if any(payload.get(field) != value for field, value in expected_article_values.items()):
+                    self.fail("transport.readback_raw", "title/digest/cover id differ from raw draft/get response")
+
+        cover_asset = _handoff_cover_asset(
+            _read_object(self.manifest_path, "handoff manifest")
+        )
+        expected_cover_id = cover_asset.get("id") if isinstance(cover_asset, dict) else None
+        expected_thumb = (
+            self.upload_map.get("cover", {}).get("media_id")
+            if isinstance(self.upload_map, dict)
+            else None
+        )
+        if payload.get("cover_asset_id") != expected_cover_id or payload.get("thumb_media_id") != expected_thumb:
+            self.fail("transport.readback_cover", "raw draft cover differs from the account upload map")
+
+        def verify_download(
+            record: Any,
+            *,
+            expected_url: str | None,
+            source_path: Path | None,
+            label: str,
+        ) -> Path | None:
+            fields = {
+                "request_url",
+                "http_status",
+                "response_headers",
+                "response_headers_sha256",
+                "observed_at",
+                "path",
+                "sha256",
+                "byte_length",
+                "content_type",
+            }
+            if not isinstance(record, dict) or set(record) != fields:
+                self.fail("transport.readback_download", f"{label} requires a complete HTTP download receipt")
+                return None
+            downloaded = resolve_local_asset(path, record.get("path"))
+            headers = record.get("response_headers")
+            try:
+                downloaded_at = _parse_rfc3339(record.get("observed_at"), label=label)
+            except ValueError as exc:
+                self.fail("transport.readback_download", str(exc))
+                return None
+            if (
+                record.get("request_url") != expected_url
+                or not _is_wechat_cdn_url(expected_url)
+                or record.get("http_status") != 200
+                or not isinstance(headers, dict)
+                or record.get("response_headers_sha256") != _canonical_sha256(headers)
+                or not isinstance(record.get("content_type"), str)
+                or not record["content_type"].lower().startswith("image/")
+                or downloaded is None
+                or _asset_digest(downloaded) != record.get("sha256")
+                or downloaded.stat().st_size != record.get("byte_length")
+                or downloaded_at < observed_at - timedelta(minutes=10)
+                or downloaded_at > current_time + timedelta(seconds=30)
+            ):
+                self.fail("transport.readback_download", f"{label} URL/headers/time/bytes are invalid")
+                return None
+            if source_path is not None:
+                try:
+                    if downloaded.samefile(source_path):
+                        self.fail("transport.readback_download", f"{label} reuses the frozen source file as fake download evidence")
+                        return None
+                except OSError:
+                    pass
+                try:
+                    similarity = _visual_similarity(source_path, downloaded)
+                except (OSError, ValueError) as exc:
+                    self.fail("transport.readback_visual", f"{label} visual comparison failed: {exc}")
+                    return None
+                if similarity < 0.70:
+                    self.fail("transport.readback_visual", f"{label} hosted pixels differ materially from frozen source ({similarity:.3f})")
+            return downloaded
+
+        cover_derivative = payload.get("cover_hosted_derivative")
+        cover_source_path = (
+            resolve_local_asset(self.manifest_path, cover_asset.get("path"))
+            if isinstance(cover_asset, dict)
+            else None
+        )
+        cover_url = article.get("thumb_url") if isinstance(article, dict) else None
+        verify_download(
+            cover_derivative,
+            expected_url=cover_url,
+            source_path=cover_source_path,
+            label="cover derivative",
+        )
+
+        chapters = payload.get("chapters")
+        source_chapters = export.get("chapters") if isinstance(export.get("chapters"), list) else []
+        if not isinstance(chapters, list) or len(chapters) != len(source_chapters):
+            self.fail("transport.readback", "readback must index every exported chapter once")
+            return
+        for index, (actual, source) in enumerate(zip(chapters, source_chapters), start=1):
+            if not isinstance(actual, dict) or not isinstance(source, dict):
+                self.fail("transport.readback", f"readback chapter {index} is invalid")
+                continue
+            chapter_id = str(source.get("chapter_id", ""))
+            expected_nodes = self.chapter_text.get(chapter_id, [])
+            expected_text_hash = text_sha256(
+                " ".join(str(node.get("text", "")) for node in expected_nodes)
+            )
+            if (
+                actual.get("chapter_id") != chapter_id
+                or actual.get("section_node_id") != source.get("section_node_id")
+                or actual.get("visible_text_node_ids")
+                != [node.get("node_id") for node in expected_nodes]
+                or actual.get("visible_text_sha256") != expected_text_hash
+            ):
+                self.fail("transport.readback", f"readback chapter {index} text/mapping differs")
+            hosted = actual.get("hosted_assets")
+            expected_assets = set(self.chapter_assets.get(chapter_id, set()))
+            if isinstance(content_path, Path):
+                try:
+                    parser = _TransportHTML()
+                    parser.feed(content_path.read_text(encoding="utf-8"))
+                    parser.close()
+                except (OSError, UnicodeError):
+                    parser = None
+                if parser is not None and parser.payload_variant == "static":
+                    interactions = source.get("interaction")
+                    items = interactions if isinstance(interactions, list) else [interactions]
+                    expected_assets.update(
+                        str(item.get("fallback_asset", {}).get("asset_id"))
+                        for item in items
+                        if isinstance(item, dict)
+                        and item.get("mode") in {"svg", "horizontal-swipe"}
+                        and isinstance(item.get("fallback_asset"), dict)
+                    )
+                elif parser is not None and parser.payload_variant == "dynamic":
+                    interactions = source.get("interaction")
+                    items = interactions if isinstance(interactions, list) else [interactions]
+                    for interaction in items:
+                        if not isinstance(interaction, dict):
+                            continue
+                        interaction_source = (
+                            interaction.get("svg")
+                            if interaction.get("mode") == "svg"
+                            else interaction.get("swipe")
+                            if interaction.get("mode") == "horizontal-swipe"
+                            else None
+                        )
+                        if isinstance(interaction_source, dict):
+                            expected_assets.update(
+                                str(asset.get("asset_id"))
+                                for asset in interaction_source.get("assets", [])
+                                if isinstance(asset, dict) and asset.get("asset_id")
+                            )
+            if actual.get("asset_ids") != sorted(expected_assets):
+                self.fail(
+                    "transport.readback",
+                    f"readback chapter {index} asset index differs from the raw saved body",
+                )
+            expected_interactions: list[dict[str, str]] = []
+            source_interactions = source.get("interaction")
+            interaction_items = (
+                source_interactions
+                if isinstance(source_interactions, list)
+                else [source_interactions]
+            )
+            for interaction in interaction_items:
+                if not isinstance(interaction, dict):
+                    continue
+                mode = str(interaction.get("mode", ""))
+                signature = str(
+                    interaction.get("structure_sha256")
+                    if mode in {"svg", "horizontal-swipe"}
+                    else interaction.get("fallback_semantic_sha256")
+                )
+                if parser is not None and parser.payload_variant == "static" and mode in {
+                    "svg",
+                    "horizontal-swipe",
+                }:
+                    mode = "static-fallback"
+                    signature = str(interaction.get("fallback_semantic_sha256"))
+                expected_interactions.append(
+                    {
+                        "interaction_id": str(interaction.get("interaction_id", "")),
+                        "mode": mode,
+                        "signature_sha256": signature,
+                    }
+                )
+            if actual.get("interactions") != expected_interactions:
+                self.fail(
+                    "transport.readback",
+                    f"readback chapter {index} interaction index differs from raw saved content",
+                )
+            if not isinstance(hosted, list):
+                self.fail("transport.readback", f"readback chapter {index} lacks hosted downloads")
+            else:
+                observed_ids: list[str] = []
+                for item in hosted:
+                    if not isinstance(item, dict) or set(item) != {
+                        "asset_id", "source_sha256", "url", "download", "visual_similarity"
+                    }:
+                        self.fail("transport.readback", f"readback chapter {index} hosted asset record is invalid")
+                        continue
+                    asset_id = str(item.get("asset_id", ""))
+                    observed_ids.append(asset_id)
+                    descriptor = self.asset_ids.get(asset_id)
+                    source_path = (
+                        resolve_local_asset(self.manifest_path, descriptor[0])
+                        if descriptor is not None
+                        else None
+                    )
+                    mapped = (
+                        self.upload_map.get("_body_by_id", {}).get(asset_id)
+                        if isinstance(self.upload_map, dict)
+                        else None
+                    )
+                    expected_url = mapped.get("hosted_url") if isinstance(mapped, dict) else None
+                    downloaded = verify_download(
+                        item.get("download"),
+                        expected_url=expected_url,
+                        source_path=source_path,
+                        label=f"chapter {index} asset {asset_id}",
+                    )
+                    if descriptor is None or item.get("source_sha256") != descriptor[1]:
+                        self.fail("transport.readback", f"chapter {index} asset {asset_id} source SHA differs")
+                    if downloaded is not None and source_path is not None:
+                        computed = _visual_similarity(source_path, downloaded)
+                        declared = item.get("visual_similarity")
+                        if not isinstance(declared, (int, float)) or abs(float(declared) - computed) > 0.001:
+                            self.fail("transport.readback_visual", f"chapter {index} asset {asset_id} similarity is self-reported")
+                if sorted(observed_ids) != sorted(expected_assets):
+                    self.fail("transport.readback", f"readback chapter {index} hosted assets are incomplete")
+            screenshot = actual.get("screenshot")
+            if not isinstance(screenshot, dict) or set(screenshot) != {
+                "path", "sha256", "byte_length", "width_px", "height_px",
+                "captured_at", "capture_source", "capture_event_id",
+                "reference_asset_id", "visual_similarity",
+            }:
+                self.fail("transport.readback_visual", f"chapter {index} screenshot receipt is incomplete")
+            else:
+                screenshot_path = resolve_local_asset(path, screenshot.get("path"))
+                reference = source.get("reference_screenshot")
+                reference_path = (
+                    resolve_local_asset(self.manifest_path, reference.get("path"))
+                    if isinstance(reference, dict)
+                    else None
+                )
+                try:
+                    screenshot_at = _parse_rfc3339(
+                        screenshot.get("captured_at"),
+                        label=f"chapter {index} WeChat screenshot",
+                    )
+                except ValueError as exc:
+                    screenshot_at = None
+                    self.fail("transport.readback_visual", str(exc))
+                if (
+                    screenshot_path is None
+                    or reference_path is None
+                    or screenshot.get("reference_asset_id") != reference.get("asset_id")
+                    or screenshot.get("capture_source")
+                    not in {"active-host-callback", "portable-host-manifest"}
+                    or not isinstance(screenshot.get("capture_event_id"), str)
+                    or not screenshot.get("capture_event_id")
+                    or _asset_digest(screenshot_path) != screenshot.get("sha256")
+                    or screenshot_path.stat().st_size != screenshot.get("byte_length")
+                    or _image_dimensions(screenshot_path)
+                    != (390, round(float(source.get("geometry", {}).get("height", 0))))
+                    or screenshot_at is None
+                    or screenshot_at > current_time + timedelta(seconds=30)
+                    or screenshot_at < observed_at - timedelta(minutes=10)
+                    or (not_before is not None and screenshot_at <= not_before)
+                ):
+                    self.fail("transport.readback_visual", f"chapter {index} screenshot bytes/dimensions are invalid")
+                else:
+                    if screenshot_path.read_bytes() == reference_path.read_bytes():
+                        self.fail(
+                            "transport.readback_visual",
+                            f"chapter {index} reuses byte-identical Ardot reference as WeChat capture",
+                        )
+                    similarity = _visual_similarity(reference_path, screenshot_path)
+                    if similarity >= 1.0 - 1e-12:
+                        self.fail(
+                            "transport.readback_visual",
+                            f"chapter {index} is pixel-identical to the Ardot reference",
+                        )
+                    if similarity < 0.60 or not isinstance(screenshot.get("visual_similarity"), (int, float)) or abs(float(screenshot["visual_similarity"]) - similarity) > 0.001:
+                        self.fail("transport.readback_visual", f"chapter {index} screenshot differs from Ardot reference")
+
+        watermark = payload.get("watermark_transport")
+        if not isinstance(watermark, dict) or set(watermark) != {
+            "status", "census_path", "census_sha256", "census_byte_length"
+        }:
+            self.fail("transport.watermark", "readback requires a complete watermark carrier census")
+        else:
+            census_path = resolve_local_asset(path, watermark.get("census_path"))
+            if (
+                census_path is None
+                or _asset_digest(census_path) != watermark.get("census_sha256")
+                or census_path.stat().st_size != watermark.get("census_byte_length")
+            ):
+                self.fail("transport.watermark", "watermark carrier census bytes are invalid")
+            else:
+                try:
+                    census = _read_object(census_path, "watermark carrier census")
+                except ValueError as exc:
+                    self.fail("transport.watermark", str(exc))
+                else:
+                    eligible = census.get("eligible_carrier_ids")
+                    verified = census.get("transport_verified_carrier_ids")
+                    expected_status = (
+                        "not-applicable"
+                        if eligible == []
+                        else "verified"
+                        if isinstance(eligible, list)
+                        and isinstance(verified, list)
+                        and sorted(eligible) == sorted(verified)
+                        else "failed"
+                    )
+                    if (
+                        census.get("schema_version") != 1
+                        or census.get("source") != "watermark-transport-carrier-census-v1"
+                        or watermark.get("status") != expected_status
+                        or expected_status == "failed"
+                    ):
+                        self.fail("transport.watermark", "eligible watermark carriers were not all verified after download")
+                    else:
+                        self.watermark_transport_status = expected_status
+
+        if len(self.errors) == starting_error_count:
+            self.readback_evidence_verified = True
+
     def saved_draft_readback_receipt(
         self,
         path: Path,
@@ -3422,19 +4896,20 @@ class _Validator:
             "cover_asset_id": readback.get("cover_asset_id"),
             "thumb_media_id": readback.get("thumb_media_id"),
             "cover_hosted_url": (
-                readback.get("cover_hosted_derivative", {}).get("url")
+                readback.get("cover_hosted_derivative", {}).get("request_url")
+                or readback.get("cover_hosted_derivative", {}).get("url")
                 if isinstance(readback.get("cover_hosted_derivative"), dict)
                 else None
             ),
             "cover_downloaded_sha256": (
-                readback.get("cover_hosted_derivative", {}).get(
-                    "downloaded_sha256"
-                )
+                readback.get("cover_hosted_derivative", {}).get("sha256")
+                or readback.get("cover_hosted_derivative", {}).get("downloaded_sha256")
                 if isinstance(readback.get("cover_hosted_derivative"), dict)
                 else None
             ),
             "cover_downloaded_byte_length": (
-                readback.get("cover_hosted_derivative", {}).get(
+                readback.get("cover_hosted_derivative", {}).get("byte_length")
+                or readback.get("cover_hosted_derivative", {}).get(
                     "downloaded_byte_length"
                 )
                 if isinstance(readback.get("cover_hosted_derivative"), dict)
@@ -3512,6 +4987,8 @@ def _validate_transport_fidelity_contract(
     require_readback: bool = False,
     expected_target_account_ref: str | None = None,
     diagnostic: bool,
+    upload_map_path: Path | None = None,
+    require_upload_map: bool = False,
 ) -> dict[str, Any]:
     """Validate a frozen handoff manifest plus optional compiled/readback evidence.
 
@@ -3526,6 +5003,8 @@ def _validate_transport_fidelity_contract(
     manifest_path = manifest_path.resolve()
     handoff = _read_object(manifest_path, "handoff manifest")
     validator = _Validator(manifest_path)
+    validator.allow_legacy_readback = diagnostic
+    validator.bind_asset_registry(handoff)
     if handoff.get("schema_version") != 5:
         validator.fail(
             "transport.mapping",
@@ -3541,6 +5020,24 @@ def _validate_transport_fidelity_contract(
         export = validator.export(fidelity.get("export"))
     if export is not None:
         validator.crosslink_handoff(handoff, export)
+    upload_map: dict[str, Any] | None = None
+    if export is not None and upload_map_path is not None:
+        try:
+            upload_map = validate_wechat_upload_map(
+                upload_map_path,
+                manifest_path=manifest_path,
+                handoff=handoff,
+                export=export,
+                expected_target_account_ref=expected_target_account_ref,
+            )
+        except (OSError, ValueError) as exc:
+            validator.fail("transport.upload_map", str(exc))
+    elif require_upload_map:
+        validator.fail(
+            "transport.upload_map",
+            "a complete target-account upload map and cover media_id are required before final compilation",
+        )
+    validator.bind_upload_map(upload_map)
     live_root_structural_match = False
     live_receipt_verified = False
     if export is not None and live_root_path is not None:
@@ -3671,19 +5168,43 @@ def _validate_transport_fidelity_contract(
         "compile_report_checked": compile_report_path is not None,
         "readback_checked": readback_path is not None,
         "readback_receipt_checked": readback_receipt_path is not None,
+        "upload_map_checked": upload_map_path is not None,
+        "upload_map_sha256": (
+            upload_map.get("_sha256") if isinstance(upload_map, dict) else None
+        ),
+        "target_account_ref": (
+            upload_map.get("target_account_ref")
+            if isinstance(upload_map, dict)
+            else expected_target_account_ref
+        ),
         "contract_readback_receipt_valid": readback_receipt_verified,
+        "readback_evidence_verified": validator.readback_evidence_verified,
+        "watermark_transport_status": validator.watermark_transport_status,
         "error_codes": sorted({error["code"] for error in validator.errors}),
         "errors": validator.errors,
     }
     if diagnostic:
         session_readback_structural_match = bool(
-            require_readback and readback_path is not None and report["ok"]
+            require_readback
+            and readback_path is not None
+            and report["ok"]
+            and validator.readback_evidence_verified
+        )
+        current_session_publication_preflight = bool(
+            validator.bound_session_candidate
+            and live_root_structural_match
+            and session_readback_structural_match
+            and upload_map is not None
+            and validator.watermark_transport_status in {"verified", "not-applicable"}
         )
         report.update(
             {
                 "assurance_scope": (
                     "current-session-draft"
                     if validator.bound_session_candidate
+                    else "current-session-interaction-probe"
+                    if validator.bound_compile_assurance_scope
+                    == "current-session-interaction-probe"
                     else "diagnostic-only"
                 ),
                 "diagnostic_ok": report["ok"],
@@ -3695,6 +5216,7 @@ def _validate_transport_fidelity_contract(
                 "draft_write_eligible": False,
                 "portable_audit_verified": False,
                 "publication_preflight_eligible": False,
+                "current_session_publication_preflight_eligible": current_session_publication_preflight,
                 "publication_authorized": False,
                 "session_live_root_structural_match": live_root_structural_match,
                 "session_readback_structural_match": session_readback_structural_match,
@@ -3716,6 +5238,8 @@ def _validate_transport_fidelity_contract(
             and effective_html_path is not None
             and readback_path is not None
             and readback_receipt_verified
+            and validator.readback_evidence_verified
+            and validator.watermark_transport_status in {"verified", "not-applicable"}
         )
         report.update(
             {
@@ -3752,6 +5276,8 @@ def validate_transport_fidelity_diagnostic(
     readback_receipt_path: Path | None = None,
     require_readback: bool = False,
     expected_target_account_ref: str | None = None,
+    upload_map_path: Path | None = None,
+    require_upload_map: bool = False,
 ) -> dict[str, Any]:
     """Run current-session structural checks without portable final assurance.
 
@@ -3775,6 +5301,8 @@ def validate_transport_fidelity_diagnostic(
         readback_receipt_path=readback_receipt_path,
         require_readback=require_readback,
         expected_target_account_ref=expected_target_account_ref,
+        upload_map_path=upload_map_path,
+        require_upload_map=require_upload_map,
         diagnostic=True,
     )
 
@@ -3793,6 +5321,8 @@ def validate_transport_fidelity(
     readback_receipt_path: Path | None = None,
     require_readback: bool = False,
     expected_target_account_ref: str | None = None,
+    upload_map_path: Path | None = None,
+    require_upload_map: bool = False,
 ) -> dict[str, Any]:
     """Return final transport assurance only inside the isolated runner."""
     from secure_runtime import require_secure_runtime
@@ -3811,5 +5341,7 @@ def validate_transport_fidelity(
         readback_receipt_path=readback_receipt_path,
         require_readback=require_readback,
         expected_target_account_ref=expected_target_account_ref,
+        upload_map_path=upload_map_path,
+        require_upload_map=require_upload_map,
         diagnostic=False,
     )

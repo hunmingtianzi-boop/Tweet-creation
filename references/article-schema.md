@@ -191,14 +191,16 @@ This JSON drives semantic validation and Ardot assembly. It does not drive final
 Before visual authoring, validate the 4–10 chapter storyboard:
 
 ```bash
-python3 scripts/build_storyboard.py article.json \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/build_storyboard.py" article.json \
   --output output/<organization-id>/<slug>/storyboard-plan.json
 ```
 
 Then generate and complete the mandatory article-specific visual kit:
 
 ```bash
-python3 scripts/build_visual_kit.py article.json \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/build_visual_kit.py" article.json \
   --org organizations/<organization-id> \
   --output output/<organization-id>/<slug>/visual-kit-plan.json
 ```
@@ -206,7 +208,8 @@ python3 scripts/build_visual_kit.py article.json \
 The four required roles are `floating-spot`, `section-transition`, `inline-explainer`, and `closing-motif`. Every entry must bind to exact article copy and one approved storyboard chapter, with a specific subject/action and a composition role of `anchor`, `motion`, `connector`, or `punctuation`. Use at least three different composition roles and four distinct derived assets. On Codex Desktop, `build_visual_kit.py` defaults each source request to `chatgpt-web-image-route-v1`: Codex operates ChatGPT only through the built-in Browser, requests a genuinely transparent provider-original PNG first, downloads it, and runs the secure `prepare_micro_cutout.py --require-native-alpha` route. One controlled-key fallback is allowed only after strict Alpha/pixel failure. Another harness may replace the provider, not this acquisition order or the output contract. Each registered article-micro asset must bind its raw source, prompt/provider route, processor/config, derivation report, and final SHA; pass the RGBA8/robust-Alpha/tight-crop/no-matte/no-halo/no-debris gate; record its exact derivative `asset_sha256`; and record its native Ardot component file URL, node ID, and exact name. Then generate the Ardot assembly manifest:
 
 ```bash
-python3 scripts/build_ardot_manifest.py article.json \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/build_ardot_manifest.py" article.json \
   --org organizations/<organization-id> \
   --output output/<organization-id>/<slug>/ardot-manifest.json
 ```

@@ -2,13 +2,38 @@
   "schema_version": 1,
   "kind": "org-wechat-python-dependency-lock",
   "hash_algorithm": "distribution-files-sha256-v1",
+  "support_policy": {
+    "matrix": "runtime/platform-support.json",
+    "unknown_platform": "fail-before-target",
+    "candidate_is_trusted": false,
+    "candidate_review_required": true
+  },
+  "required_distributions": {
+    "Pillow": "11.3.0",
+    "cryptography": "50.0.0",
+    "cffi": "2.0.0",
+    "pycparser": "2.23"
+  },
   "allowed_entrypoints": [
     "scripts/runtime_preflight.py",
+    "scripts/ingest_browser_download.py",
+    "scripts/ingest_wechat_readback_capture.py",
+    "scripts/prepare_migration_probe.py",
+    "scripts/orgs.py",
+    "scripts/build_visual_directions.py",
+    "scripts/build_storyboard.py",
+    "scripts/build_visual_kit.py",
+    "scripts/build_ardot_manifest.py",
     "scripts/compile_wechat.py",
+    "scripts/export_ardot_handoff.py",
+    "scripts/wechat_publisher.py",
     "scripts/validate_transport_fidelity.py",
     "scripts/provenance_watermark.py",
     "scripts/prepare_micro_cutout.py",
-    "scripts/inspect_asset.py"
+    "scripts/inspect_asset.py",
+    "scripts/wechat_interaction_policy.py",
+    "scripts/validate_workflow_attribution.py",
+    "scripts/build_visual_review.py"
   ],
   "scripts_importable_census": {
     "algorithm": "top-level-python-importables-v1",
@@ -16,6 +41,10 @@
       {
         "kind": "source",
         "path": "asset_quality.py"
+      },
+      {
+        "kind": "source",
+        "path": "asset_role_policy.py"
       },
       {
         "kind": "source",
@@ -43,6 +72,18 @@
       },
       {
         "kind": "source",
+        "path": "export_ardot_handoff.py"
+      },
+      {
+        "kind": "source",
+        "path": "ingest_browser_download.py"
+      },
+      {
+        "kind": "source",
+        "path": "ingest_wechat_readback_capture.py"
+      },
+      {
+        "kind": "source",
         "path": "inspect_asset.py"
       },
       {
@@ -51,15 +92,35 @@
       },
       {
         "kind": "source",
+        "path": "pack_assets.py"
+      },
+      {
+        "kind": "source",
         "path": "prepare_micro_cutout.py"
       },
       {
         "kind": "source",
+        "path": "prepare_migration_probe.py"
+      },
+    {
+      "kind": "source",
         "path": "provenance_watermark.py"
+    },
+    {
+        "kind": "source",
+        "path": "provider_acquisition_authority.py"
+      },
+      {
+        "kind": "source",
+        "path": "release_skills.py"
       },
       {
         "kind": "source",
         "path": "runtime_preflight.py"
+      },
+      {
+        "kind": "source",
+        "path": "safe_paths.py"
       },
       {
         "kind": "source",
@@ -84,6 +145,10 @@
       {
         "kind": "source",
         "path": "wechat_interaction_policy.py"
+      },
+      {
+        "kind": "source",
+        "path": "wechat_publisher.py"
       },
       {
         "kind": "source",

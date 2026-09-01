@@ -45,9 +45,10 @@
 ## 已实现的改进
 
 - [x] 默认 source-zero：新组织包记录 `visual_reference_policy`、本轮视觉输入 source IDs、四类禁用旧视觉输入与隔离复核时间。
+- [x] Source-zero 字节隔离：每个视觉 source 必须声明允许的 kind、pack 内 locator 和当前内容 SHA-256，且只能位于显式 `visual_input_allowed_roots`。从 pack root 到文件的任一路径组件是 symlink 即失败；`examples/output/experiments/archive/other-org` 以及“旧稿/历史/往期/成稿/旧版”目录即使被放入 allowlist 也不得参与视觉校准。该门禁默认在当前会话可执行；宿主 filesystem lease 只能升级 assurance，不得伪称已有 host-enforced 隔离。
 - [x] 入口隔离：不自动读取内置组织包、examples、旧 Ardot、截图或历史文章设计；历史文字若获准只能作为 voice/fact 来源，不能进入视觉校准。
 - [x] 照片/AI 职责：纪录照片使用 `documentary-evidence` 与 `source_id`；AI 底图使用 `illustrative-atmosphere`，不能进入 gallery 证据位。
-- [x] 连续底图：批准校准必须登记一个 generated-family、一个 master、1–3 个 companion、copy-safe zone，并在资产层绑定 family/variant。
+- [x] 连续底图：批准校准必须登记一个 generated-family、一个 master、1–3 个 companion、copy-safe zone，并在资产层绑定 family/variant、共享 family prompt/route/master 谱系。除均值颜色外，验收还比较 12×12 空间亮度签名、纹理能量和主方向，同均值但异结构的“拼家族”失败。
 - [x] 四类微组件：四个角色必须由四枚当前文章专属资产分别承担，并绑定正文原句、章节、主体、动作、构图职责和 Ardot 原生组件。
 - [x] Alpha/抠图验收：解码 RGBA8，使用最大连通主体忽略飞点并检查紧裁切、截边、白/黑/彩色 matte、半透明白黑 halo、尺寸、角色宽高比与 SHA-256；登记后每次 ready 门禁都从当前像素重算。
 - [x] ChatGPT 默认生图路由：Codex Desktop 加载仓库内 `chatgpt-web-image-route` 与已安装 `codex-with-chatgpt`，只用内置 Browser 生成和下载原始 PNG；不把 C2C doctor、文字回复、页面预览、截图、Canvas、剪贴板或远程 URL 当成图像证据。
@@ -56,7 +57,7 @@
 - [x] 确定性 RGBA 生产链：默认先要求 provider-original 真透明 PNG，以 `prepare_micro_cutout.py --require-native-alpha` 验真、规范化、紧裁切并生成 create-once RGBA8 derivative；RGB、全不透明 RGBA 或伪透明直接失败且不暗中去背景。仅在该严格门禁失败后允许一次受控单色 key 重生成并以 `--key-color` 分离。两条路线都绑定 raw/prompt/provider/处理器/配置/报告/输出 SHA；背景不均、主体碰边或复杂透明材质时 fail-and-stop，不强抠任意照片。
 - [x] Alpha 对抗样本：新像素门禁拒绝彩色/key halo、全画布 low-Alpha 残留、未声明脱离碎片和纹理化底板，且只允许 Ardot/transport 引用已验证 derivative SHA。
 - [x] compact-editorial：除字号、行高、字距、段距外，新增 24–40 px `major_gap_px` 门槛，并继续约束内容占用率和最大无意空洞。
-- [x] Ardot 证据：visual review v3 要求本地 390 px node export、文件哈希、真实像素尺寸、导出时间、article root 绑定和 density-to-screenshot 哈希绑定；并用完整 instance inventory 与哈希化 node-property exports 计算微组件宽度、错落、文字包框和字号层级。
+- [x] Ardot 证据：visual review v3 要求当前 revision 的完整 article node census、本地 390 px node exports 和 host export trace receipt，从 census 重算密度、对比度、全篇框体比例/连续框体、错落区段数和艺术字实际节点。主观 checks 必须绑定当前 node/截图 SHA 和有身份的人工复核者；数字或 `pass` 字符串不能自报通过。作者层 receipt 明确是 `current-session-host-trace` 且 `host_enforced: false`；可携带签名的强保证由 runtime/delivery 门禁升级。
 - [x] 测试隔离：测试完全使用运行时生成的组织包、文章、RGBA 微组件和 390 px 截图，不读取任何历史推文设计。
 - [x] 跨公众号迁移：新增独立迁移说明，明确哪些语义可以迁移、哪些视觉必须重建以及组织包通过门槛。
 - [x] 表现型字体：组织校准先批准策略与原生处理；单篇限定 2–4 个语义时刻，必须绑定正文、授权/系统字体、标准回退与唯一 Ardot 文本 node/style；禁止 AI 字图和扁平标题。

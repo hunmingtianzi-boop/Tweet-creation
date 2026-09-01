@@ -1,0 +1,185 @@
+{
+  "schema_version": 1,
+  "kind": "org-wechat-non-mcp-dependency-contract",
+  "truth_boundary": "inventory-and-installation-guidance-only; current host registry and live probes remain required",
+  "dependencies": [
+    {
+      "id": "python-locked-runtime",
+      "kind": "runtime",
+      "required_for": ["migration", "bootstrap", "authoring", "delivery", "full"],
+      "detection": "scripts/secure_runner.py --platform-audit",
+      "installation": "Install a Python version listed in runtime/python-dependency-lock.json or generate a review-only candidate; never self-promote a candidate into the release lock."
+    },
+    {
+      "id": "host-registry-census-initialization",
+      "kind": "host-registry-or-current-session-intent",
+      "required_for": ["migration", "bootstrap", "authoring", "delivery", "full"],
+      "detection": "registry_assurance reports either current-session-model-visible-intent or an adapter-declared host.registry.export trace",
+      "installation": "Codex Desktop uses init-current-session-census with only the actual model-visible identifier set plus a verified installed release; it remains non-attested and requires later live probes. A higher-assurance harness must expose host.registry.export and generate the export itself. Operators must never handwrite loaded/available, provider/session, installed paths, or a synthetic host export."
+    },
+    {
+      "id": "node",
+      "kind": "binary",
+      "minimum_version": "20.0.0",
+      "required_for": ["migration", "authoring", "full"],
+      "detection": "node --version",
+      "installation": "Install Node.js 20 or newer through the host package manager."
+    },
+    {
+      "id": "codex-image-generation-tool",
+      "kind": "host-tool",
+      "required_for": ["migration", "authoring", "full"],
+      "detection": "image.generate.opaque route resolves to image_gen__imagegen in the current registry census",
+      "installation": "Enable a host image-generation callable and map its actual provider/session through the selected adapter. It may not be relabelled as an RGBA provider unless that route passes the independent Alpha contract."
+    },
+    {
+      "id": "codex-image-inspection-tool",
+      "kind": "host-tool",
+      "required_for": ["migration", "authoring", "delivery", "full"],
+      "detection": "image.inspect route resolves to view_image or an equivalent adapter-declared callable in the current registry census",
+      "installation": "Enable a current-session image inspection callable; schema discovery alone is not an image read."
+    },
+    {
+      "id": "cloudflared",
+      "kind": "binary",
+      "required_for": ["migration", "authoring", "full"],
+      "conditional_on": "codex-with-chatgpt tunnel mode",
+      "detection": "cloudflared --version",
+      "installation": "macOS: brew install cloudflared; Windows: winget install Cloudflare.cloudflared."
+    },
+    {
+      "id": "codex-with-chatgpt",
+      "kind": "installed-skill-and-checkout",
+      "required_for": ["migration", "authoring", "full"],
+      "detection": "host Skill registry plus c2c session/tunnel status for the exact workspace root",
+      "installation": "Install the codex-with-chatgpt Skill and its built checkout, then bind a connector/Project to the exact current worktree."
+    },
+    {
+      "id": "browser-control-in-app-browser",
+      "kind": "installed-skill",
+      "required_for": ["migration", "authoring", "full"],
+      "optional_for": ["bootstrap", "delivery"],
+      "detection": "host Skill registry and Browser runtime bootstrap",
+      "installation": "Install/enable the built-in Browser skill and expose its complete runtime, not a generic JavaScript executor."
+    },
+    {
+      "id": "browser-javascript-runtime",
+      "kind": "host-tool",
+      "required_for": ["migration", "authoring", "full"],
+      "optional_for": ["bootstrap", "delivery"],
+      "conditional_on": "selected Browser or Computer Use adapter route",
+      "detection": "the complete adapter route contains mcp__node_repl__js in the same provider/session",
+      "installation": "Expose the reviewed Browser/Computer Use JavaScript runtime. A standalone shell or unrelated JavaScript executor does not satisfy this route."
+    },
+    {
+      "id": "computer-use",
+      "kind": "installed-skill",
+      "required_for": [],
+      "optional_for": ["bootstrap", "authoring", "delivery", "full"],
+      "detection": "host Skill registry and current app binding",
+      "installation": "Install/enable Computer Use only as the declared UI fallback; it is forbidden for the ChatGPT image route."
+    },
+    {
+      "id": "browser-download-ingestion",
+      "kind": "browser-trace-plus-local-create-once-processor",
+      "required_for": ["migration", "authoring", "full"],
+      "conditional_on": "chatgpt-web RGBA route",
+      "detection": "browser.download.ingest route plus scripts/ingest_browser_download.py in the verified release",
+      "installation": "Expose the Browser-observed absolute download path and current provider trace identifiers, then run the locked local create-once ingestion processor. This is current-session integrity, not signed browser-event attestation."
+    },
+    {
+      "id": "provider-acquisition-policy-hook",
+      "kind": "optional-trusted-harness-veto-callback",
+      "required_for": [],
+      "optional_for": ["authoring", "full"],
+      "conditional_on": "the harness wants an additional local policy veto for formal generated article assets",
+      "detection": "the image.provider.acquire.authority compatibility route resolves to a host policy hook and evaluates the exact census/migration/provider/request/ingestion/raw challenge",
+      "installation": "Optional only. The callback may veto, but True never upgrades assurance and the callback is not host attestation. Current-session operation instead requires the complete migration, canonical request, create-once ingestion, exact raw bytes, and RGBA pixel chain."
+    },
+    {
+      "id": "provider-acquisition-portable-receipt-signer",
+      "kind": "host-callable-plus-protected-trust-store",
+      "required_for": [],
+      "optional_for": ["authoring", "full"],
+      "conditional_on": "the operator requires portable-signed provider assurance",
+      "detection": "a real host.receipt.attest route signs org-wechat-provider-image-host-receipt-v1 over the exact provider acquisition challenge, and the repository verifies it against a protected external Ed25519 trust store",
+      "installation": "Provide the signer and trust store outside repository control. A receipt file, JSON authorized field, migration report, Browser trace, or repository-created key cannot satisfy the host capability."
+    },
+    {
+      "id": "locked-local-asset-processors",
+      "kind": "local-entrypoints",
+      "required_for": ["migration", "authoring", "delivery", "full"],
+      "detection": "runtime/python-dependency-lock.json importable census and allowed_entrypoints match the current scripts directory",
+      "installation": "Use only the reviewed secure-runner entrypoints for download ingestion, cutout, inspection, watermark, Ardot handoff, transport validation, compilation and publishing. Do not install shadow copies on PYTHONPATH."
+    },
+    {
+      "id": "wechat-local-api-publisher",
+      "kind": "local-entrypoint-plus-runtime-credentials",
+      "required_for": [],
+      "optional_for": ["delivery", "full"],
+      "conditional_on": "targets.wechat.mode is api",
+      "detection": "registry census injects scripts/wechat_publisher.py as kind wechat.draft and the execution-time credential probe succeeds",
+      "installation": "Keep scripts/wechat_publisher.py in the verified lock. Resolve WECHAT_ACCESS_TOKEN and WECHAT_APP_ID only at execution; never put them in the registry intent/export, census, profile, report or URL. The CLI does not exchange AppSecret for an access token."
+    },
+    {
+      "id": "wechat-current-session-readback-capture",
+      "kind": "browser-or-computer-use-trace-plus-local-create-once-processor",
+      "required_for": [],
+      "optional_for": ["delivery", "full"],
+      "conditional_on": "targets.wechat.mode is api, terminal_state is draft, and portable signed readback is not selected",
+      "detection": "wechat.current-session-readback binds one complete Browser/Computer Use route and scripts/ingest_wechat_readback_capture.py in the same current host session",
+      "installation": "Open the exact API-saved draft, capture one actual 390px PNG per chapter, and run the locked create-once ingestor. The bundle is host_attested=false, portable=false, publication_authority=false and never satisfies freepublish authority."
+    },
+    {
+      "id": "wechat-current-session-publication-authority",
+      "kind": "host-callable",
+      "required_for": [],
+      "optional_for": ["delivery", "full"],
+      "conditional_on": "terminal_state is publish and the selected route is api without portable receipts",
+      "detection": "wechat.current-session-authority is independently present in the current registry census and later consumes a fresh confirmation plus authoritative account/draft readback",
+      "installation": "Provide an in-process host callable. scripts/wechat_publisher.py and wechat.draft alone never satisfy or imply this authority. Without it, keep terminal_state=draft, select a declared live UI route, or use portable signed receipts."
+    },
+    {
+      "id": "wechat-ui-session",
+      "kind": "host-session",
+      "required_for": [],
+      "optional_for": ["delivery", "full"],
+      "conditional_on": "targets.wechat.mode is ui",
+      "detection": "current Browser or Computer Use route opens the credential-free base URL and authoritatively reads the exact visible account",
+      "installation": "Enable one complete UI route. If a login or QR wall is actually visible, keep the page open for the user and re-probe the exact account in the same session after login."
+    },
+    {
+      "id": "watermark-secret-resolver",
+      "kind": "runtime-secret",
+      "required_for": [],
+      "optional_for": ["authoring", "delivery", "full"],
+      "conditional_on": "the complete artifact inventory contains one or more eligible watermark carriers",
+      "detection": "secret.resolve reports only valid/present booleans for PROVENANCE_WATERMARK_KEY and a writable non-symlink Git-external private root",
+      "installation": "Provision a random key of at least 32 bytes as hex: or base64: plus a Git-external private root. Do not require these secrets when a complete inventory has no eligible carriers."
+    },
+    {
+      "id": "source-zero-filesystem-lease",
+      "kind": "host-callable",
+      "required_for": [],
+      "optional_for": ["migration", "bootstrap", "authoring", "delivery", "full"],
+      "detection": "filesystem.access.lease capability in the current host registry",
+      "installation": "Optional high-assurance upgrade: the host enforces a deny-by-default allowlist for the current input, pack and runtime output and denies examples, other organizations, old outputs and old Ardot references. Without it, use only a verified source-zero installed release whose package excludes those trees."
+    },
+    {
+      "id": "migration-probe-finalizer",
+      "kind": "host-callable",
+      "required_for": [],
+      "optional_for": ["migration"],
+      "detection": "host.migration.finalize capability plus protected public trust store",
+      "installation": "Optional portable-signed upgrade: the host signs the bound probe receipt and enforces its one-time nonce in a host-owned replay ledger. Current-session operation must not claim this assurance."
+    },
+    {
+      "id": "delivery-receipt-attestor",
+      "kind": "host-callable",
+      "required_for": [],
+      "optional_for": ["delivery", "full"],
+      "detection": "host.receipt.attest capability plus protected public trust store",
+      "installation": "Optional portable-audit upgrade: keep the Ed25519 private key outside repository processes and sign fresh authoritative Ardot and WeChat readback bytes. Its absence does not block current-session draft work or a separately confirmed live publish."
+    }
+  ]
+}

@@ -14,14 +14,15 @@
 四个角色必须使用四枚不同的当前文章专属生成资产。先运行：
 
 ```bash
-python3 scripts/build_visual_kit.py article.json \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/build_visual_kit.py" article.json \
   --org organizations/<organization-id> \
   --output output/<organization-id>/<slug>/visual-kit-plan.json
 ```
 
-按提示逐张生图，运行 `python3 -I -S scripts/secure_runner.py scripts/inspect_asset.py FILE --role ROLE`，保存并注册。随后在 Ardot 创建四个原生 Ornament 组件，把 file/node/name 证据写入 `article.visual_kit.assets`。只有计划中的 `ready_for_layout` 为 `true`，才允许创建文章画板。
+按提示逐张生图，运行 `python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" "$ORG_WECHAT_RUNTIME_ROOT/scripts/inspect_asset.py" FILE --role ROLE`，保存并注册。随后在 Ardot 创建四个原生 Ornament 组件，把 file/node/name 证据写入 `article.visual_kit.assets`。只有计划中的 `ready_for_layout` 为 `true`，才允许创建文章画板。
 
-Codex Desktop 默认先加载 `skills/chatgpt-web-image-route/SKILL.md` 和 `codex-with-chatgpt`，只用内置 Browser 让 ChatGPT 首先生成真透明 provider-original PNG 并执行页面真实下载。原图不进 Ardot；首轮必须经安全运行的 `scripts/prepare_micro_cutout.py --require-native-alpha` 验真、规范化和紧裁切，只有严格 Alpha/像素门禁失败后才允许一次 `--key-color` 受控底兜底。`assets/derived/` 中的 RGBA8 成品和完整派生报告通过后再检查、注册和组件化。本地 ImageGen、C2C doctor、页面预览、截图或仅切换为 RGBA mode 都不证明透明资产成立。
+Codex Desktop 默认先加载同一发布的顶层 sibling `$SKILLS_ROOT/chatgpt-web-image-route/SKILL.md` 和 `codex-with-chatgpt`，只用内置 Browser 让 ChatGPT 首先生成真透明 provider-original PNG 并执行页面真实下载。原图不进 Ardot；首轮必须经安全运行的 `$ORG_WECHAT_RUNTIME_ROOT/scripts/prepare_micro_cutout.py --require-native-alpha` 验真、规范化和紧裁切，只有严格 Alpha/像素门禁失败后才允许一次 `--key-color` 受控底兜底。`assets/derived/` 中的 RGBA8 成品和完整派生报告通过后再检查、注册和组件化。本地 ImageGen、C2C doctor、页面预览、截图或仅切换为 RGBA mode 都不证明透明资产成立。
 
 如果没有图像生成能力，停在这一步。不要用色块、边框或卡片代替缺失的小插图。
 

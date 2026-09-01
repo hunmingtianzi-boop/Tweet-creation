@@ -76,7 +76,8 @@ If a native micro component carries copy, emphasize the primary phrase with scal
 Build and approve the article-specific visual kit before the Ardot manifest and native component gallery:
 
 ```bash
-python3 scripts/build_visual_kit.py article.json \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/build_visual_kit.py" article.json \
   --org organizations/ORG_ID \
   --output output/ORG_ID/article/visual-kit-plan.json
 ```
@@ -84,7 +85,8 @@ python3 scripts/build_visual_kit.py article.json \
 Only after `ready_for_layout: true`:
 
 ```bash
-python3 scripts/build_ardot_manifest.py article.json \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/build_ardot_manifest.py" article.json \
   --org organizations/ORG_ID \
   --output output/ORG_ID/article/ardot-manifest.json
 ```

@@ -260,8 +260,15 @@ class WorkflowAttributionHandoffTests(unittest.TestCase):
 
     def test_cli_exit_codes_match_gate(self) -> None:
         handoff_path = self.make_fixture()
+        command = [
+            sys.executable,
+            "-I",
+            "-S",
+            str(SCRIPTS / "secure_runner.py"),
+            "scripts/validate_workflow_attribution.py",
+        ]
         good = subprocess.run(
-            [sys.executable, str(SCRIPTS / "validate_workflow_attribution.py"), str(handoff_path)],
+            [*command, str(handoff_path)],
             cwd=ROOT,
             capture_output=True,
             text=True,
@@ -272,13 +279,49 @@ class WorkflowAttributionHandoffTests(unittest.TestCase):
         broken["schema_version"] = 3
         write_json(handoff_path, broken)
         bad = subprocess.run(
-            [sys.executable, str(SCRIPTS / "validate_workflow_attribution.py"), str(handoff_path)],
+            [*command, str(handoff_path)],
             cwd=ROOT,
             capture_output=True,
             text=True,
             check=False,
         )
         self.assertEqual(bad.returncode, 1, bad.stderr + bad.stdout)
+
+    def test_cli_report_is_create_once_and_rejects_symlink_ancestors(self) -> None:
+        handoff_path = self.make_fixture()
+        command = [
+            sys.executable,
+            "-I",
+            "-S",
+            str(SCRIPTS / "secure_runner.py"),
+            "scripts/validate_workflow_attribution.py",
+            str(handoff_path),
+        ]
+        existing = handoff_path.parent / "existing-attribution-report.json"
+        existing.write_text("sentinel", encoding="utf-8")
+        refused = subprocess.run(
+            [*command, "--report", str(existing)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(refused.returncode, 2, refused.stdout + refused.stderr)
+        self.assertEqual(existing.read_text(encoding="utf-8"), "sentinel")
+
+        real = handoff_path.parent / "real-evidence-root"
+        real.mkdir()
+        alias = handoff_path.parent / "evidence-root-alias"
+        alias.symlink_to(real, target_is_directory=True)
+        refused = subprocess.run(
+            [*command, "--report", str(alias / "report.json")],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(refused.returncode, 2, refused.stdout + refused.stderr)
+        self.assertFalse((real / "report.json").exists())
 
 
 if __name__ == "__main__":

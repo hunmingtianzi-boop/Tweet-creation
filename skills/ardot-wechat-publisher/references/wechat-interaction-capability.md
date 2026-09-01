@@ -2,6 +2,9 @@
 
 Use this reference whenever the reviewed Ardot article contains a non-static component. The fixed workflow capability is the generation, probing, verification, and deterministic fallback of a narrow pure-SVG/CSS subset. It is not a claim that every WeChat account and client will run every SVG animation.
 
+Before running a command, resolve the single same-release runtime and external
+artifact root through [runtime-location.md](runtime-location.md).
+
 ## Fixed policy
 
 Policy ID: `wechat-svg-smil-self-v1`.
@@ -39,7 +42,8 @@ Record distinct Ardot node IDs, screenshots, and hashes for these states. Each t
 Run the repository validator before transmitting a dynamic candidate:
 
 ```bash
-python3 scripts/wechat_interaction_policy.py candidate.html \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/wechat_interaction_policy.py" candidate.html \
   --fallback fallback.html \
   --output interaction-policy-report.json
 ```
@@ -50,8 +54,26 @@ An `ok: true`, `status: candidate` result means the source and fallback satisfy 
 
 Upload body images first, compile SVG image references to the returned WeChat URLs, save the candidate to one draft, and immediately retrieve the saved body. Re-run:
 
+The first ordinary session compile intentionally selects static when no mobile profile exists. After saving that baseline, bootstrap sanitizer/mobile evidence by compiling a separate, fresh-live-root probe:
+
 ```bash
-python3 scripts/wechat_interaction_policy.py candidate.html \
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/compile_wechat.py" \
+  --transport-fidelity HANDOFF_JSON --live-root-export PROBE_LIVE_ROOT_JSON \
+  --upload-map DELIVERY/upload-map.json --session-draft --interaction-probe \
+  --output DELIVERY/interaction-probe --check
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/wechat_publisher.py" \
+  --store DELIVERY/publisher.sqlite3 save-draft HANDOFF_JSON \
+  DELIVERY/interaction-probe/candidate-report.json \
+  --target-account appid:EXACT_APPID
+```
+
+`current-session-interaction-probe` can only update the already mapped draft. It cannot create a draft, satisfy publication preflight, or be published. Reopen it through the active host callback, capture the real saved body and iOS/Android evidence, then compile a normal `current-session-draft` with the bound readback/profile/host trace. Update and reopen the same draft once more before considering dynamic delivery.
+
+```bash
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/wechat_interaction_policy.py" candidate.html \
   --fallback fallback.html \
   --readback saved-draft-body.html \
   --mobile-profile account-capability.json \
@@ -75,13 +97,18 @@ Dynamic delivery additionally requires an unexpired account-specific profile. Ke
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
+  "source": "wechat-host-mobile-compatibility-profile-v2",
+  "signature_algorithm": null,
+  "assurance_scope": "current-session-live",
+  "key_id": null,
+  "nonce": "32-to-64-lowercase-hex",
   "policy_version": "wechat-svg-smil-self-v1",
   "status": "passed",
   "target_account_id": "...",
   "draft_id": "...",
-  "probe_sha256": "64 hex",
-  "readback_sha256": "64 hex",
+  "probe_sha256": "sha256:exact-candidate-bytes",
+  "readback_sha256": "sha256:exact-saved-draft-body-bytes",
   "verified_at": "RFC3339",
   "valid_until": "RFC3339",
   "clients": [
@@ -89,17 +116,34 @@ Dynamic delivery additionally requires an unexpired account-specific profile. Ke
       "platform": "ios",
       "wechat_version": "...",
       "result": "passed",
-      "preview_evidence": "..."
+      "preview_evidence": {
+        "path": "ios-preview.png",
+        "sha256": "sha256:...",
+        "byte_length": 123,
+        "captured_at": "RFC3339 with timezone",
+        "device_session_id": "actual-ios-preview-session"
+      }
     },
     {
       "platform": "android",
       "wechat_version": "...",
       "result": "passed",
-      "preview_evidence": "..."
+      "preview_evidence": {
+        "path": "android-preview.png",
+        "sha256": "sha256:...",
+        "byte_length": 123,
+        "captured_at": "RFC3339 with timezone",
+        "device_session_id": "actual-android-preview-session"
+      }
     }
-  ]
+  ],
+  "host_session_id": "current-host-session",
+  "host_trace_sha256": "sha256:current-host-trace",
+  "signature": null
 }
 ```
+
+For `current-session-live`, the standalone validator can check the profile's structure, exact candidate/readback hashes, target account/draft, real PNG bytes, freshness and distinct iOS/Android device sessions, but it intentionally exposes no CLI switch that turns those serialized files into live authority. Dynamic selection additionally requires an isolated trusted embedding harness to pass a fresh in-process `CurrentSessionMobileAuthority.authorize_mobile_evidence` response bound to every profile, account, draft, candidate, readback, host-session, device-session and evidence hash. A hand-written trace/profile, command-line Boolean, or ordinary repository Python object is not independent evidence and cannot unlock dynamic output in the standalone process. For `portable-signed`, the same exact client evidence is Ed25519-signed by the host trust root, `signature_algorithm/key_id/signature` are populated, and current-session host fields remain signed facts. Without either the isolated harness callback or portable signature, select static.
 
 Invalidate or re-probe when the policy version, target account, sanitizer behavior, or relevant WeChat client behavior changes. A `pending`, failed, expired, mismatched, or incomplete profile must select the static fallback and update the same draft rather than creating a duplicate.
 
