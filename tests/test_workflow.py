@@ -254,6 +254,7 @@ def write_acquisition_report(
                     "attempt_index": 1,
                     "mode": "native-alpha",
                     "outcome": "accepted",
+                    "prompt_sha256": prompt_sha256,
                     "provider_request_id": request_id,
                     "observed_download_id": download_id,
                     "request_metadata_sha256": metadata_sha,
@@ -2499,6 +2500,17 @@ class VisualKitTests(FreshWorkflowTestCase):
         )
         for slot in plan["slots"]:
             source = slot["source_generation"]
+            self.assertRegex(slot["prompt_sha256"], r"^sha256:[0-9a-f]{64}$")
+            self.assertRegex(
+                slot["fallback_prompt_sha256"], r"^sha256:[0-9a-f]{64}$"
+            )
+            self.assertNotEqual(
+                slot["prompt_sha256"], slot["fallback_prompt_sha256"]
+            )
+            self.assertEqual(
+                [item["prompt_sha256"] for item in source["attempt_prompts"]],
+                [slot["prompt_sha256"], slot["fallback_prompt_sha256"]],
+            )
             self.assertEqual(slot["asset_slot_id"], f"kit.{slot['role']}")
             self.assertEqual(source["route"], "chatgpt-web-image-route-v1")
             self.assertEqual(source["preferred_mode"], "native-alpha")

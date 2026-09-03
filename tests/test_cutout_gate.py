@@ -144,6 +144,30 @@ class CutoutGateTests(unittest.TestCase):
         self.assertIn("micro.asset.low_alpha_background_plane", report["error_codes"])
         self.assertIn("micro.asset.alpha_residue_touches_canvas_edge", report["error_codes"])
 
+    def test_baked_checkerboards_never_count_as_transparency(self) -> None:
+        for mode in ("RGB", "RGBA"):
+            image = Image.new(mode, (320, 320))
+            pixels = image.load()
+            for y in range(320):
+                for x in range(320):
+                    shade = 225 if ((x // 20) + (y // 20)) % 2 else 250
+                    pixels[x, y] = (
+                        (shade, shade, shade)
+                        if mode == "RGB"
+                        else (shade, shade, shade, 255)
+                    )
+            report = validate_micro_asset(
+                self._save(f"checkerboard-{mode.lower()}.png", image),
+                "floating-spot",
+            )
+            self.assertFalse(report["ok"], mode)
+            expected = (
+                "micro.asset.missing_alpha_channel"
+                if mode == "RGB"
+                else "micro.asset.no_transparent_pixels"
+            )
+            self.assertIn(expected, report["error_codes"])
+
     def test_detached_substantial_debris_fails_but_small_open_marks_remain_allowed(self) -> None:
         image = Image.new("RGBA", (320, 320), (0, 0, 0, 0))
         pixels = image.load()

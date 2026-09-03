@@ -33,6 +33,7 @@ import provider_acquisition_authority as authority_module  # noqa: E402
 
 
 PROMPT_SHA = "sha256:" + "a" * 64
+NATIVE_FALLBACK_SOURCE_PROMPT_SHA = "sha256:" + "b" * 64
 ROUTE = "chatgpt-web-image-route-v1"
 KEY = (255, 0, 255)
 ARTICLE_ID = "current-article"
@@ -79,6 +80,17 @@ def write_native_rgba(path: Path) -> None:
     draw.ellipse((48, 42, 304, 318), fill=(42, 126, 184, 255))
     draw.ellipse((154, 106, 330, 284), fill=(228, 132, 52, 255))
     draw.polygon(((82, 94), (24, 158), (116, 176)), fill=(54, 154, 112, 255))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image.save(path)
+
+
+def write_native_rgba_with_edge_residue(path: Path) -> None:
+    image = Image.new("RGBA", (360, 360), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    draw.ellipse((48, 42, 304, 318), fill=(42, 126, 184, 255))
+    # Alpha below the substantive geometry threshold used to be cropped away
+    # before the final gate.  The original-canvas gate must reject it first.
+    draw.rectangle((0, 0, 359, 359), outline=(250, 250, 250, 8), width=1)
     path.parent.mkdir(parents=True, exist_ok=True)
     image.save(path)
 
@@ -224,7 +236,7 @@ class PrepareMicroCutoutTests(unittest.TestCase):
         attempts = []
         if mode == "controlled-key":
             rejected_download = provider_root / f"{source.stem}-native.png"
-            rejected_download.write_bytes(b"\x89PNG\r\n\x1a\nrejected-native" + source.stem.encode())
+            Image.new("RGB", (512, 512), (246, 246, 246)).save(rejected_download)
             rejected_target = source.with_name(source.stem + "-native-rejected.png")
             rejected_ingestion = source.with_name(source.stem + "-native-ingestion.json")
             rejected_metadata = article_request_metadata(
@@ -235,7 +247,7 @@ class PrepareMicroCutoutTests(unittest.TestCase):
                 attempt_index=1,
                 acquisition_mode="native-alpha",
                 generation_route_id=ROUTE,
-                prompt_sha256=PROMPT_SHA,
+                prompt_sha256=NATIVE_FALLBACK_SOURCE_PROMPT_SHA,
             )
             rejected_metadata_sha = "sha256:" + hashlib.sha256(
                 json.dumps(rejected_metadata, sort_keys=True, separators=(",", ":")).encode()
@@ -258,6 +270,7 @@ class PrepareMicroCutoutTests(unittest.TestCase):
                     "mode": "native-alpha",
                     "outcome": "rejected",
                     "failure_code": "cutout.source.native_alpha_required",
+                    "prompt_sha256": NATIVE_FALLBACK_SOURCE_PROMPT_SHA,
                     "provider_request_id": f"{source.stem}-native-request",
                     "observed_download_id": f"download-{source.stem}-native",
                     "request_metadata_sha256": rejected_metadata_sha,
@@ -306,6 +319,7 @@ class PrepareMicroCutoutTests(unittest.TestCase):
                 "attempt_index": accepted_index,
                 "mode": mode,
                 "outcome": "accepted",
+                "prompt_sha256": PROMPT_SHA,
                 "provider_request_id": accepted_request_id,
                 "observed_download_id": accepted_download_id,
                 "request_metadata_sha256": accepted_metadata_sha,
@@ -429,6 +443,28 @@ class PrepareMicroCutoutTests(unittest.TestCase):
         self.assertTrue(result["background_assessment"]["native_alpha_accepted"])
         self.assertTrue(validate_micro_asset(output, "floating-spot")["ok"])
 
+    def test_native_source_edge_residue_is_rejected_before_crop(self) -> None:
+        source, output, report = self._paths("native-edge-residue")
+        write_native_rgba_with_edge_residue(source)
+        with self.assertRaises(CutoutPreparationError) as failure:
+            prepare_micro_cutout(
+                source,
+                output,
+                report,
+                role="floating-spot",
+                article_id=ARTICLE_ID,
+                asset_slot_id=ASSET_SLOT_ID,
+                prompt_sha256=PROMPT_SHA,
+                generation_route=ROUTE,
+                acquisition_report_path=self._acquisition(source, mode="native-alpha"),
+                require_native_alpha=True,
+            )
+
+        self.assertEqual(failure.exception.code, "cutout.source.invalid_native_rgba")
+        self.assertIn("non-zero Alpha residue", str(failure.exception))
+        self.assertFalse(output.exists())
+        self.assertFalse(report.exists())
+
     def test_native_alpha_attempt_rejects_opaque_source_without_keying(self) -> None:
         source, output, report = self._paths("native-required-opaque")
         write_controlled_source(source)
@@ -536,6 +572,35 @@ class PrepareMicroCutoutTests(unittest.TestCase):
         self.assertIn("newly generated source", str(failure.exception))
         self.assertFalse(output.exists())
         self.assertFalse(report.exists())
+
+    def test_controlled_key_fallback_recomputes_first_raw_pixel_failure(self) -> None:
+        source, output, report = self._paths("forged-native-failure-code")
+        write_controlled_source(source)
+        acquisition = self._acquisition(source, mode="controlled-key")
+        payload = json.loads(acquisition.read_text(encoding="utf-8"))
+        self.assertNotEqual(
+            payload["attempts"][0]["prompt_sha256"],
+            payload["attempts"][1]["prompt_sha256"],
+        )
+        payload["attempts"][0]["failure_code"] = "cutout.source.invalid_native_rgba"
+        acquisition.write_text(json.dumps(payload), encoding="utf-8")
+
+        with self.assertRaises(CutoutPreparationError) as failure:
+            prepare_micro_cutout(
+                source,
+                output,
+                report,
+                role="floating-spot",
+                article_id=ARTICLE_ID,
+                asset_slot_id=ASSET_SLOT_ID,
+                prompt_sha256=PROMPT_SHA,
+                generation_route=ROUTE,
+                acquisition_report_path=acquisition,
+                key_color="#FF00FF",
+            )
+
+        self.assertEqual(failure.exception.code, "cutout.acquisition.invalid")
+        self.assertIn("recomputed raw-pixel failure", str(failure.exception))
 
     def test_acquisition_timestamps_require_timezone_freshness_and_order(self) -> None:
         cases = ("naive", "future", "stale", "out-of-order")

@@ -53,6 +53,16 @@ The `-I -S` secure runner is mandatory for preflight, transport validation/compi
 
 Stop unless `ok` and `binding_ready` are both true. `phase_ready: false` is expected because the local validator cannot authenticate its own profile. Execute `host_setup_actions` immediately: prepare the selected Ardot route (MCP connect/OAuth or the declared UI fallback), open/read the exact reviewed Ardot root, keep image inspection blocking, and prepare the selected WeChat route before compiling or uploading anything. The API route authorizes its publisher provider; only the UI route opens the credential-free WeChat base and requests QR login. Ardot MCP OAuth and web login are separate; if a login/authorization page appears, leave the safe page open, tell the user which login is needed, wait, and then re-probe without persisting the token-bearing redirect URL. Continue only after the current host tool trace shows: repository publisher Skill path/hash loaded; current Ardot file and exact article root read successfully; write/export callables present in the same provider/session; target WeChat account matched with draft read/write access. Do not reuse an authoring/startup report, trust a self-reported profile, or treat a Browser/Computer Use listing as a successful login probe. This preflight is read-only and does not authorize draft creation or publication.
 
+Keep four Ardot facts separate: local MCP configuration, current-task tool
+injection, same-session OAuth/exact-root read access, and the outcome of each
+remote mutation. `codex mcp list/get` proves only the first. If the route is
+configured but the current task lacks the required tool IDs, reload/open a new
+Codex task; this repository cannot hot-inject them. For a non-idempotent
+`create_design`, bind a unique nonce/title before calling. Timeout, 5xx, or a
+truncated response means `create-unknown`: never retry blindly. Reconcile via
+read-only discovery or the user's Ardot UI first and create again only after
+absence is established.
+
 Treat `wechat.draft` and `wechat.current_session.publish.authority` as separate capabilities. The local publisher entrypoint may prove draft API availability, but it must never be promoted into a live publication authority. If the census/profile does not expose the latter as a real host callable, report that API draft work is available while file-only current-session API publication is unavailable; the formal alternatives are portable signed publication or an explicitly declared live UI route.
 
 `host.receipt.attest` is an optional portable-assurance upgrade, not a prerequisite for draft creation. If the current harness exposes it, select `portable-signed-audit`. Without it, `current-session-live` draft creation/readback remains available and must report `portable_audit_verified=false`. The checked-in Codex adapter exposes the separate `wechat.current-session-readback` Browser capture route, and the standalone publisher accepts its create-once bundle through `--capture-bundle`; neither is publication authority. API publication is narrower: the `CurrentSessionHostAuthority` object is only a non-cryptographic trusted-harness policy hook, valid only in an isolated embedding harness that does not execute model-controlled Python inside the hook's trust boundary. The checked-in Codex adapter does not expose that publication hook and the standalone CLI injects `None`; use the separately declared UI live route after fresh confirmation, or a portable signed API route. Group send remains a separate action and confirmation.
@@ -108,6 +118,22 @@ python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
 ### 2. Preflight the target account and upload exact assets
 
 - Show and bind the exact target account before any mutation. The official API preflight must successfully read both `draft/count` and `material/get_materialcount`; it must not infer upload, draft-write, or free-publish permission from a generic token call.
+- Run the repository-local read-only preflight before `prepare-uploads`; a
+  same-named MCP connector is not required for this API client:
+
+```bash
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/wechat_publisher.py" \
+  --store DELIVERY/publisher.sqlite3 preflight-account \
+  --target-account appid:EXACT_APPID \
+  --output DELIVERY/account-preflight.json
+```
+
+  The output is create-once, redacted, calls only the two read endpoints, and
+  records `mutations_attempted: 0`. It distinguishes missing credentials,
+  account mismatch, API reachability, and read permission from the separate UI
+  readback route. Passing it still proves no upload, draft write, or publication
+  authority.
 - Retrieve secrets from the configured secret boundary. Never place AppSecret, access tokens, authorization redirects, watermark detector keys, or raw watermark IDs in the handoff, logs, organization pack, or Git.
 - The local API publisher consumes `WECHAT_ACCESS_TOKEN` plus `WECHAT_APP_ID` at execution. It does not implement AppSecret-to-token exchange; a separate secret/token provider must perform that step without writing credentials into any workflow artifact.
 - Upload every body raster with `media/uploadimg`. Accept only matching PNG/JPEG extension, MIME, magic bytes, valid pixels, and strictly less than 1 MB. Record the returned `mmbiz.qpic.cn` URL against the exact frozen source SHA.

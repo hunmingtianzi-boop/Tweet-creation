@@ -5,13 +5,20 @@
 - 已验证 installed release 的 registry census；
 - census 所选 adapter 的当前字节与 `generation_route_id`；
 - 同 provider session 的完整 migration result；
-- 每次 native/fallback attempt 的 canonical request metadata；
+- 每次 native/fallback attempt 自己的 `prompt_sha256` 与 canonical request metadata；
 - Browser 返回路径经 `ingest_browser_download.py` 生成的 create-once report；
 - ingestion target 的当前 raw SHA-256/byte length，以及后续 RGBA8/Alpha/边缘/紧裁验收。
 
 四类正式微组件还有文章级唯一性门禁：slot 必须是 `kit.<role>`，四个 accepted raw SHA、provider request ID、acquisition binding 与 derivative SHA 必须各自四向唯一。同一原图不能靠复制、换路径或多次裁切充当四类组件。
 
 旧 v1、任意 route 名、复制的 host trace，或 JSON 里自写的 `passed` / `authorized` / `callback` 字段一律拒绝。
+
+顶层 `prompt_sha256` 和派生报告必须等于最终 accepted attempt 的 prompt SHA。
+native 与 controlled-key 文案不同，因此两次 attempt 的 SHA 必须不同。
+受控键色不信任 ledger 自写的 `failure_code`：验证器会重新打开第一次
+create-once ingestion 绑定的 raw 字节，重算它确实是允许的原生 Alpha/
+像素失败。无法解码的文件、下载中断或 Browser 超时属于采集故障，
+不是像素失败，不能解锁 fallback。
 
 ## 当前会话：`current-session-operator-harness-trusted`
 

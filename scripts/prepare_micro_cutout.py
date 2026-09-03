@@ -253,6 +253,8 @@ def validate_acquisition_report(
             )
         if not SHA256.fullmatch(str(attempt.get("source_file_sha256", ""))):
             errors.append(f"acquisition attempt {index} requires source_file_sha256")
+        if not SHA256.fullmatch(str(attempt.get("prompt_sha256", ""))):
+            errors.append(f"acquisition attempt {index} requires its own prompt_sha256")
         if attempt.get("outcome") == "accepted":
             accepted = attempt
 
@@ -291,6 +293,10 @@ def validate_acquisition_report(
                 )
     if accepted is None or accepted.get("source_file_sha256") != current_source_sha:
         errors.append("accepted acquisition attempt does not bind the current original PNG bytes")
+    if accepted is not None and accepted.get("prompt_sha256") != prompt_sha256:
+        errors.append(
+            "cutout prompt_sha256 must equal the accepted acquisition attempt prompt"
+        )
     authority = validate_provider_acquisition_bundle(
         candidate,
         source_path,
@@ -741,34 +747,9 @@ def _validate_final_png(png: bytes, role: str, parent: Path) -> dict[str, Any]:
 def _validate_native_source_safety(source: Path) -> dict[str, Any]:
     """Reject unsafe Alpha before crop without applying final role geometry yet."""
 
-    from asset_quality import inspect_png
+    from asset_quality import validate_native_rgba_source
 
-    inspection = inspect_png(source)
-    errors: list[str] = []
-    if inspection.get("bit_depth") != 8 or inspection.get("color_type") != 6:
-        errors.append("native source must be an RGBA8 PNG")
-    transparent_ratio = inspection.get("transparent_pixel_ratio")
-    if not isinstance(transparent_ratio, float) or not 0.01 <= transparent_ratio <= 0.98:
-        errors.append("native source needs substantive transparent and visible pixels")
-    if inspection.get("alpha_touches_canvas_edge") is True:
-        errors.append("native Alpha subject touches the canvas edge")
-    largest = inspection.get("alpha_largest_component_ratio")
-    if not isinstance(largest, float) or largest < 0.80:
-        errors.append("native Alpha contains detached substantive debris")
-    low_alpha_canvas = inspection.get("alpha_low_nonzero_bbox_canvas_fill_ratio")
-    low_alpha_ratio = inspection.get("alpha_low_nonzero_substantive_ratio")
-    if (
-        isinstance(low_alpha_canvas, float)
-        and isinstance(low_alpha_ratio, float)
-        and low_alpha_canvas >= 0.70
-        and low_alpha_ratio >= 0.04
-    ):
-        errors.append("native Alpha contains canvas-scale low-alpha haze")
-    if inspection.get("alpha_near_white_halo_ratio", 0) > 0.10:
-        errors.append("native Alpha contains a white edge halo")
-    if inspection.get("alpha_near_black_halo_ratio", 0) > 0.10:
-        errors.append("native Alpha contains a black edge halo")
-    return {"ok": not errors, "errors": errors, "inspection": inspection}
+    return validate_native_rgba_source(source)
 
 
 def _prepare_micro_cutout(

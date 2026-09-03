@@ -426,6 +426,33 @@ class WeChatPublisherTests(unittest.TestCase):
         with self.assertRaisesRegex(WeChatAPIError, "did not prove"):
             provider.account_preflight("appid:appid12")
 
+    def test_standalone_account_preflight_is_read_only_and_create_once(self) -> None:
+        provider = FakeProvider()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            store = PublisherStore(root / "publisher.sqlite3")
+            self.addCleanup(store.close)
+            publisher = WeChatPublisher(provider, store)
+            output = root / "account-preflight.json"
+            result = publisher.preflight_account(
+                target_account_ref="test-visible-account",
+                output_path=output,
+            )
+            self.assertEqual(result["mutations_attempted"], 0)
+            self.assertEqual(
+                result["provider_calls"],
+                ["draft/count", "material/get_materialcount"],
+            )
+            self.assertTrue(output.is_file())
+            self.assertEqual(provider.uploadimg_calls, 0)
+            self.assertEqual(provider.material_calls, 0)
+            self.assertEqual(provider.draft_add_calls, 0)
+            with self.assertRaisesRegex(ValueError, "already exists"):
+                publisher.preflight_account(
+                    target_account_ref="test-visible-account",
+                    output_path=output,
+                )
+
     def test_programmatic_publisher_requires_locked_runtime(self) -> None:
         self.secure_runtime.stop()
         try:

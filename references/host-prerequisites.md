@@ -28,6 +28,12 @@ ChatGPT 在这里是由 Codex 调用的规划、审阅和透明图来源，不�
 
 Computer Use 只能作为声明过的 Ardot/微信 UI fallback。ChatGPT 生成与 C2C 配置只能使用 Codex 内置 Browser，禁止用 Computer Use、Chrome、Safari、截图或剪贴板代替。
 
+Ardot 必须分开记录四层状态：本机 MCP 配置存在、当前任务已注入必需
+tool IDs、同会话 OAuth/精确 file/root 可读、本次远程操作有确定返回。
+前一层不能推导后一层。`codex mcp list/get` 只是本机配置证据；即使显示
+OAuth，当前任务没有 `mcp__ardot_remote__*` 时也只能重载/新开任务，
+仓库无法热注入。
+
 ## 第一次拉取的顺序
 
 1. 在 **Codex Desktop** 中把这个 clone 打开为本地任务；不要先把材料交给另一个 LLM 执行。
@@ -50,7 +56,14 @@ Computer Use 只能作为声明过的 Ardot/微信 UI fallback。ChatGPT 生成�
      --phase full
    ```
 
-   可把 `full` 换成 `migration`、`bootstrap`、`authoring` 或 `delivery`。只有 `local_prerequisites_ready: true` 才说明本地文件、版本和二进制已配齐；该命令永远不会把本地文件当成登录证明，因此 `live_session_ready` 与 `ready_to_read_source_material` 固定为 false。
+   可把 `full` 换成 `migration`、`bootstrap`、`authoring` 或 `delivery`。命令会真实
+   执行锁定 Python 分发文件审计，并以脱敏方式检查 Ardot 本机配置。
+   当当前模型注册表可见时，对每个实际可见的 ID 重复加
+   `--visible-tool-id ID`。若返回 `current_task_reload_required: true`，立即重载/
+   新开 Codex 任务并重跑，不要在旧任务继续试调。只有
+   `local_prerequisites_ready: true` 才说明本地文件、版本和锁定依赖字节已配齐；
+   该命令仍不会把配置当成登录/权限证明，因此 `live_session_ready` 与
+   `ready_to_read_source_material` 固定为 false。
 6. 由当前 Codex 会话运行 `runtime_preflight.py`，闭合报告中的 `host_setup_actions` 和 live probes。只有这一步可以确认当前 registry、页面登录、账号身份和精确 Ardot file/root。
 
 ## 登录与打开项
@@ -67,12 +80,27 @@ Computer Use 只能作为声明过的 Ardot/微信 UI fallback。ChatGPT 生成�
 - 在 Codex 中连接 `ardot-remote`，完成 Ardot OAuth；UI fallback 才打开 [`https://ardot.tencent.com/`](https://ardot.tencent.com/)。
 - `bootstrap` 要证明 `ardot.create`；`authoring/full` 要证明精确 file/root 的 read/write/export；`delivery` 仍要在交付前重读同一个成稿 root。
 - “浏览器已经登录”不等于 MCP 已授权；“MCP 已连接”也不等于当前用户有目标文件/root 权限，两条路线分别验收。
+- `create_design` 是非幂等远程变更。超时、5xx 或截断响应都标记为
+  `create-unknown`，禁止盲目重试。创建前绑定唯一 nonce/标题；恢复后先只读
+  搜索或让用户在 Ardot UI 对账，明确未创建才能再发起。
 
 ### 微信公众号
 
 - 只在 `delivery/full` 准备。UI 路线从 [`https://mp.weixin.qq.com/`](https://mp.weixin.qq.com/) 进入，API 路线只在执行时解析目标账号凭据。
 - Clone、target、profile 和日志中禁止保存 token、Cookie、AppSecret 或带 token 的编辑器 URL。
 - 登录后必须重新读取精确公众号身份；能打开首页不等于草稿已写入，能看到草稿不等于已经发表。
+- 仓库自带的 `scripts/wechat_publisher.py` 是本地 API client，不依赖当前
+  任务出现同名 MCP tool。但脚本存在也不等于账号可用。任何上传/写草稿前，
+  先运行其 `preflight-account`，只读成功调用 `draft/count` 和
+  `material/get_materialcount`，产出 create-once 脱敏报告且 `mutations_attempted: 0`。
+  这仍不证明上传、草稿写入、UI 回读或发布权限，后续各自实测。
+
+## 当前状态与历史问题
+
+追加式 Markdown 问题日志只是人读历史，不是当前 readiness 证据。同一天的
+“缺失→OAuth 成功→已注入→运输失败→未注入”可能分属不同 task/session，不得
+合并为一个当前状态。每次启动都以本 release 新生成的 `clone-check` +
+current-session census + runtime live probe 覆盖当前视图；旧日志不参与门禁。
 
 ## 停止条件
 

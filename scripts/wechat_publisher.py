@@ -1262,6 +1262,45 @@ class WeChatPublisher:
                 "target account does not match the active WeChat credential"
             )
 
+    def preflight_account(
+        self,
+        *,
+        target_account_ref: str,
+        output_path: Path,
+    ) -> dict[str, Any]:
+        """Run a read-only account probe and persist a zero-mutation report."""
+
+        self._require_provider_account(target_account_ref)
+        output = _prepare_capture_output_file(
+            output_path, label="WeChat account preflight report"
+        )
+        preflight = self.provider.account_preflight(target_account_ref)
+        self.store.record_account_preflight(target_account_ref, preflight)
+        payload = {
+            "schema_version": 1,
+            "kind": "wechat-account-readonly-preflight-v1",
+            "status": "passed",
+            "target_account_ref": target_account_ref,
+            "checked_at": preflight.get("checked_at"),
+            "account_preflight": preflight,
+            "provider_calls": ["draft/count", "material/get_materialcount"],
+            "mutations_attempted": 0,
+            "capability_boundary": {
+                "draft_read": "proved-by-draft-count",
+                "material_read": "proved-by-material-count",
+                "upload": "not-proved",
+                "draft_write": "not-proved",
+                "ui_readback": "separate-current-session-browser-probe-required",
+                "publication": "not-proved",
+            },
+        }
+        _create_once_json(output, payload)
+        return {
+            **payload,
+            "report_path": str(output),
+            "report_sha256": _file_digest(output),
+        }
+
     def _upload_once(
         self,
         *,
@@ -3316,6 +3355,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--app-id-env", default="WECHAT_APP_ID")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    account = subparsers.add_parser("preflight-account")
+    account.add_argument("--target-account", required=True)
+    account.add_argument("--output", type=Path, required=True)
+
     uploads = subparsers.add_parser("prepare-uploads")
     uploads.add_argument("handoff", type=Path)
     uploads.add_argument("--target-account", required=True)
@@ -3384,7 +3427,12 @@ def main() -> int:
         publisher = WeChatPublisher(
             WeChatAPIProvider(access_token=token, app_id=app_id), store
         )
-        if args.command == "prepare-uploads":
+        if args.command == "preflight-account":
+            result = publisher.preflight_account(
+                target_account_ref=args.target_account,
+                output_path=args.output,
+            )
+        elif args.command == "prepare-uploads":
             result = publisher.prepare_uploads(
                 args.handoff,
                 target_account_ref=args.target_account,

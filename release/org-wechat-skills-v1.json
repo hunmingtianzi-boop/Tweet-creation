@@ -1,17 +1,17 @@
 {
   "schema": "org-wechat-skill-release-v1",
-  "release_sha256": "435feaa9dd5f02f337578ee3fec639fd027e1e9979b079e823a021d022b695e9",
+  "release_sha256": "a7e6f22f2577f1a03d7b3e13a02254ca07c5ba61aad3ab9671ec92dc0b028b59",
   "packages": [
     {
       "package": "ardot-wechat-publisher",
       "source": "skills/ardot-wechat-publisher",
-      "bundle_sha256": "26212972ee325dee41cdf5f579db7417c2ac888045f78019aecf52b525413e14",
+      "bundle_sha256": "688989d816280ba341eeb72811b188b30b45efdf14e9a95e69ba7516ea2cbbae",
       "file_count": 6,
       "files": [
         {
           "path": "SKILL.md",
-          "sha256": "ae1ec989f45e05a228d486f4b9e532f545ed66613760f1a808ba14944edfe22d",
-          "byte_length": 33625
+          "sha256": "baa34b7f79c971c1ed6dc30a439aa20258741b8ac0e2e161d9928e6744cbc1ce",
+          "byte_length": 35009
         },
         {
           "path": "agents/openai.yaml",
@@ -43,13 +43,13 @@
     {
       "package": "chatgpt-web-image-route",
       "source": "skills/chatgpt-web-image-route",
-      "bundle_sha256": "8edc191f8bdf359e1bcf178463ea299a756beded1ce67240e8b0478af26f7323",
+      "bundle_sha256": "d9b51f340364187c534b13070d6d0ef41ead686966928e75b90550cc8d271938",
       "file_count": 5,
       "files": [
         {
           "path": "SKILL.md",
-          "sha256": "c4df7cc3fa91af5b3b292dfc87abddb1abb692ad55160fe27a5a03b8ddcceb89",
-          "byte_length": 7746
+          "sha256": "4fb4b91e63a7f6d8101fa52704599e9ca72fda64e4e41498d89c554f65ad0a6f",
+          "byte_length": 8929
         },
         {
           "path": "agents/openai.yaml",
@@ -58,8 +58,8 @@
         },
         {
           "path": "references/image-generation-contract.md",
-          "sha256": "eccd0893b151e3eba267e8e914121d3e9570d7e53a8c7bac619e5b736364243c",
-          "byte_length": 16364
+          "sha256": "e0bab87e0b43e53c073cda664802066c7029defcf6dbde35aa26b614ed34cfd0",
+          "byte_length": 17467
         },
         {
           "path": "references/provider-acquisition-authority.md",
@@ -76,7 +76,7 @@
     {
       "package": "org-wechat-studio",
       "source": ".",
-      "bundle_sha256": "3ff8c8866a55d384245bbc15f1446efdef4b57844bd404e3b8c109300e75a152",
+      "bundle_sha256": "f5ee384d7d24aa7a1e4b9c6677caf535557fd3dbf2f63a2760fb900bc982ec88",
       "file_count": 83,
       "files": [
         {
@@ -86,13 +86,13 @@
         },
         {
           "path": "README.md",
-          "sha256": "3cd52733f5c871146288c6db0be5ad64087129aa0fd0c1245f5787478aa79770",
-          "byte_length": 39260
+          "sha256": "2e26142dd8e19d53ce6d0276bb4b85fc988bd2cc45def9011cb94636dc97b3c9",
+          "byte_length": 40347
         },
         {
           "path": "SKILL.md",
-          "sha256": "223b8b58cf715384af29a4a18a14d51ad91c6e7dc31eb1ffeab7376afae0272b",
-          "byte_length": 57274
+          "sha256": "c0aff3b9a2169ade624b922b6d13d433c2db9907df490c1134214b3c30389d98",
+          "byte_length": 58559
         },
         {
           "path": "agents/openai.yaml",
@@ -121,8 +121,8 @@
         },
         {
           "path": "references/end-to-end-breakpoint-matrix.md",
-          "sha256": "0f936fd76fb181a77016bea9c924948c20afb25ee854f78b659b242c63db6289",
-          "byte_length": 10513
+          "sha256": "f2bd85735bed0b22536a2af22d4e9376ac754bb95305ee8c987da386a0b86cc9",
+          "byte_length": 12010
         },
         {
           "path": "references/expressive-typography.md",
@@ -131,8 +131,8 @@
         },
         {
           "path": "references/host-prerequisites.md",
-          "sha256": "41a3ba0d9346f3d440cba1853140fa46296f44083e9a1b94a37f7e62e52e6542",
-          "byte_length": 5654
+          "sha256": "712322bcf82882b38106922810cf78cf287c5780e0aabd7b6546a84b64605d2b",
+          "byte_length": 7530
         },
         {
           "path": "references/information-density.md",
@@ -171,8 +171,8 @@
         },
         {
           "path": "references/provider-acquisition-authority.md",
-          "sha256": "69985e3271d019b2a265161e98a8f922cfd744244a50e1111707ec6d69ae2856",
-          "byte_length": 4060
+          "sha256": "82975070baed7ffe5e4c2fa60f09f2c381fed777e756aa9ddc6a62e04f273289",
+          "byte_length": 4578
         },
         {
           "path": "references/qa.md",
@@ -181,8 +181,8 @@
         },
         {
           "path": "references/runtime-preflight.md",
-          "sha256": "7b5f25939b67a95dc450b25150eb10ba1ff857a5769a316255a775770800b96f",
-          "byte_length": 22681
+          "sha256": "44852e964730d5685e2bf314fdcbcc3f2c4f160d868736637ffb3bbe408b0609",
+          "byte_length": 23623
         },
         {
           "path": "references/source-zero-audit.md",
@@ -211,8 +211,8 @@
         },
         {
           "path": "references/使用说明.md",
-          "sha256": "31154c67da660d4b88d406778342e306020e671ebabe2906f52bd47dccf133da",
-          "byte_length": 44797
+          "sha256": "30b1ec6b627328bd15d958b95b40bd736327cdc806657f88a46f0d047c31ef03",
+          "byte_length": 45414
         },
         {
           "path": "requirements.txt",
@@ -256,8 +256,8 @@
         },
         {
           "path": "scripts/asset_quality.py",
-          "sha256": "6ffb9e4890df6a3602f1f7b58b47d18ce0ebf9e596070d973a0c32405ede21d9",
-          "byte_length": 44590
+          "sha256": "f513f999da9687b7d6a69fcc08b098836b97b186e68a33b4f400ae4a87dde346",
+          "byte_length": 48555
         },
         {
           "path": "scripts/asset_role_policy.py",
@@ -281,8 +281,8 @@
         },
         {
           "path": "scripts/build_visual_kit.py",
-          "sha256": "f142f42870bcb6cb5b164fa77d47f66ba64482719afc82c4e302f7ae25480f02",
-          "byte_length": 32111
+          "sha256": "ebea9602c7341e38ead6430bc3bc9f0ba7be65d617b25fd135787d4cd280ffd2",
+          "byte_length": 33441
         },
         {
           "path": "scripts/build_visual_review.py",
@@ -326,13 +326,13 @@
         },
         {
           "path": "scripts/prepare_micro_cutout.py",
-          "sha256": "7f1c917e83641c2d23ca167a69fceb4925adcbe23ea9816a8af87856a91f64d5",
-          "byte_length": 50948
+          "sha256": "17ea60f42fa2c547400fd994fc9f8d857840bfb0b234854cab564e189e9865f7",
+          "byte_length": 49856
         },
         {
           "path": "scripts/prepare_migration_probe.py",
-          "sha256": "83ced893daeb992778e37dcdc2fe2e10ffcd9792ca47d5d671f4efe6c373379d",
-          "byte_length": 25249
+          "sha256": "ae040659b8be631ab2542e2750bd5e82d703d533bb4e9bf33f7863b1e632ab8e",
+          "byte_length": 26791
         },
         {
           "path": "scripts/provenance_watermark.py",
@@ -341,18 +341,18 @@
         },
         {
           "path": "scripts/provider_acquisition_authority.py",
-          "sha256": "2dfc0bc40aeb300a8838e20b0edb4613be550d3babc0cfca547222e9d3e83fa5",
-          "byte_length": 33917
+          "sha256": "54c7e74d845e715dcaa629b913d83bd242475a115422a6b49c1c83d96caeb39e",
+          "byte_length": 35296
         },
         {
           "path": "scripts/release_skills.py",
-          "sha256": "1b6a15fd20eb5463d9aea7f8fa0e1db19e2667c3f018888a9f3412d5147c76be",
-          "byte_length": 45874
+          "sha256": "628c311b003245bf667e822f8245eeed8a0d141d6f3e1b0f5d3f5640d901a814",
+          "byte_length": 59304
         },
         {
           "path": "scripts/runtime_preflight.py",
-          "sha256": "00d71a5ecfe874a96943a23d2a5e66751b00f24e5edb8e68dbc3b05d4bd985cf",
-          "byte_length": 309797
+          "sha256": "39156e6932ed1e8201d3e5faf0fc6123d0266f7add4cc000f64dec75aa363431",
+          "byte_length": 315089
         },
         {
           "path": "scripts/safe_paths.py",
@@ -391,8 +391,8 @@
         },
         {
           "path": "scripts/wechat_publisher.py",
-          "sha256": "b0d0031d60e659f6b7980745a269e8a229dca1f36551500b6441ef434077b52a",
-          "byte_length": 148364
+          "sha256": "c0f9d767ea01643dd7b2daa1d97d2925feb995ec41360a2fdbf53ab6835cd76b",
+          "byte_length": 150290
         },
         {
           "path": "scripts/workflow_quality.py",
@@ -421,8 +421,8 @@
         },
         {
           "path": "tests/test_cutout_gate.py",
-          "sha256": "10aa9e2688e6cd0fc46b45c14693910e2c9b5eb9c3452f8664ab495dff757765",
-          "byte_length": 9242
+          "sha256": "04a32abf9f97f16999b70596f307cba799802fc97aa52ff89e10555b7eefe698",
+          "byte_length": 10232
         },
         {
           "path": "tests/test_download_ingestion.py",
@@ -446,8 +446,8 @@
         },
         {
           "path": "tests/test_prepare_micro_cutout.py",
-          "sha256": "6223a396755d671a9284c572ead163ad75a5702421c43b1e359843802916f478",
-          "byte_length": 57242
+          "sha256": "9577c6ebcc911e720b3462ef7f0ca09b4f5049bb2c5362a0ea334033df19d47e",
+          "byte_length": 60183
         },
         {
           "path": "tests/test_provenance_watermark.py",
@@ -456,13 +456,13 @@
         },
         {
           "path": "tests/test_release_skills.py",
-          "sha256": "fc90878724d9f6c4f273cba3f5a5a26015e08c90b05fb6b55f87713375948d58",
-          "byte_length": 30515
+          "sha256": "a55dfeac71aa39c4269db711bf64bf4d7ed0517a9e6f049cb9ea9728fdcc51a6",
+          "byte_length": 33949
         },
         {
           "path": "tests/test_runtime_preflight.py",
-          "sha256": "764e1b3bcf23ced7a4dc3521d1aaba334ff9c220cf3aa7c2e8b88605b1ed42d4",
-          "byte_length": 143604
+          "sha256": "0fa3af9017ecf7d04a76e7a4683a29611dc4e21e7d9f639e70fc3cc7cfe04893",
+          "byte_length": 147856
         },
         {
           "path": "tests/test_safe_paths.py",
@@ -481,13 +481,13 @@
         },
         {
           "path": "tests/test_wechat_publisher.py",
-          "sha256": "e6c0e6086e908a08570ae80c74e9c8f42fb4977c56b8c7110f6154c68d5bcc3c",
-          "byte_length": 75751
+          "sha256": "80c371330fdda01fddf8b02c55451923323f1efc93cc1ecd74c734b9e85b3b5d",
+          "byte_length": 77015
         },
         {
           "path": "tests/test_workflow.py",
-          "sha256": "dbf3b2afb8d07590530baf3b28790ea00ea3e204a9889983a79ba985076aa640",
-          "byte_length": 168637
+          "sha256": "993bc0b3b643317747f0441f09217f1d9c5e2ce27dab27abcb19c9249a37c3bf",
+          "byte_length": 169197
         },
         {
           "path": "tests/test_workflow_attribution.py",

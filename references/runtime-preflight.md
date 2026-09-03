@@ -304,6 +304,20 @@ python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
 
 Ardot 路由优先 MCP，其次 Browser，最后 Computer Use。微信草稿路由可优先已验证本地 API publisher，其次 Browser，最后 Computer Use；正式发布还必须满足报告 `publication_routes` 矩阵的独立权限与确认/回读门禁。当前 `wechat_publisher.py` 只在执行时读取 `WECHAT_ACCESS_TOKEN` 和 `WECHAT_APP_ID`，未实现 AppSecret 换 token；凭据不进 registry/profile/report。UI 路由要先打开无 token 入口，只在实际登录墙出现时请用户登录，随后在同一 session 重读精确账号/file/root。
 
+Ardot MCP 诊断必须分四层：`configured` 只来自脱敏本机配置；
+`model_visible` 只来自当前任务 registry；`live_authenticated` 和
+`target_access_verified` 只来自同会话精确 target 读取；
+`last_mutation_outcome` 只来自单次 provider 确定响应。本机显示 OAuth 不会自动
+升级任何后三层。配置正常但当前任务未注入时，唯一恢复是重载/新开
+Codex 任务并重建 census。`create_design` 的超时、5xx 或截断响应必须保留
+`create-unknown`，先按预绑 nonce/唯一标题只读对账，禁止盲目重试。
+
+微信 API 路由先运行 `wechat_publisher.py preflight-account`，只读调用
+`draft/count` 和 `material/get_materialcount`，并写出
+`wechat-account-readonly-preflight-v1` create-once 报告。它固定
+`mutations_attempted: 0`，只证明当前凭据/账号可读；上传、草稿写入、UI 回读和
+发布仍是四个后续独立门禁。
+
 可表达的 MCP 依赖已在三个 `agents/openai.yaml` 中声明；Browser、Computer Use、C2C、Node、本地 processor、API 凭据、host signer/lease 不是 MCP，统一由 [`runtime/non-mcp-dependencies.json`](../runtime/non-mcp-dependencies.json) 与 census/profile 管理。
 
 机器合同见 [`runtime/host-registry-census-contract.json`](../runtime/host-registry-census-contract.json)、[`runtime/migration-host-receipt-contract.json`](../runtime/migration-host-receipt-contract.json) 和 [`runtime/adapters/codex-desktop.json`](../runtime/adapters/codex-desktop.json)。

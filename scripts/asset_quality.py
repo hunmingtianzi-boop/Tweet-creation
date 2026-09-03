@@ -814,6 +814,105 @@ def inspect_png(path: Path) -> dict[str, Any]:
     return result
 
 
+def validate_native_rgba_source(path: Path) -> dict[str, Any]:
+    """Validate an original native-Alpha source before any crop can hide dirt.
+
+    This gate intentionally operates on the provider-original canvas.  The
+    final micro-asset validator runs again after deterministic normalization,
+    but a crop must never be allowed to erase canvas-edge Alpha residue or a
+    low-Alpha background plane and thereby turn an unsafe source into evidence.
+    """
+
+    try:
+        inspection = inspect_png(path)
+    except (OSError, ValueError) as exc:
+        return {
+            "ok": False,
+            "errors": [f"native source is not a decodable PNG: {exc}"],
+            "error_codes": ["micro.source.png_not_decodable"],
+            "inspection": None,
+        }
+
+    errors: list[str] = []
+    error_codes: list[str] = []
+
+    def reject(code: str, message: str) -> None:
+        error_codes.append(code)
+        errors.append(message)
+
+    if inspection.get("bit_depth") != 8 or inspection.get("color_type") != 6:
+        reject("micro.source.not_rgba8", "native source must be an RGBA8 PNG")
+    transparent_ratio = inspection.get("transparent_pixel_ratio")
+    if not isinstance(transparent_ratio, float) or not 0.01 <= transparent_ratio <= 0.98:
+        reject(
+            "micro.source.insubstantial_alpha",
+            "native source needs substantive transparent and visible pixels",
+        )
+    if inspection.get("alpha_touches_canvas_edge") is True:
+        reject(
+            "micro.source.substantive_alpha_touches_edge",
+            "native Alpha subject touches the canvas edge",
+        )
+    if inspection.get("alpha_nonzero_touches_canvas_edge") is True:
+        reject(
+            "micro.source.nonzero_alpha_touches_edge",
+            "native source contains non-zero Alpha residue on the canvas edge",
+        )
+    largest = inspection.get("alpha_largest_component_ratio")
+    if not isinstance(largest, float) or largest < 0.80:
+        reject(
+            "micro.source.detached_debris",
+            "native Alpha contains detached substantive debris",
+        )
+    low_alpha_canvas = inspection.get("alpha_low_nonzero_bbox_canvas_fill_ratio")
+    low_alpha_ratio = inspection.get("alpha_low_nonzero_pixel_ratio")
+    if (
+        isinstance(low_alpha_canvas, float)
+        and isinstance(low_alpha_ratio, float)
+        and low_alpha_canvas >= 0.70
+        and low_alpha_ratio >= 0.04
+    ):
+        reject(
+            "micro.source.canvas_scale_low_alpha_haze",
+            "native Alpha contains canvas-scale low-alpha haze",
+        )
+    if inspection.get("alpha_near_white_halo_ratio", 0) > 0.10:
+        reject("micro.source.white_halo", "native Alpha contains a white edge halo")
+    if inspection.get("alpha_near_black_halo_ratio", 0) > 0.10:
+        reject("micro.source.black_halo", "native Alpha contains a black edge halo")
+    return {
+        "ok": not errors,
+        "errors": errors,
+        "error_codes": error_codes,
+        "inspection": inspection,
+    }
+
+
+def classify_native_alpha_failure(path: Path) -> str | None:
+    """Recompute the only native-source failures that may unlock key fallback.
+
+    Malformed files and unsupported PNG encodings return ``None``: they are
+    acquisition/transport failures, not evidence that the native-Alpha pixel
+    route genuinely failed.
+    """
+
+    try:
+        inspection = inspect_png(path)
+    except (OSError, ValueError):
+        return None
+    if inspection.get("bit_depth") != 8:
+        return None
+    if inspection.get("color_type") == 2:
+        return "cutout.source.native_alpha_required"
+    if inspection.get("color_type") != 6 or inspection.get("alpha_analysis") != "decoded":
+        return None
+    if inspection.get("has_transparent_pixels") is not True:
+        return "cutout.source.native_alpha_required"
+    if validate_native_rgba_source(path).get("ok") is not True:
+        return "cutout.source.invalid_native_rgba"
+    return None
+
+
 def validate_micro_asset(path: Path, role: str) -> dict[str, Any]:
     errors: list[str] = []
     error_codes: set[str] = set()

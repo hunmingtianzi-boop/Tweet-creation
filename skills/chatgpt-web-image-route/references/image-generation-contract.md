@@ -44,6 +44,12 @@ Run these actions before source-material reading in `migration`, `authoring`, or
    image entitlement, keep the same tab and request one user action. Continue
    only after the same session is re-read.
 
+For article production, one digest-bound approval covers the storyboard,
+interaction plan, and all four visual-kit slot briefs. Do not request approval
+again for each slot or for a processor-authorized controlled-key fallback.
+Only a substantive change to that digest or a real login/consent wall requires
+new user input. Publication and group send remain separate fresh confirmations.
+
 These actions are not needed in `bootstrap` or `delivery`. Do not store a
 ChatGPT chat URL, pairing code, cookie, token, session storage value, or login
 result in the repository runtime profile, organization pack, article JSON, or
@@ -73,6 +79,14 @@ bytes independently reproduce an allowed native-Alpha gate failure; both
 current-session and portable finalizers revalidate that chain. It alone may use `--key-color`. Login, CAPTCHA, 2FA,
 consent, generation interruption, or download repair resumes the same attempt
 and never spends the fallback.
+
+Provider/browser state is independent of pixel-attempt state. Use
+`provider-pending`, `completed-await-download`, `provider-terminal-failed`, or
+`browser-control-unavailable`. An unknown or timed-out request is first resumed
+read-only in the same C2C session; duplicate submission is forbidden. A Browser
+transport failure requires host-task recovery and does not consume a source
+attempt. Only explicit provider-terminal failure permits a new request using
+the same mode and exact bound prompt.
 
 The nonce and binding digest stay out of the image prompt. The host records them
 in a canonical `org-wechat-migration-rgba-request-v1` metadata envelope that
@@ -259,11 +273,14 @@ the opaque-background provenance watermark.
 ## Failure and retry
 
 One failed cutout never authorizes a weaker threshold or a manual white-card
-fallback. When the provider-original native-alpha attempt fails, regenerate
-once on the approved controlled key color that remains outside the subject
-palette. If that second source also fails, stop that visual-kit slot, preserve
-both reports, and explain the exact blocker. Layout cannot begin while any
-mandatory role lacks a valid derivative and native Ardot component.
+fallback. Each attempt records its own prompt SHA; the acquisition and
+derivation bind the accepted attempt's SHA. When the provider-original
+native-alpha attempt fails, the validator must reopen the exact ingested raw
+bytes and reproduce an allowed Alpha/pixel failure before regenerating once on
+the approved controlled key color. A self-reported failure code is
+insufficient. If that second source also fails, stop that visual-kit slot,
+preserve both reports, and explain the exact blocker. Layout cannot begin while
+any mandatory role lacks a valid derivative and native Ardot component.
 
 ## Live evidence boundary
 

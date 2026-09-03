@@ -65,6 +65,8 @@ FORBIDDEN_PARTS = {
     "output",
 }
 FORBIDDEN_SUFFIXES = {".pyc", ".pyo", ".swp", ".tmp"}
+SKILL_NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+EXPECTED_ARDOT_MCP_URL = "https://ardot.tencent.com/mcp"
 
 
 class ReleaseError(RuntimeError):
@@ -242,6 +244,84 @@ def _allowed_top_level(package: str) -> tuple[set[str], set[str]]:
     return WRAPPER_ROOT_FILES, WRAPPER_ROOT_DIRS
 
 
+def validate_skill_structure(package: str, skill_path: Path) -> dict[str, object]:
+    """Validate the release Skill entrypoint using only the standard library.
+
+    The release validator deliberately supports the small flat frontmatter
+    contract used by these three packages.  It is the fail-closed publishing
+    gate; the external PyYAML-based quick validator is only an optional
+    developer compatibility check.
+    """
+
+    if package not in PACKAGE_SOURCES:
+        raise ReleaseError(f"unknown package: {package}")
+    try:
+        _assert_regular_file(skill_path)
+    except OSError as exc:
+        raise ReleaseError(f"{package} SKILL.md is unavailable: {exc}") from exc
+    try:
+        text = skill_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise ReleaseError(f"{package} SKILL.md is not valid UTF-8: {exc}") from exc
+    lines = text.splitlines()
+    if not lines or lines[0] != "---":
+        raise ReleaseError(f"{package} SKILL.md must start with a frontmatter delimiter")
+    try:
+        closing = lines.index("---", 1)
+    except ValueError as exc:
+        raise ReleaseError(f"{package} SKILL.md has no closing frontmatter delimiter") from exc
+    if closing < 2:
+        raise ReleaseError(f"{package} SKILL.md frontmatter is empty")
+    fields: dict[str, str] = {}
+    for line_number, line in enumerate(lines[1:closing], start=2):
+        if not line.strip() or line[:1].isspace() or ":" not in line:
+            raise ReleaseError(
+                f"{package} SKILL.md frontmatter line {line_number} must be one flat key: value field"
+            )
+        key, value = line.split(":", 1)
+        key = key.strip()
+        value = value.strip()
+        if key in fields:
+            raise ReleaseError(f"{package} SKILL.md frontmatter repeats {key}")
+        fields[key] = value
+    if set(fields) != {"name", "description"}:
+        raise ReleaseError(
+            f"{package} SKILL.md frontmatter must contain exactly name and description"
+        )
+    if fields["name"] != package or not SKILL_NAME.fullmatch(fields["name"]):
+        raise ReleaseError(f"{package} SKILL.md name must exactly equal its package id")
+    description = fields["description"]
+    if not description or len(description) > 1024:
+        raise ReleaseError(
+            f"{package} SKILL.md description must contain 1 to 1024 characters"
+        )
+    if "todo" in description.casefold():
+        raise ReleaseError(f"{package} SKILL.md description contains an unresolved TODO")
+    if not any(line.strip() for line in lines[closing + 1 :]):
+        raise ReleaseError(f"{package} SKILL.md body is empty")
+    return {
+        "package": package,
+        "name": fields["name"],
+        "description_length": len(description),
+        "entrypoint": str(skill_path),
+    }
+
+
+def validate_skill_structures(
+    workspace_root: Path = WORKSPACE_ROOT,
+) -> dict[str, object]:
+    workspace_root = _release_existing_directory(
+        workspace_root, label="source workspace root"
+    )
+    validated = []
+    for package in sorted(PACKAGE_SOURCES):
+        source_root = workspace_root / PACKAGE_SOURCES[package]
+        validated.append(
+            validate_skill_structure(package, source_root / "SKILL.md")
+        )
+    return {"ok": True, "validated": validated}
+
+
 def collect_package_files(
     package: str, workspace_root: Path = WORKSPACE_ROOT
 ) -> list[tuple[Path, Path]]:
@@ -252,6 +332,7 @@ def collect_package_files(
     source_root = (workspace_root / PACKAGE_SOURCES[package]).resolve()
     if not source_root.is_dir():
         raise ReleaseError(f"package source is missing: {source_root}")
+    validate_skill_structure(package, source_root / "SKILL.md")
     allowed_files, allowed_dirs = _allowed_top_level(package)
     collected: list[tuple[Path, Path]] = []
     for candidate in sorted(source_root.rglob("*"), key=lambda item: item.as_posix()):
@@ -777,6 +858,97 @@ def _command_version(command: str) -> tuple[str | None, str | None]:
     return executable, version or None
 
 
+def _platform_audit_snapshot(workspace_root: Path) -> dict[str, object]:
+    command = [
+        sys.executable,
+        "-I",
+        "-S",
+        str(workspace_root / "scripts" / "secure_runner.py"),
+        "--platform-audit",
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"ok": False, "error": f"platform audit could not run: {exc}"}
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout).strip()
+        return {"ok": False, "error": detail or "platform audit failed"}
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return {"ok": False, "error": "platform audit returned invalid JSON"}
+    if not isinstance(payload, dict):
+        return {"ok": False, "error": "platform audit returned a non-object result"}
+    ok = bool(
+        payload.get("kind") == "org-wechat-python-platform-audit"
+        and payload.get("distribution_lock_verified") is True
+        and payload.get("target_execution_allowed") is True
+    )
+    return {
+        "ok": ok,
+        "platform_key": payload.get("platform_key"),
+        "python_version": payload.get("python_version"),
+        "verified_distributions": sorted(
+            (payload.get("verified_distributions") or {}).keys()
+        )
+        if isinstance(payload.get("verified_distributions"), dict)
+        else [],
+        **({} if ok else {"error": "locked distribution bytes were not verified"}),
+    }
+
+
+def _codex_mcp_inventory() -> dict[str, object]:
+    """Return a redacted local configuration census, never a live-access claim."""
+
+    executable = shutil.which("codex")
+    if executable is None:
+        return {"ok": False, "error": "codex CLI was not found", "routes": []}
+    try:
+        completed = subprocess.run(
+            [executable, "mcp", "list", "--json"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"ok": False, "error": f"codex MCP inventory failed: {exc}", "routes": []}
+    if completed.returncode != 0:
+        return {
+            "ok": False,
+            "error": "codex MCP inventory command failed",
+            "routes": [],
+        }
+    try:
+        rows = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return {"ok": False, "error": "codex MCP inventory returned invalid JSON", "routes": []}
+    if not isinstance(rows, list):
+        return {"ok": False, "error": "codex MCP inventory is not a list", "routes": []}
+    selected = {"ardot-remote", "wechat_publisher", "ai_ecosystem_wechat_publisher"}
+    routes: list[dict[str, object]] = []
+    for row in rows:
+        if not isinstance(row, dict) or row.get("name") not in selected:
+            continue
+        transport = row.get("transport") if isinstance(row.get("transport"), dict) else {}
+        routes.append(
+            {
+                "name": row.get("name"),
+                "enabled": row.get("enabled") is True,
+                "auth_mechanism": row.get("auth_status"),
+                "transport_type": transport.get("type"),
+                "url": transport.get("url"),
+            }
+        )
+    return {"ok": True, "routes": sorted(routes, key=lambda item: str(item["name"]))}
+
+
 def _major_version(value: str | None) -> int | None:
     if value is None:
         return None
@@ -813,6 +985,8 @@ def clone_readiness(
     *,
     phase: str = "full",
     workspace_root: Path = WORKSPACE_ROOT,
+    visible_tool_ids: Sequence[str] | None = None,
+    mcp_inventory: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Declare clone-time requirements without pretending to prove live login.
 
@@ -903,6 +1077,24 @@ def clone_readiness(
         ),
     )
 
+    platform_audit = _platform_audit_snapshot(workspace_root)
+    add_check(
+        "locked-python-distributions",
+        "passed" if platform_audit.get("ok") is True else "missing",
+        required=True,
+        scope="local",
+        detail=(
+            "verified " + ", ".join(platform_audit.get("verified_distributions", []))
+            if platform_audit.get("ok") is True
+            else str(platform_audit.get("error", "locked dependency audit failed"))
+        ),
+        action=(
+            "The isolated runtime dependency bytes match the reviewed lock."
+            if platform_audit.get("ok") is True
+            else "Repair the reviewed CPython/dependency installation and rerun secure_runner.py --platform-audit."
+        ),
+    )
+
     manifest_ok = False
     release_sha = None
     try:
@@ -976,6 +1168,20 @@ def clone_readiness(
             "Git is available."
             if git_path
             else "Install Git and reopen the cloned workspace in Codex Desktop."
+        ),
+    )
+
+    codex_path, codex_version = _command_version("codex")
+    add_check(
+        "codex-desktop-cli",
+        "passed" if codex_path else "missing",
+        required=True,
+        scope="local",
+        detail=codex_version or "Codex CLI was not found",
+        action=(
+            "Codex Desktop CLI bridge is available."
+            if codex_path
+            else "Install/open Codex Desktop and run this clone from its local task environment."
         ),
     )
 
@@ -1064,6 +1270,92 @@ def clone_readiness(
         )
 
     ardot_required = phase in {"bootstrap", "authoring", "delivery", "full"}
+    inventory = mcp_inventory if mcp_inventory is not None else _codex_mcp_inventory()
+    inventory_routes = (
+        inventory.get("routes") if isinstance(inventory.get("routes"), list) else []
+    )
+    ardot_route = next(
+        (
+            item
+            for item in inventory_routes
+            if isinstance(item, dict) and item.get("name") == "ardot-remote"
+        ),
+        None,
+    )
+    ardot_configured = bool(
+        isinstance(ardot_route, dict)
+        and ardot_route.get("enabled") is True
+        and ardot_route.get("transport_type") == "streamable_http"
+        and ardot_route.get("url") == EXPECTED_ARDOT_MCP_URL
+    )
+    add_check(
+        "ardot-remote-local-configuration",
+        "passed" if ardot_configured else ("missing" if ardot_required else "not-required"),
+        required=ardot_required,
+        scope="local",
+        detail=(
+            "ardot-remote is enabled at the exact official MCP URL; its auth mechanism is configuration metadata only"
+            if ardot_configured
+            else str(inventory.get("error", "ardot-remote is absent, disabled, or points to a different URL"))
+        ),
+        action=(
+            "Keep the route and prove current-task injection plus exact target access live."
+            if ardot_configured
+            else "Configure and enable ardot-remote at https://ardot.tencent.com/mcp, then reload/open a new Codex task."
+        ),
+        url=EXPECTED_ARDOT_MCP_URL,
+    )
+
+    expected_ardot_tools: set[str] = set()
+    if phase == "bootstrap":
+        expected_ardot_tools.update(
+            {"mcp__ardot_remote__create_design", "mcp__ardot_remote__create_new_page"}
+        )
+    elif ardot_required:
+        expected_ardot_tools.update(
+            {
+                "mcp__ardot_remote__fetch_file_info",
+                "mcp__ardot_remote__fetch_editor_state",
+                "mcp__ardot_remote__batch_read",
+                "mcp__ardot_remote__batch_edit",
+                "mcp__ardot_remote__capture_screenshot",
+                "mcp__ardot_remote__export_nodes",
+            }
+        )
+    visible = set(visible_tool_ids or [])
+    missing_visible = sorted(expected_ardot_tools - visible)
+    if not ardot_required:
+        registry_status = "not-required"
+    elif visible_tool_ids is None:
+        registry_status = "requires-live-probe"
+    elif missing_visible:
+        registry_status = "requires-task-reload"
+    else:
+        registry_status = "passed"
+    add_check(
+        "ardot-current-task-registry",
+        registry_status,
+        required=ardot_required,
+        scope="host-session",
+        detail=(
+            "all phase-required Ardot tool IDs are visible in this task"
+            if registry_status == "passed"
+            else (
+                "missing current-task tool IDs: " + ", ".join(missing_visible)
+                if registry_status == "requires-task-reload"
+                else "current-task tool IDs were not supplied to clone-check"
+            )
+        ),
+        action=(
+            "Run the current-session census and exact target read probe."
+            if registry_status == "passed"
+            else (
+                "Reload or open a new Codex task, then rerun clone-check with --visible-tool-id for every actually visible phase tool; the repository cannot hot-inject MCP tools."
+                if registry_status == "requires-task-reload"
+                else "Rerun with the current model registry's actual --visible-tool-id values, then build the current-session census."
+            )
+        ),
+    )
     add_check(
         "ardot-login-and-target-access",
         "requires-live-probe" if ardot_required else "not-required",
@@ -1075,6 +1367,19 @@ def clone_readiness(
     )
 
     wechat_required = phase in {"delivery", "full"}
+    publisher_script_ready = (workspace_root / "scripts" / "wechat_publisher.py").is_file()
+    add_check(
+        "wechat-local-api-client",
+        "passed" if publisher_script_ready else ("missing" if wechat_required else "not-required"),
+        required=wechat_required,
+        scope="local",
+        detail="the release-local API client is present; this does not prove credentials, account identity, write permission, UI readback, or publication",
+        action=(
+            "Use preflight-account at execution time, then separately prove the Browser/Computer Use readback route."
+            if publisher_script_ready
+            else "Restore the verified release-local scripts/wechat_publisher.py client."
+        ),
+    )
     add_check(
         "wechat-account-session",
         "requires-live-probe" if wechat_required else "not-required",
@@ -1097,6 +1402,11 @@ def clone_readiness(
         for item in checks
         if item["required"] is True and item["status"] == "requires-live-probe"
     ]
+    reload_required = [
+        str(item["id"])
+        for item in checks
+        if item["required"] is True and item["status"] == "requires-task-reload"
+    ]
     return {
         "schema": CLONE_READINESS_SCHEMA,
         "support": expected_support,
@@ -1109,8 +1419,11 @@ def clone_readiness(
         "ready_to_read_source_material": False,
         "local_blockers": local_blockers,
         "live_probes_required": live_pending,
+        "current_task_reload_required": bool(reload_required),
+        "reload_blockers": reload_required,
+        "configured_mcp_routes": inventory_routes,
         "checks": checks,
-        "truth_boundary": "clone-check proves local files and binaries only; login, registry visibility, account identity, Ardot file/root access and WeChat state require current Codex Desktop live probes",
+        "truth_boundary": "clone-check proves local files, locked dependency bytes, redacted MCP configuration and optionally supplied current-task tool visibility only; configuration/auth mechanism does not prove OAuth validity, account identity, Ardot target access, remote mutation success or WeChat state, all of which require current Codex Desktop live probes",
     }
 
 
@@ -1132,6 +1445,8 @@ def _parser() -> argparse.ArgumentParser:
     clone_check = subparsers.add_parser("clone-check")
     clone_check.add_argument("--skills-root", type=Path, required=True)
     clone_check.add_argument("--phase", choices=SUPPORTED_PHASES, default="full")
+    clone_check.add_argument("--visible-tool-id", action="append", default=None)
+    subparsers.add_parser("validate-structure")
     return parser
 
 
@@ -1147,7 +1462,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "install":
             result = install_packages(args.skills_root, args.manifest)
         elif args.command == "clone-check":
-            result = clone_readiness(args.skills_root, phase=args.phase)
+            result = clone_readiness(
+                args.skills_root,
+                phase=args.phase,
+                visible_tool_ids=args.visible_tool_id,
+            )
+        elif args.command == "validate-structure":
+            result = validate_skill_structures()
         else:
             result = verify_installed_packages(
                 args.skills_root,

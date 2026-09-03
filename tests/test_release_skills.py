@@ -20,6 +20,8 @@ from scripts.release_skills import (
     collect_package_files,
     install_packages,
     stage_packages,
+    validate_skill_structure,
+    validate_skill_structures,
     verify_installed_packages,
     verify_manifest,
     write_manifest,
@@ -55,6 +57,85 @@ requires_locked_runtime = unittest.skipUnless(
 
 
 class ReleaseSkillTests(unittest.TestCase):
+    def test_stdlib_skill_structure_gate_rejects_invalid_frontmatter(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            skill = Path(directory) / "SKILL.md"
+            skill.write_text(
+                "---\nname: wrong-package\ndescription: TODO\nextra: unsafe\n---\n# Body\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(ReleaseError):
+                validate_skill_structure("org-wechat-studio", skill)
+        self.assertTrue(validate_skill_structures(ROOT)["ok"])
+
+    def test_clone_readiness_fails_closed_when_distribution_audit_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, mock.patch(
+            "scripts.release_skills._platform_audit_snapshot",
+            return_value={"ok": False, "error": "synthetic locked wheel mismatch"},
+        ):
+            result = clone_readiness(
+                Path(directory),
+                phase="migration",
+                workspace_root=ROOT,
+                mcp_inventory={"ok": True, "routes": []},
+            )
+        checks = {item["id"]: item for item in result["checks"]}
+        self.assertEqual(checks["locked-python-distributions"]["status"], "missing")
+        self.assertIn("locked-python-distributions", result["local_blockers"])
+        self.assertFalse(result["local_prerequisites_ready"])
+
+    def test_clone_readiness_distinguishes_ardot_config_from_task_injection(self) -> None:
+        inventory = {
+            "ok": True,
+            "routes": [
+                {
+                    "name": "ardot-remote",
+                    "enabled": True,
+                    "auth_mechanism": "o_auth",
+                    "transport_type": "streamable_http",
+                    "url": "https://ardot.tencent.com/mcp",
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as directory, mock.patch(
+            "scripts.release_skills._platform_audit_snapshot",
+            return_value={
+                "ok": True,
+                "verified_distributions": ["Pillow", "cryptography"],
+            },
+        ):
+            missing = clone_readiness(
+                Path(directory),
+                phase="bootstrap",
+                workspace_root=ROOT,
+                visible_tool_ids=[],
+                mcp_inventory=inventory,
+            )
+            visible = clone_readiness(
+                Path(directory),
+                phase="bootstrap",
+                workspace_root=ROOT,
+                visible_tool_ids=[
+                    "mcp__ardot_remote__create_design",
+                    "mcp__ardot_remote__create_new_page",
+                ],
+                mcp_inventory=inventory,
+            )
+        missing_checks = {item["id"]: item for item in missing["checks"]}
+        visible_checks = {item["id"]: item for item in visible["checks"]}
+        self.assertEqual(
+            missing_checks["ardot-remote-local-configuration"]["status"], "passed"
+        )
+        self.assertEqual(
+            missing_checks["ardot-current-task-registry"]["status"],
+            "requires-task-reload",
+        )
+        self.assertTrue(missing["current_task_reload_required"])
+        self.assertEqual(
+            visible_checks["ardot-current-task-registry"]["status"], "passed"
+        )
+        self.assertFalse(visible["current_task_reload_required"])
+
     def test_clone_readiness_declares_codex_only_and_live_login_boundaries(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             result = clone_readiness(Path(directory), phase="full", workspace_root=ROOT)

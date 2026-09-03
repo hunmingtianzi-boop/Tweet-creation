@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -501,6 +502,12 @@ def build_visual_kit_plan(
             "effect onto the background. This controlled-key request is allowed only after the "
             "native-alpha original failed the strict Alpha or pixel gate."
         )
+        native_prompt_sha256 = "sha256:" + hashlib.sha256(
+            prompt.encode("utf-8")
+        ).hexdigest()
+        fallback_prompt_sha256 = "sha256:" + hashlib.sha256(
+            fallback_prompt.encode("utf-8")
+        ).hexdigest()
         slots.append(
             {
                 **definition,
@@ -514,7 +521,9 @@ def build_visual_kit_plan(
                 "composition_role": composition_role,
                 "placement": placement,
                 "prompt": prompt,
+                "prompt_sha256": native_prompt_sha256,
                 "fallback_prompt": fallback_prompt,
+                "fallback_prompt_sha256": fallback_prompt_sha256,
                 "source_generation": {
                     "route": "chatgpt-web-image-route-v1",
                     "provider_skill": "chatgpt-web-image-route",
@@ -527,6 +536,25 @@ def build_visual_kit_plan(
                     "fallback_mode": "controlled-key",
                     "fallback_key_color": fallback_key_color,
                     "fallback_processor_args": ["--key-color", fallback_key_color],
+                    "attempt_prompts": [
+                        {
+                            "attempt_index": 1,
+                            "mode": "native-alpha",
+                            "prompt_sha256": native_prompt_sha256,
+                        },
+                        {
+                            "attempt_index": 2,
+                            "mode": "controlled-key",
+                            "prompt_sha256": fallback_prompt_sha256,
+                            "requires_recomputed_attempt_1_pixel_failure": True,
+                        },
+                    ],
+                    "request_recovery": {
+                        "separate_from_source_attempts": True,
+                        "resume_same_provider_request_first": True,
+                        "duplicate_submission_allowed_while_status_unknown": False,
+                        "browser_control_failure_consumes_source_attempt": False,
+                    },
                     "processor": "scripts/prepare_micro_cutout.py",
                     "output_contract": "subject-cutout-rgba8-v1",
                 },

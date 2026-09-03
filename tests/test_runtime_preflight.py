@@ -732,6 +732,7 @@ class RuntimePreflightTests(unittest.TestCase):
         source_root: Path,
         *,
         attempt: int = 1,
+        native_opaque: bool = False,
     ) -> dict:
         action = next(
             item
@@ -751,7 +752,11 @@ class RuntimePreflightTests(unittest.TestCase):
         )
         observed = source_root.resolve() / f"observed-attempt-{attempt}.png"
         if attempt == 1:
-            image = Image.new("RGBA", (440, 400), (0, 0, 0, 0))
+            image = (
+                Image.new("RGB", (440, 400), (246, 246, 246))
+                if native_opaque
+                else Image.new("RGBA", (440, 400), (0, 0, 0, 0))
+            )
             draw = ImageDraw.Draw(image)
             draw.polygon(
                 [
@@ -906,6 +911,20 @@ class RuntimePreflightTests(unittest.TestCase):
             api_actions["connect-wechat-api-provider"]["user_step_if_needed"],
             "authorize-wechat-api-provider",
         )
+        self.assertEqual(
+            api_actions["connect-wechat-api-provider"]["read_only_endpoints"],
+            ["draft/count", "material/get_materialcount"],
+        )
+        self.assertIn(
+            "preflight-account",
+            api_actions["connect-wechat-api-provider"][
+                "preflight_command_template"
+            ],
+        )
+        self.assertIn(
+            "ui-readback",
+            api_actions["connect-wechat-api-provider"]["does_not_prove"],
+        )
 
     def test_codex_chatgpt_rgba_route_is_prepared_before_ardot(self) -> None:
         profile = select_codex_chatgpt_rgba_route(valid_profile())
@@ -952,6 +971,19 @@ class RuntimePreflightTests(unittest.TestCase):
         self.assertIn("validate-current-session-provider-acquisition-chain", action_ids)
         self.assertNotIn("bind-provider-acquisition-policy-hook", action_ids)
         actions = {item["id"]: item for item in report["host_setup_actions"]}
+        self.assertFalse(
+            actions["open-chatgpt-image-session"]["request_recovery"][
+                "duplicate_submission_while_unknown"
+            ]
+        )
+        self.assertEqual(
+            actions["connect-ardot-mcp"]["configured_but_not_model_visible"],
+            "reload-or-open-new-codex-task;repository-cannot-hot-inject-tools",
+        )
+        self.assertIn(
+            "remote-mutation-success",
+            actions["connect-ardot-mcp"]["configuration_or-oauth-does-not-prove"],
+        )
         migration_gate = actions["enforce-migration-rgba-route-gate"]
         self.assertTrue(migration_gate["blocking"])
         self.assertFalse(
@@ -1093,6 +1125,16 @@ class RuntimePreflightTests(unittest.TestCase):
                 "run_attempt_2_only_after_attempt_1_processing_failure"
             ]
         )
+        self.assertFalse(
+            probe_action["attempt_policy"][
+                "attempt_2_requires_new_user_confirmation"
+            ]
+        )
+        self.assertTrue(
+            probe_action["attempt_policy"][
+                "request_recovery_is_separate_from_source_attempt"
+            ]
+        )
         self.assertEqual(len(probe_action["probe_cases"]), 2)
         for case in probe_action["probe_cases"]:
             self.assertEqual(
@@ -1121,6 +1163,8 @@ class RuntimePreflightTests(unittest.TestCase):
         self.assertIsNone(native["key_color"])
         self.assertIn("genuinely transparent background", native["prompt"])
         self.assertIn("nonsemantic calibration mark", native["prompt"])
+        self.assertIn("stroke thickness about 8 percent", native["prompt"])
+        self.assertIn("span 60 to 70 percent", native["prompt"])
         self.assertIn("large open negative spaces", native["prompt"])
         self.assertNotIn("leaf-like ovals", native["prompt"].lower())
         self.assertNotIn("coral", native["prompt"].lower())
@@ -1589,6 +1633,57 @@ class RuntimePreflightTests(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("attempt 1 failure report", result.stdout + result.stderr)
+            self.assertFalse(inputs["output_path"].exists())
+            self.assertFalse(inputs["report_path"].exists())
+
+    def test_migration_probe_native_failure_emits_bound_fallback_action(self) -> None:
+        profile = select_migration_profile(
+            select_codex_chatgpt_rgba_route(valid_profile())
+        )
+        binding = self.run_check(
+            profile, phase="migration", binding_only=True, environment={}
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            external = Path(directory).resolve()
+            inputs = self.create_unprocessed_probe_case(
+                binding, external, native_opaque=True
+            )
+            command = [
+                str(item)
+                .replace("{artifact_root}", str(inputs["artifact_root"]))
+                .replace("{binding_report}", str(inputs["binding_path"]))
+                for item in inputs["case"]["processor_command"]
+            ]
+            cwd = external / "unrelated-project"
+            cwd.mkdir()
+            result = subprocess.run(
+                command, cwd=cwd, check=False, capture_output=True, text=True
+            )
+            self.assertNotEqual(result.returncode, 0)
+            response = json.loads(result.stdout)
+            failure_path = Path(
+                inputs["case"]["failure_report_path"].replace(
+                    "{artifact_root}", str(inputs["artifact_root"])
+                )
+            )
+            failure = json.loads(failure_path.read_text(encoding="utf-8"))
+            fallback = next(
+                item
+                for item in inputs["action"]["probe_cases"]
+                if item["attempt"] == 2
+            )
+            self.assertTrue(response["fallback_eligible"])
+            self.assertFalse(response["requires_new_user_confirmation"])
+            self.assertEqual(response["next_action"], failure["next_action"])
+            self.assertEqual(response["next_action"]["attempt"], 2)
+            self.assertEqual(
+                response["next_action"]["prompt_sha256"],
+                fallback["prompt_sha256"],
+            )
+            self.assertEqual(
+                response["next_action"]["acquisition_mode"],
+                "controlled-key-fallback",
+            )
             self.assertFalse(inputs["output_path"].exists())
             self.assertFalse(inputs["report_path"].exists())
 
@@ -3219,6 +3314,13 @@ class RuntimePreflightTests(unittest.TestCase):
             actions["open-ardot-target"]["expected_result"],
             "blank-design-create-route-ready",
         )
+        create_contract = actions["open-ardot-target"]["create_design_contract"]
+        self.assertEqual(create_contract["mutation_class"], "non-idempotent")
+        self.assertEqual(
+            create_contract["on_timeout_5xx_or_truncated_response"],
+            "create-unknown",
+        )
+        self.assertFalse(create_contract["automatic_retry"])
         self.assertNotIn("open-wechat-account", actions)
         self.assertNotIn("open-chatgpt-image-session", actions)
         self.assertNotIn("run-migration-rgba-route-probe", actions)

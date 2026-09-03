@@ -12,7 +12,10 @@ python3 -I -S "$ORG_WECHAT_SOURCE_ROOT/scripts/release_skills.py" clone-check \
   --phase full
 ```
 
-该检查只证明本地文件、版本与二进制；ChatGPT、Ardot、微信登录和当前文件/账号权限必须继续由本次 Codex 会话的 live probes 证明。
+该检查证明本地文件、版本、锁定依赖字节与脱敏 MCP 配置；如果当前
+模型 registry 已知，还应对每个实际可见 ID 重复加
+`--visible-tool-id ID`。`current_task_reload_required: true` 必须先重载/新开任务。
+ChatGPT、Ardot、微信登录和当前文件/账号权限仍必须由本次 Codex 会话的 live probes 证明。
 
 一套可迁移到不同组织和公众号的 **Codex Desktop + Ardot** 工作流。它把可编辑视觉组件、每个组织的品牌资料、单篇文章事实和最终微信投递适配分开管理。这里的“可迁移”指不同组织与公众号之间的内容/品牌迁移，不代表已经支持任意 LLM 或运行宿主。
 
@@ -51,6 +54,10 @@ python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
   "$ORG_WECHAT_RUNTIME_ROOT/scripts/validate_workflow_attribution.py" handoff.json
 python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
   "$ORG_WECHAT_RUNTIME_ROOT/scripts/wechat_publisher.py" \
+  --store delivery/publisher.sqlite3 preflight-account \
+  --target-account appid:EXACT_APPID --output delivery/account-preflight.json
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/wechat_publisher.py" \
   --store delivery/publisher.sqlite3 prepare-uploads handoff.json \
   --target-account appid:EXACT_APPID --output delivery/upload-map.json
 python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
@@ -86,6 +93,10 @@ python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
 ```bash
 python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
   "$ORG_WECHAT_RUNTIME_ROOT/scripts/validate_workflow_attribution.py" handoff.json
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/wechat_publisher.py" \
+  --store delivery/publisher.sqlite3 preflight-account \
+  --target-account appid:EXACT_APPID --output delivery/account-preflight.json
 python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
   "$ORG_WECHAT_RUNTIME_ROOT/scripts/wechat_publisher.py" \
   --store delivery/publisher.sqlite3 prepare-uploads handoff.json \
@@ -331,6 +342,10 @@ capture-readback --capture-bundle` 链：
 ```bash
 python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
   "$ORG_WECHAT_RUNTIME_ROOT/scripts/wechat_publisher.py" \
+  --store delivery/publisher.sqlite3 preflight-account \
+  --target-account appid:EXACT_APPID --output delivery/account-preflight.json
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/wechat_publisher.py" \
   --store DELIVERY/publisher.sqlite3 capture-raw DRAFT_MEDIA_ID \
   --target-account appid:EXACT_APPID \
   --output "$EXTERNAL_READBACK_ROOT/raw-draft-UNIQUE.json"
@@ -499,16 +514,19 @@ python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
 ```bash
 ORG_WECHAT_SOURCE_ROOT=/ABSOLUTE/SOURCE/CHECKOUT
 (cd "$ORG_WECHAT_SOURCE_ROOT" && python3 -m unittest discover -s tests -p 'test_*.py' -v)
-python3 /path/to/skill-creator/scripts/quick_validate.py "$ORG_WECHAT_SOURCE_ROOT"
-python3 /path/to/skill-creator/scripts/quick_validate.py "$ORG_WECHAT_SOURCE_ROOT/skills/chatgpt-web-image-route"
-python3 /path/to/skill-creator/scripts/quick_validate.py "$ORG_WECHAT_SOURCE_ROOT/skills/ardot-wechat-publisher"
+python3 -I -S "$ORG_WECHAT_SOURCE_ROOT/scripts/release_skills.py" validate-structure
 ```
+
+`validate-structure` 是发布硬门禁，只使用 Python 标准库，不依赖用户环境里
+偶然存在的 `yaml`。`skill-creator/scripts/quick_validate.py` 可在开发环境中作为
+可选交叉检查，但它不是发布真相来源，也不得把 PyYAML 加入生产
+`requirements.txt` 或锁定执行运行时。
 
 跨平台 CI 只运行不依赖真实登录和受信任本机 wheel 的契约测试，并验证未知 OS/Python 会在执行目标前 fail-closed；它不表示 Linux、Windows、Intel Mac 或其他 harness 已获得工作流运行支持。完整发布回归只能在 `runtime/platform-support.json` 已登记、且 `secure_runner.py --platform-audit` 真正通过的 Codex Desktop 运行时执行，不能让 CI 临时生成的 dependency candidate 自动升级信任。
 
 ## 确定性发布与安装
 
-三个 Skill 使用同一份 byte-level release manifest；包内明确排除 `examples/`、`experiments/`、`organizations/`、`output/` 与缓存，因此迁移安装不会顺带携带旧稿视觉。完成全量测试和三次 `quick_validate` 后，为本次版本创建清单：
+三个 Skill 使用同一份 byte-level release manifest；包内明确排除 `examples/`、`experiments/`、`organizations/`、`output/` 与缓存，因此迁移安装不会顺带携带旧稿视觉。完成全量测试和内置 `validate-structure` 后，为本次版本创建清单：
 本节是唯一的源码开发例外：组包必须同时读取仓库中两个 wrapper 源目录，
 因此要显式使用源码 checkout 的绝对根，不使用已安装且故意不含嵌套 wrapper
 的 `ORG_WECHAT_RUNTIME_ROOT`。

@@ -5448,8 +5448,10 @@ def _migration_rgba_probe_cases(
 
     common = (
         "Create one plain, nonsemantic calibration mark: a single connected open test "
-        "stroke in uniform neutral mid-gray #777777. Make the stroke about 8 percent of "
-        "the canvas width and trace an asymmetric near-square path with at least three deep "
+        "stroke in uniform neutral mid-gray #777777. Make the stroke thickness about 8 "
+        "percent of the canvas width; this describes thickness, not the overall mark size. "
+        "Make the complete visible path bounding box span 60 to 70 percent of both the canvas "
+        "width and height. Trace an asymmetric near-square path with at least three deep "
         "inward turns and large open negative spaces; do not close or fill a large region. "
         "It must not resemble any real object, icon, logo, letter, leaf, flower, animal, "
         "robot, device, or brand motif. Use no artistic style, material language, palette, "
@@ -5651,7 +5653,30 @@ def _migration_rgba_probe_action(
             "attempt_2_trigger": (
                 "attempt-1-provider-original-lacks-valid-native-alpha-or-fails-pixel-gate-only"
             ),
+            "attempt_2_trigger_codes": sorted(
+                (
+                    "cutout.source.invalid_native_rgba",
+                    "cutout.source.native_alpha_required",
+                )
+            ),
+            "attempt_2_requires_processor_failure_report": True,
+            "attempt_2_requires_new_user_confirmation": False,
+            "attempt_2_next_action_is_bound_in_failure_report": True,
             "login_captcha_download_repair_consumes_attempt": False,
+            "source_attempt_counts_only_after_original_download": True,
+            "request_recovery_is_separate_from_source_attempt": True,
+            "provider_timeout_recovery": {
+                "states": [
+                    "provider-pending",
+                    "completed-await-download",
+                    "provider-terminal-failed",
+                    "browser-control-unavailable",
+                ],
+                "first_action": "read-only-resume-same-c2c-session-and-request",
+                "duplicate_submission_allowed": False,
+                "terminal_provider_failure_may_retry_same_bound_prompt": True,
+                "browser_transport_failure_requires_host-reload": True,
+            },
             "never_lower_cutout_thresholds": True,
         },
         "visual_context_policy": {
@@ -5854,6 +5879,19 @@ def _build_host_setup_actions(
                     "credential_free_login_entry": EXPECTED_SETUP_LINKS["chatgpt_web"],
                     "blocking": True,
                     "user_step_if_needed": "complete-chatgpt-login-captcha-2fa-or-consent-after-workspace-setup",
+                    "request_recovery": {
+                        "states": [
+                            "provider-pending",
+                            "completed-await-download",
+                            "provider-terminal-failed",
+                            "browser-control-unavailable",
+                        ],
+                        "unknown_or_timeout_first_action": "read-only-resume-same-c2c-session-and-request",
+                        "duplicate_submission_while_unknown": False,
+                        "browser_failure_consumes_source_attempt": False,
+                        "browser_failure_recovery": "reload-host-task-then-reread-same-request",
+                        "provider_terminal_failure_recovery": "resubmit-same-mode-and-exact-bound-prompt-with-new-request-id",
+                    },
                     "expected_result": (
                         "same-provider-session-visible-and-ready-for-image-request;"
                         "base-entry-used-only-for-login-or-c2c-approved-new-long-chat"
@@ -5951,11 +5989,24 @@ def _build_host_setup_actions(
         actions.append(
             {
                 "id": "connect-ardot-mcp",
-                "action": "connect",
+                "action": "diagnose-config-injection-auth-and-target-separately",
                 "url": EXPECTED_SETUP_LINKS["ardot_mcp"],
                 "blocking": True,
                 "user_step_if_needed": "complete-ardot-oauth",
-                "expected_result": "provider-session-callables-visible",
+                "state_model": {
+                    "configured": "codex-mcp-list-get-local-evidence-only",
+                    "model_visible": "required-tool-ids-in-current-task-registry",
+                    "live_authenticated": "same-session-provider-read-only-response",
+                    "target_access_verified": "exact-file-and-root-read",
+                    "last_mutation_outcome": "operation-specific-provider-response",
+                },
+                "configured_but_not_model_visible": "reload-or-open-new-codex-task;repository-cannot-hot-inject-tools",
+                "configuration_or-oauth-does-not-prove": [
+                    "current-task-injection",
+                    "exact-target-access",
+                    "remote-mutation-success",
+                ],
+                "expected_result": "provider-session-callables-visible-before-live-target-probe",
             }
         )
     elif ardot_mode == "ui":
@@ -5978,8 +6029,7 @@ def _build_host_setup_actions(
         ardot_url = safe_links.get(workspace_link) if isinstance(workspace_link, str) else None
         ardot_result = "exact-file-and-root-visible"
     if ardot_url:
-        actions.append(
-            {
+        ardot_action = {
                 "id": "open-ardot-target",
                 "action": "open-or-read",
                 "url": ardot_url,
@@ -5987,7 +6037,20 @@ def _build_host_setup_actions(
                 "user_step_if_needed": "complete-ardot-web-login",
                 "expected_result": ardot_result,
             }
-        )
+        if phase == "bootstrap":
+            ardot_action["create_design_contract"] = {
+                "mutation_class": "non-idempotent",
+                "bind_unique_nonce_and_title_before_call": True,
+                "on_timeout_5xx_or_truncated_response": "create-unknown",
+                "automatic_retry": False,
+                "reconcile_before_retry": [
+                    "reload-provider-task-if-needed",
+                    "read-only-search-for-bound-nonce-or-title",
+                    "ask-user-to-check-ardot-ui-only-if-provider-discovery-is-unavailable",
+                    "create-again-only-after-absence-is-explicitly-established",
+                ],
+            }
+        actions.append(ardot_action)
     if "wechat_delivery" in PHASE_CAPABILITIES[phase]:
         wechat = capabilities.get("wechat_delivery")
         wechat_mode = wechat.get("mode") if isinstance(wechat, dict) else None
@@ -5999,14 +6062,47 @@ def _build_host_setup_actions(
         account_link = wechat.get("account_link") if isinstance(wechat, dict) else None
         account_url = safe_links.get(account_link) if isinstance(account_link, str) else None
         if wechat_mode == "api":
+            publisher_root = runtime_root or Path(__file__).resolve().parent.parent
             actions.append(
                 {
                     "id": "connect-wechat-api-provider",
-                    "action": "connect-api-provider",
+                    "action": "run-read-only-account-preflight",
                     "url": account_url or EXPECTED_SETUP_LINKS["wechat_api"],
                     "blocking": True,
                     "user_step_if_needed": "authorize-wechat-api-provider",
-                    "expected_result": "target-account-and-draft-api-access-visible",
+                    "local_client": "scripts/wechat_publisher.py",
+                    "preflight_command_template": [
+                        "python3",
+                        "-I",
+                        "-S",
+                        str(publisher_root / "scripts" / "secure_runner.py"),
+                        str(publisher_root / "scripts" / "wechat_publisher.py"),
+                        "--store",
+                        "{external_session_root}/publisher.sqlite3",
+                        "preflight-account",
+                        "--target-account",
+                        "{exact_account_ref}",
+                        "--output",
+                        "{external_session_root}/wechat-account-preflight.json",
+                    ],
+                    "read_only_endpoints": [
+                        "draft/count",
+                        "material/get_materialcount",
+                    ],
+                    "failure_classes": [
+                        "credentials-missing",
+                        "account-mismatch",
+                        "api-unreachable",
+                        "permission-denied",
+                        "ui-readback-route-missing",
+                    ],
+                    "does_not_prove": [
+                        "upload-permission",
+                        "draft-write-permission",
+                        "ui-readback",
+                        "publication-permission",
+                    ],
+                    "expected_result": "exact-target-account-draft-and-material-read-access-visible-with-zero-mutations",
                 }
             )
             if isinstance(

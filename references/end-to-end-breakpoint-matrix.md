@@ -8,11 +8,14 @@
 | 平台 | OS/Python/wheel 与锁定字节不一致 | `secure_runner.py --platform-audit` 核对 `platform-support.json` 和依赖分发文件 | 仅生成 candidate，经独立审查后才能更新信任锁 | CI 或未知平台不得自动晋升为 trusted |
 | 启动 | 不知道需要哪些 Skill、工具、链接、登录或密钥 | `build-census` 从已验证安装包与 host registry 生成能力快照；`init-profile` 只接收紧凑 target，并分开草稿 API、宿主 current-session authority、portable signer 与 UI live route | 按报告的有序 `host_setup_actions` 预备，只在真实登录/2FA 阻断时请用户一次处理 | 手填 `loaded/available`、带 token URL、Cookie 或密钥值不得入档；`wechat.draft` 不等于 live publish authority |
 | 克隆/宿主 | 把 schema 可移植性误当成其他 LLM/harness 已可运行，或把 shell 当成生图/Browser | `clone-check` 声明 Codex-only、锁定平台、外部 C2C 与 live login 条件；runtime census 再验证当前会话 | 当前 release 直接停止；未来必须发布审核 adapter、登录路线、全量前向测试和新锁 | 本地文件、同名工具或像素报告不能冒充受支持 Codex 宿主与真实生成/下载事件 |
+| 连接状态 | 把 MCP 本机配置、当前任务注入、OAuth/目标权限和单次变更成功混为一件事 | `clone-check` 脱敏读本地配置；current-session census 核对实际 tool IDs；live read 核对精确 file/root；变更需确定 provider 响应 | 配置有但当前任务未注入时重载/新开任务；认证失败才重 OAuth | `codex mcp list` 的 OAuth 字样不证明目标可读；当前 registry 无 tool 时不得继续 |
+| Ardot 创建 | `create_design` 超时后盲目重试，生成重复文件 | 创建前绑定 nonce/唯一标题；超时、5xx、截断响应记为 `create-unknown` | 恢复后先只读搜索或用户 UI 对账；明确不存在才可再创建 | 无 file URL/root 的运输失败不等于“未创建” |
 | 审计等级 | 缺 `host.receipt.attest`、`host.migration.finalize` 或 `filesystem.access.lease` | 报告分开 `operational_ready` / `phase_ready` / `portable_audit_verified` | 同一可见宿主会话可继续；只是不得声称 host-enforced 或 portable signed audit | 这些缺失不是登录错误，也不得单独阻断当次发布 |
 | source-zero | 旧稿、其他组织、examples 或 output 污染视觉 | 真实路径/父级 symlink/字节 SHA 白名单，中英文旧稿目录排除 | 只使用当次 `inputs/current` 与本组织 pack；明确风格参考只提取抽象 grammar | 不得打开旧推文“找感觉”；release 不打包历史目录 |
 | 组织迁移 | 只换 Logo/颜色，或复用上一公众号的设计 | `orgs.py validate` 检查组织事实、视觉校准、Ardot root 和资产归属 | 从 provisional pack 与 2–3 组小样重新校准 | 旧 organization pack 不得作为新组织的品牌依据 |
 | 资产职责 | 用 AI 图冒充活动证据，或把真实照片当装饰底图 | `asset_role_policy.py` 强制单一 role、origin 与使用场景 | 真照片只承担纪实证据；AI 只承担抽象底图或明确的插画/解释职责 | 生成/派生图永远不得标成 documentary photo |
 | RGBA 源 | provider 宣称透明，实际是 RGB、假棋盘或整片白底 | Browser 原图 create-once 摄取固定源 SHA/bytes；`prepare_micro_cutout.py --require-native-alpha` 检查真 Alpha | 原生 Alpha 失败时，只允许当前 slot 再生成一张受控键色源并本地转 RGBA | 不使用截图、预览 canvas、剪贴板图或远程 URL |
+| 生图超时 | provider 仍在生成或 Browser 断线，却被当成像素失败、重复发请求 | 分开 `provider-pending` / `completed-await-download` / `provider-terminal-failed` / `browser-control-unavailable`，恢复事件不计 source attempt | 先只读恢复同一 C2C session/request；明确 terminal failure 才可以同 mode/同 prompt 新 request ID 重提 | 未知状态禁止重复提交；登录/超时不解锁 controlled-key fallback |
 | 正式生图采集 | 操作者手写 provider ledger/route/host trace，或把 Python callback 冒充宿主签名 | acquisition v2 绑定 verified release census、adapter route、完整同会话 migration、每次 canonical request、create-once ingestion/raw SHA+bytes 和 RGBA 像素链；prepare/register/pack/ready 全部重验 | current-session 可 operational accept，但固定 operator/harness-trusted、`host_attested=false`、`portable=false`；可选 callback 只能 veto；portable 由受保护 Ed25519 双签名升级 | 旧 v1、伪 route、raw/像素篡改、callback 否决仍阻断；`lambda True` 绝不得产生鉴真或可携带宣称 |
 | 抠图 | 透明通道存在，但边缘有白边/色 halo/烟雾/碎片，或底板仍在 | RGBA8、非零 Alpha、紧裁切、open-edge、matte/halo/debris 与三底像素验收 | 重生成一次受控源；不能降低门槛修补 | “看起来透明”不等于可进 Ardot |
 | 四类微组件 | 组件少于四类、重复、带底板或变成一张通栏大图 | 四个 distinct derived SHA + `floating-spot` / `section-transition` / `inline-explainer` / `closing-motif` 的 Ardot node/asset 证据 | 拒绝进入全文装配，先重做缺失的组件 | 装饰、艺术字或交互子实例不得凑数 |
@@ -40,3 +43,7 @@
 - `published`：只在官方 `freepublish/get` 返回终态成功且含文章 URL 时使用。
 
 任何未列明的外部前置（真实账号权限、登录/2FA、精确 Ardot file/root、微信 AppID/AppSecret 授权、真机 iOS/Android 验证）都应由启动报告事先列出，而不是等到交付末端才暴露。
+
+追加式 Markdown 问题日志只保留历史。当前状态必须由同 release、workspace、
+task/session、phase 与 provider scope 的最新 clone-check/census/live probe 投影；旧日志、
+旧 memory 或不同 session 的“已解决”不参与机器门禁。

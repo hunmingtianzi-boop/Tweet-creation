@@ -550,6 +550,11 @@ def validate_provider_acquisition_bundle(
     for attempt in attempts:
         index = attempt.get("attempt_index")
         mode = attempt.get("mode")
+        attempt_prompt_sha256 = attempt.get("prompt_sha256")
+        if not SHA256.fullmatch(str(attempt_prompt_sha256 or "")):
+            structural_errors.append(
+                f"acquisition attempt {index} prompt_sha256 is invalid"
+            )
         expected_metadata = article_request_metadata(
             binding_nonce=str(binding_nonce),
             binding_digest=str(binding_digest),
@@ -558,7 +563,7 @@ def validate_provider_acquisition_bundle(
             attempt_index=index if isinstance(index, int) else -1,
             acquisition_mode=str(mode),
             generation_route_id=generation_route,
-            prompt_sha256=prompt_sha256,
+            prompt_sha256=str(attempt_prompt_sha256),
         )
         request_metadata_sha = _canonical_sha256(expected_metadata)
         if attempt.get("request_metadata_sha256") != request_metadata_sha:
@@ -638,11 +643,31 @@ def validate_provider_acquisition_bundle(
             structural_errors.append(
                 "accepted acquisition ingestion target is not the exact processor source file"
             )
+        recomputed_native_failure = None
+        if attempt.get("outcome") == "rejected":
+            if mode != "native-alpha":
+                structural_errors.append(
+                    f"acquisition attempt {index} rejected outcome is not a native-alpha attempt"
+                )
+            if raw_path is not None:
+                from asset_quality import classify_native_alpha_failure
+
+                recomputed_native_failure = classify_native_alpha_failure(raw_path)
+                if recomputed_native_failure is None:
+                    structural_errors.append(
+                        f"acquisition attempt {index} raw bytes do not reproduce an allowed native Alpha/pixel failure"
+                    )
+                elif attempt.get("failure_code") != recomputed_native_failure:
+                    structural_errors.append(
+                        f"acquisition attempt {index} failure_code does not match the recomputed raw-pixel failure"
+                    )
         attempt_bindings.append(
             {
                 "attempt_index": index,
                 "mode": mode,
                 "outcome": attempt.get("outcome"),
+                "prompt_sha256": attempt_prompt_sha256,
+                "recomputed_native_failure": recomputed_native_failure,
                 "provider_request_id": attempt.get("provider_request_id"),
                 "observed_download_id": observed_id,
                 "request_metadata_sha256": request_metadata_sha,

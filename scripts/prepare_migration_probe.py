@@ -22,7 +22,6 @@ from prepare_micro_cutout import (
     NATIVE_FAILURE_CODES,
     CutoutPreparationError,
     _prepare_micro_cutout,
-    _validate_native_source_safety,
 )
 
 
@@ -297,21 +296,9 @@ def _validate_ingestion(
 
 
 def _recompute_native_failure(source: Path) -> str | None:
-    from PIL import Image
+    from asset_quality import classify_native_alpha_failure
 
-    try:
-        with Image.open(source) as opened:
-            opened.load()
-            if opened.format != "PNG" or opened.mode not in {"RGB", "RGBA"}:
-                return None
-            if opened.mode != "RGBA" or opened.getchannel("A").getextrema()[0] == 255:
-                return "cutout.source.native_alpha_required"
-    except OSError:
-        return None
-    safety = _validate_native_source_safety(source)
-    if not safety.get("ok"):
-        return "cutout.source.invalid_native_rgba"
-    return None
+    return classify_native_alpha_failure(source)
 
 
 def _validate_previous_failure(
@@ -416,6 +403,32 @@ def _write_failure(
         "processor_script": "scripts/prepare_migration_probe.py",
         "processor_script_sha256": _sha256(Path(__file__).resolve()),
         "error": {"code": error.code, "message": str(error)},
+        "fallback_eligible": True,
+        "requires_new_user_confirmation": False,
+        "next_action": {
+            "attempt": 2,
+            "acquisition_mode": "controlled-key-fallback",
+            "prompt_sha256": next(
+                (
+                    item.get("prompt_sha256")
+                    for item in (
+                        next(
+                            (
+                                action.get("probe_cases")
+                                for action in binding.get("host_setup_actions", [])
+                                if isinstance(action, dict)
+                                and action.get("id") == PROBE_ACTION_ID
+                            ),
+                            [],
+                        )
+                    )
+                    if isinstance(item, dict) and item.get("attempt") == 2
+                ),
+                None,
+            ),
+            "failure_report": str(path),
+            "processor_command_source": "binding-report-attempt-2",
+        },
         "create_once": True,
         "migration_only": True,
         "article_asset_authority": False,
@@ -594,7 +607,32 @@ def main() -> int:
         )
     except (OSError, MigrationProbeError, CutoutPreparationError) as exc:
         code = exc.code if isinstance(exc, CutoutPreparationError) else "migration.probe.invalid"
-        print(json.dumps({"ok": False, "error_code": code, "error": str(exc)}, ensure_ascii=False))
+        response: dict[str, Any] = {
+            "ok": False,
+            "error_code": code,
+            "error": str(exc),
+        }
+        if args.attempt == 1 and args.failure_report is not None:
+            try:
+                failure_payload = json.loads(
+                    args.failure_report.read_text(encoding="utf-8")
+                )
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                failure_payload = None
+            if (
+                isinstance(failure_payload, dict)
+                and failure_payload.get("kind") == FAILURE_KIND
+                and failure_payload.get("fallback_eligible") is True
+            ):
+                response.update(
+                    {
+                        "fallback_eligible": True,
+                        "requires_new_user_confirmation": False,
+                        "failure_report": str(args.failure_report.absolute()),
+                        "next_action": failure_payload.get("next_action"),
+                    }
+                )
+        print(json.dumps(response, ensure_ascii=False))
         return 1
     print(
         json.dumps(

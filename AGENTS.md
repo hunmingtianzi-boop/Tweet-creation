@@ -14,6 +14,11 @@ Before any task that will read organization source material, create visuals, ope
      --phase full
    ```
 
+   When the current model registry is available, append one
+   `--visible-tool-id ID` for every actually visible phase tool. If the report
+   says `current_task_reload_required: true`, reload or open a new Codex task
+   and rerun it; repository code cannot hot-inject an MCP route.
+
 4. Require the same-release `org-wechat-studio`, `chatgpt-web-image-route`, and `ardot-wechat-publisher` Skills. For phases that need generation, require the external `codex-with-chatgpt` Skill, built checkout, exact-workspace binding, and a logged-in ChatGPT session in the Codex built-in Browser. For phases that need design, require Ardot Remote OAuth/web login and exact file/root authority. For `delivery` or `full`, separately require the exact WeChat account session or execution-time API route.
 5. Treat `clone-check` as local evidence only. It cannot prove current Browser login, Ardot/WeChat identity, exact file/root access, or authorization to write/publish. Close those conditions with the current Codex session's runtime preflight and live probes.
 

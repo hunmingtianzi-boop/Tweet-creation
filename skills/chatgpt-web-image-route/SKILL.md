@@ -57,6 +57,12 @@ and invoke every shared script by its absolute path.
 - Work from one approved visual-kit slot or background-family brief at a time.
   Do not paste the whole article, repository files, old visual references, or
   another organization pack into ChatGPT.
+- The storyboard, interaction plan, and four slot briefs share one
+  digest-bound article approval. Generate the four approved slots continuously;
+  never ask for a new confirmation per slot. The already-bound controlled-key
+  fallback also needs no new confirmation after the processor proves the first
+  raw pixel failure. Only a substantive subject/style/scope change or a real
+  login/CAPTCHA/2FA/consent wall interrupts for user input.
 - Keep a single article's background family and micro assets in the same image
   conversation so palette and material language remain coherent.
 - For an article micro asset, first request one isolated, text-free subject as
@@ -80,6 +86,16 @@ and invoke every shared script by its absolute path.
   metadata, and the create-once Browser ingestion report whose target is the
   exact raw source. A v1 ledger or self-written provider/trace/callback field is
   diagnostic only and cannot unlock a formal asset.
+- Store a distinct `prompt_sha256` on every native/fallback attempt and bind it
+  into that attempt's canonical request metadata and ingestion report. The
+  acquisition top-level and cutout derivation prompt SHA must equal the
+  accepted attempt. The validator reopens the rejected native raw and
+  recomputes its allowed pixel failure; `failure_code` is never trusted alone.
+- Track provider/browser recovery separately from source attempts. For a
+  pending or unknown request, reread the same C2C session/request before doing
+  anything else and never submit a duplicate. Browser transport recovery and
+  login do not spend an attempt. Only an explicit provider-terminal failure may
+  resubmit the exact bound prompt with a new request ID.
 - For a micro asset, run the repository's secure
   `scripts/prepare_micro_cutout.py` route. Attempt 1 must use
   `--require-native-alpha`: a genuine native-alpha PNG passes normalization and
