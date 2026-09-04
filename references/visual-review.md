@@ -18,10 +18,12 @@
 
 ## 微组件节点证据
 
-schema v3 新增 `micro_component_layout`，不接受手填 `image_width_ratio`、`horizontal_offset_ratio`、`font_size` 或 `enclosure: none`。先从当前 article root 导出两类本地 JSON：
+schema v3 以 `production_preferences.micro_component_count` 和 `article.visual_kit.selected_roles` 决定 `micro_component_layout` 的范围。数量 `N > 0` 时，不接受手填 `image_width_ratio`、`horizontal_offset_ratio`、`font_size` 或 `enclosure: none`，必须从当前 article root 导出两类本地 JSON：
 
-1. `ardot-article-instance-inventory`：列出文章中所有由四类 visual-kit component definitions 产生的实际 `instance_node_id` 与 `source_component_node_id`。相同 role 可以出现多次，但 placements 必须完整覆盖 inventory，不能抽样。
+1. `ardot-article-instance-inventory`：列出文章中所有由已选 visual-kit component definitions 产生的实际 `instance_node_id` 与 `source_component_node_id`。相同 role 可以出现多次，但 placements 必须完整覆盖 inventory，不能抽样。
 2. `ardot-node-properties`：每个实例一份，包含 390 px article root、instance bounds，以及所有可见 image/illustration、text、closed-shape、vector-accent 子节点的 node ID、bounds、font size、fill alpha 与 stroke width。顶层必须声明 `complete_descendant_census: true`，且 `visible_descendant_count` 必须等于 `nodes` 长度；未知节点类型、漏报节点和 closed-shape 缺少可见性字段均失败。每个 image/illustration node 还必须记录已批准 cutout 的 `asset_id`、`asset_sha256`、`rendered_asset_file` 与 `rendered_asset_sha256`；rendered 文件必须留在该 node-properties 所在 visual-review bundle 内，实际 SHA 必须与已批准 cutout 完全一致。任何可见 closed-shape 单独或合并覆盖 image/illustration 80% 以上均视为禁止 backplate。文件必须记录 SHA-256，并与对应 390 px 截图哈希绑定。
+
+`N = 0` 时，`micro_component_layout` 可缺省或提供空 placements/inventory，不得为了凑证据插入通用装饰、旧稿资产或色块。
 
 `horizontal_offset_ratio` 由校验器按 `(instance_center_x / 390) - 0.5` 计算；图片与组件宽度也由 bounds 除以 390 得到。`closed-shape` 只用于真实闭合容器；字形轮廓或偏移层使用 `vector-accent`，不得伪报为开放点缀。
 
@@ -86,15 +88,15 @@ Inventory 与逐实例文件的最小规范：
 
 可见的矩形、圆角矩形、椭圆底板、chip 或 badge 一律归一化为 `kind: closed-shape`，并写入数值型 `fill_alpha` 与 `stroke_width_px`；缺报可见闭合节点等同伪造证据。沿字形的轮廓/偏移层和开放线条归入 `vector-accent`，并显式写入 `is_closed: false`。
 
-校验器从这些文件强制得到：图片层宽度 `<= 0.72`、整个实例宽度 `<= 0.82`；四类角色至少分布在三个截图区段，同时有左右偏移、三个不同偏移、三个构图关系和可见尺度变化。含字实例不得有任何可见 `closed-shape` 包围文字；`primary-copy` 必须是原生 text node，至少 22 px、至少为同截图 density 正文的 1.35 倍，并使用 `scale-contrast` 加另一种非框体强调手法。
+校验器从这些文件强制得到：图片层宽度 `<= 0.72`、整个实例宽度 `<= 0.82`；已选数量 `N` 的布局证据至少分布在 `min(3, N)` 个截图区段，并有同样数量的不同偏移与构图关系。`N >= 2` 时还需同时有左右偏移和可见尺度变化。含字实例不得有任何可见 `closed-shape` 包围文字；`primary-copy` 必须是原生 text node，至少 22 px、至少为同截图 density 正文的 1.35 倍，并使用 `scale-contrast` 加另一种非框体强调手法。
 
 以下检查必须全部为 `pass`：
 
-`subject_relevance`, `style_coherence`, `no_clipped_ornaments`, `scale_variation`, `photo_illustration_harmony`, `no_generic_ai_decoration`, `no_unexplained_labels`, `editorial_rhythm`, `mobile_legibility`, `open_composition`, `information_density`, `background_family_coherence`, `background_surface_unity`, `reading_surface_contrast`, `expressive_typography`, `art_type_construction`, `no_baked_art_text`, `no_framed_micro_copy`, `no_full_width_micro_image`, `staggered_micro_composition`, `micro_copy_hierarchy`.
+`subject_relevance`, `style_coherence`, `no_clipped_ornaments`, `scale_variation`, `photo_illustration_harmony`, `no_generic_ai_decoration`, `no_unexplained_labels`, `editorial_rhythm`, `mobile_legibility`, `open_composition`, `information_density`, `background_surface_unity`, `reading_surface_contrast`, `expressive_typography`, `art_type_construction`, `no_baked_art_text`。`generate_backgrounds: true` 时另需 `background_family_coherence`；`N > 0` 时另需 `no_framed_micro_copy`, `no_full_width_micro_image`, `staggered_micro_composition`, `micro_copy_hierarchy`。
 
-`background_surface_unity` 确认整篇没有黑/白大色块跳变，所有底图仍属于校准过的同一明暗面与材质家族。`reading_surface_contrast` 确认叠字后的实际截图中正文没有与底图重合、吞字或低于 4.5:1。`expressive_typography` 确认标题字有节制地出现在高影响位置，字重、断行、层级和组织性格匹配，不侵入正文阅读。`art_type_construction` 确认每个艺术字时刻确实组合了批准 recipe 的至少两种非字体手法和足够的可编辑图层，而不是只换字体。`no_baked_art_text` 确认标题仍是 Ardot 可编辑文本节点，不是 AI 生成字图、扁平图片或仅轮廓存档。
+`background_surface_unity` 确认整篇没有黑/白大色块跳变。`generate_backgrounds: true` 时，底图必须属于校准过的同一明暗面与材质家族；`false` 时，验收同一 route 的 Ardot 原生 surfaces/渐变/可编辑矢量层的连续性。`reading_surface_contrast` 确认叠字后的实际截图中正文没有与底层重合、吞字或低于 4.5:1。`expressive_typography` 确认标题字有节制地出现在高影响位置，字重、断行、层级和组织性格匹配，不侵入正文阅读。`art_type_construction` 确认每个艺术字时刻确实组合了批准 recipe 的至少两种非字体手法和足够的可编辑图层，而不是只换字体。`no_baked_art_text` 确认标题仍是 Ardot 可编辑文本节点，不是 AI 生成字图、扁平图片或仅轮廓存档。
 
-四个新增 micro checks 不是独立的人工通行证：只要 inventory、node export、截图哈希或派生几何/字号失败，整个 review 仍失败，即使 `checks` 中写了 `pass`。
+`N > 0` 时的 micro checks 不是独立的人工通行证：只要 inventory、node export、截图哈希或派生几何/字号失败，整个 review 仍失败，即使 `checks` 中写了 `pass`。
 
 不再接受字符串 `"pass"`。每个主观项是证据对象：`status: pass`、当前 `evidence_node_ids`、精确对应的 `screenshot_sha256s`、`reviewer.kind/id` 和带时区 `reviewed_at`。字号、行高、字距、段距、major gap、占用率、最大空洞和对比度从 census 节点重算；全篇无框/错落和艺术字也从全量 node census 而非手填 ratio 验收。
 

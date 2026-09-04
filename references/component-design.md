@@ -46,7 +46,7 @@ Treat a micro component as an editorial accent that enters the reading flow, not
 
 - no raster/illustration layer may exceed `0.72` of the 390 px row;
 - the complete native group may not exceed `0.82` of the row;
-- the four mandatory roles must appear across at least three reviewed sections, use both left and right offsets, at least three distinct offsets, at least three composition relations, and visibly different scales;
+- every role selected by `visual_kit.selected_roles` must appear; require `min(3, count)` reviewed sections, distinct offsets, and composition relations; when count is 2–4, use both left and right offsets and visibly different scales;
 - use `text-edge-entry`, `between-paragraphs`, `continuous-path`, `chapter-bridge`, and `cta-anchor` as placement relationships rather than centering every item in its own horizontal band;
 - never flatten the illustration and its copy into one image.
 
@@ -54,18 +54,18 @@ If a native micro component carries copy, emphasize the primary phrase with scal
 
 ## Interaction rhythm
 
-- 常规文章默认 2–3 个 semantic interaction modules；2 个分布在 `early` + `middle`，3 个再增加 `late`，每个属于不同 storyboard chapter。
+- `production_preferences.use_svg: true` 时规划 2–3 个 semantic interaction modules；2 个分布在 `early` + `middle`，3 个再增加 `late`，每个属于不同 storyboard chapter。选择 `false` 时使用零模块 `static-selected`。
 - 一个 module 是一个连续版面区域与一个读者任务。四张部门揭开卡是一个 module、四个 transport instances；照片横滑组整体是一个 module。
 - 每个 module 必须解决按需展开、顺序/并列浏览或逐步解释中的一种。纯装饰运动、文章专属微插图和表现型字体不计数。
 - module 内可以组合 `svg-smil-self` 与 `horizontal-swipe`，但每个实际 instance 都有独立 fallback key/hash 和静态等价内容。
 - 交互不豁免开放式构图、20% 方框比例与禁止连续盒子的规则。不要把 2–3 个 module 排成相邻组件墙。
-- 原文只有 0–1 个合理机会时，记录 user/editor-confirmed `static-exception`；不得拆分同一区域、重复文案或隐藏必要事实来凑数。
+- 已选择 SVG 但原文后续证明只有 0–1 个合理机会时，才记录 user/editor-confirmed `static-exception`；不得拆分同一区域、重复文案或隐藏必要事实来凑数。
 
 详见 [interaction-composition.md](interaction-composition.md)。
 
 ## Image slots
 
-- Mandatory micro kit: floating spot, section transition, inline explainer, and closing motif; four different article-specific generated assets, each with verified Alpha and a native Ardot component node.
+- Select 0–4 roles from floating spot, section transition, inline explainer, and closing motif after the storyboard. Every selected role uses a different article-specific source and a strict final RGBA8 derivative with a native Ardot component node; count zero creates none.
 - Hero background: 2:3 portrait, subject weighted to one side, large title-safe zone.
 - Section opener: 3:2 landscape, one clear subject, no embedded copy.
 - Gallery: consistent photographic treatment; do not mix generated illustration with documentary evidence in one gallery.

@@ -219,6 +219,7 @@ class PrepareMicroCutoutTests(unittest.TestCase):
         source: Path,
         *,
         mode: str,
+        direct_controlled_key: bool = False,
         article_id: str = ARTICLE_ID,
         asset_slot_id: str = ASSET_SLOT_ID,
     ) -> Path:
@@ -234,7 +235,7 @@ class PrepareMicroCutoutTests(unittest.TestCase):
         first_downloaded_at = completed_at - timedelta(minutes=2)
         accepted_downloaded_at = completed_at - timedelta(minutes=1)
         attempts = []
-        if mode == "controlled-key":
+        if mode == "controlled-key" and not direct_controlled_key:
             rejected_download = provider_root / f"{source.stem}-native.png"
             Image.new("RGB", (512, 512), (246, 246, 246)).save(rejected_download)
             rejected_target = source.with_name(source.stem + "-native-rejected.png")
@@ -401,6 +402,70 @@ class PrepareMicroCutoutTests(unittest.TestCase):
                 all(pixel[:3] == (0, 0, 0) for pixel in image.getdata() if pixel[3] == 0)
             )
         self.assertNotEqual(source.read_bytes(), output.read_bytes())
+
+    def test_direct_controlled_key_source_can_be_the_real_first_attempt(self) -> None:
+        source, output, report = self._paths("direct-controlled")
+        write_controlled_source(source)
+        acquisition_path = self._acquisition(
+            source,
+            mode="controlled-key",
+            direct_controlled_key=True,
+        )
+        acquisition = json.loads(acquisition_path.read_text(encoding="utf-8"))
+        self.assertEqual(len(acquisition["attempts"]), 1)
+        self.assertEqual(acquisition["attempts"][0]["mode"], "controlled-key")
+
+        result = prepare_micro_cutout(
+            source,
+            output,
+            report,
+            role="floating-spot",
+            article_id=ARTICLE_ID,
+            asset_slot_id=ASSET_SLOT_ID,
+            prompt_sha256=PROMPT_SHA,
+            generation_route=ROUTE,
+            acquisition_report_path=acquisition_path,
+            key_color="#FF00FF",
+        )
+
+        self.assertTrue(result["final_validation"]["ok"], result)
+        self.assertTrue(validate_micro_asset(output, "floating-spot")["ok"])
+
+    def test_direct_controlled_key_first_attempt_does_not_bypass_source_gate(self) -> None:
+        source, output, report = self._paths("direct-controlled-nonuniform")
+        image = Image.new("RGB", (512, 512))
+        pixels = image.load()
+        for y in range(512):
+            for x in range(512):
+                pixels[x, y] = (255, min(150, x // 3), max(105, 255 - y // 3))
+        source.parent.mkdir(parents=True, exist_ok=True)
+        image.save(source)
+        acquisition = self._acquisition(
+            source,
+            mode="controlled-key",
+            direct_controlled_key=True,
+        )
+
+        with self.assertRaises(CutoutPreparationError) as failure:
+            prepare_micro_cutout(
+                source,
+                output,
+                report,
+                role="floating-spot",
+                article_id=ARTICLE_ID,
+                asset_slot_id=ASSET_SLOT_ID,
+                prompt_sha256=PROMPT_SHA,
+                generation_route=ROUTE,
+                acquisition_report_path=acquisition,
+                key_color="#FF00FF",
+            )
+
+        self.assertIn(
+            failure.exception.code,
+            {"cutout.source.background_not_uniform", "cutout.source.key_mismatch"},
+        )
+        self.assertFalse(output.exists())
+        self.assertFalse(report.exists())
 
     def test_same_source_and_config_produce_identical_png_bytes(self) -> None:
         first, source, first_output, _ = self._prepare("first")

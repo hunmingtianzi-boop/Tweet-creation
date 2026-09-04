@@ -29,12 +29,16 @@
       },
       "output_contract": "subject-cutout-rgba8-v1",
       "processor": "scripts/prepare_micro_cutout.py",
-      "acquisition_preference": "native-alpha-first-controlled-key-fallback-only",
-      "preferred_processor_arg": "--require-native-alpha",
-      "fallback_processor_arg": "--key-color",
+      "acquisition_preference": "native-alpha-or-controlled-key-per-real-asset",
+      "allowed_initial_modes": ["native-alpha", "controlled-key"],
+      "processor_args_by_mode": {
+        "native-alpha": ["--require-native-alpha"],
+        "controlled-key": ["--key-color", "<slot-controlled-key-color>"]
+      },
       "migration_probe_contract": "neutral-rgba-route-probe-v1",
+      "migration_probe_default": "disabled-explicit-legacy-diagnostics-only",
       "generation_route_id": "chatgpt-web-image-route-v1",
-      "live_proof": "migration-neutral-probe-plus-independent-first-official-asset-lineage"
+      "live_proof": "runtime-session-binding-plus-independent-per-real-asset-lineage"
     },
     "image.provider.acquire.authority": {
       "route": "optional-trusted-harness-policy-hook",

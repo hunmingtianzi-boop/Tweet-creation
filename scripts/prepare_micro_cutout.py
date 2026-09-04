@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Create a deterministic true-alpha micro cutout from a controlled PNG source.
 
-The preferred source is a provider-original PNG with genuine native Alpha.  Use
-``--require-native-alpha`` to make that first route fail rather than infer a
-background.  An explicitly selected fallback opaque source must use a
-near-monochrome chroma-key background; arbitrary photographs and complex scenes
-deliberately fail so the workflow can regenerate instead of silently
-manufacturing a bad mask.
+Each real article component explicitly selects one of two raw-source routes:
+``--require-native-alpha`` verifies provider-original transparency without
+inferring a background, while ``--key-color`` accepts only a deliberately
+uniform, safely removable chroma-key background.  Either route may be the first
+article-specific attempt.  Both converge on the same strict final RGBA8 gate;
+arbitrary photographs and complex scenes fail instead of being force-masked.
 """
 
 from __future__ import annotations
@@ -182,7 +182,7 @@ def validate_acquisition_report(
     portable_trust_store: Path | None = None,
     require_authority: bool = True,
 ) -> dict[str, Any]:
-    """Validate provider/download provenance and native-first attempt order."""
+    """Validate provider/download provenance and the selected real-asset route."""
 
     errors: list[str] = []
     if report_path.is_symlink():
@@ -227,10 +227,11 @@ def validate_acquisition_report(
         if isinstance(attempts_raw, list)
         else []
     )
-    expected_count = 1 if expected_mode == "native-alpha" else 2
-    if len(attempts) != expected_count or len(attempts) != len(attempts_raw or []):
+    valid_counts = {1} if expected_mode == "native-alpha" else {1, 2}
+    if len(attempts) not in valid_counts or len(attempts) != len(attempts_raw or []):
+        expected_label = "1" if expected_mode == "native-alpha" else "1 or 2"
         errors.append(
-            f"acquisition attempt ledger must contain exactly {expected_count} ordered attempts"
+            f"acquisition attempt ledger must contain exactly {expected_label} ordered attempts"
         )
     request_ids: set[str] = set()
     accepted: dict[str, Any] | None = None
@@ -275,13 +276,26 @@ def validate_acquisition_report(
             if first.get("mode") != "native-alpha" or first.get("outcome") != "accepted":
                 errors.append("native-alpha route requires one accepted native attempt")
     else:
-        if len(attempts) >= 1:
+        if len(attempts) == 1:
+            first = attempts[0]
+            if first.get("mode") != "controlled-key" or first.get("outcome") != "accepted":
+                errors.append(
+                    "single-attempt controlled-key route requires one accepted controlled-key source"
+                )
+            if first.get("key_color") != key_color:
+                errors.append(
+                    "controlled-key acquisition key_color does not match processor configuration"
+                )
+        elif len(attempts) >= 2:
             first = attempts[0]
             if first.get("mode") != "native-alpha" or first.get("outcome") != "rejected":
-                errors.append("controlled-key fallback requires a rejected native-alpha attempt first")
+                errors.append(
+                    "two-attempt controlled-key route requires a rejected native-alpha attempt first"
+                )
             if first.get("failure_code") not in NATIVE_FAILURE_CODES:
-                errors.append("controlled-key fallback requires a real native Alpha/pixel gate failure code")
-        if len(attempts) >= 2:
+                errors.append(
+                    "two-attempt controlled-key route requires a real native Alpha/pixel gate failure code"
+                )
             second = attempts[1]
             if second.get("mode") != "controlled-key" or second.get("outcome") != "accepted":
                 errors.append("the second and final attempt must be an accepted controlled-key source")
@@ -921,12 +935,12 @@ def _prepare_micro_cutout(
     if key_color is not None and has_native_alpha:
         raise CutoutPreparationError(
             "cutout.source.route_mismatch_native_rgba",
-            "controlled-key attempt downloaded real native RGBA; rerun as the native-alpha route instead of emitting a dead fallback report",
+            "controlled-key attempt downloaded real native RGBA; rerun it as the explicit native-alpha route instead of mislabelling the processor path",
         )
     if require_native_alpha and not has_native_alpha:
         raise CutoutPreparationError(
             "cutout.source.native_alpha_required",
-            "preferred native-alpha attempt did not download a PNG with real transparent pixels; "
+            "native-alpha attempt did not download a PNG with real transparent pixels; "
             "do not infer or remove a background in this attempt",
         )
     if has_native_alpha:

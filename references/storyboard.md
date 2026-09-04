@@ -1,6 +1,6 @@
 # 叙事分镜
 
-先把文章拆成 4–10 个“读者此刻需要理解什么”的章节，再选组件。不要把每个 JSON block 当作一张卡。分镜批准后，从不同章节选出常规文章默认的 2–3 个 interaction opportunities；一个机会必须对应一个读者任务和一组明确 source blocks，不按子卡或 SVG 数量计数。
+先把文章拆成 4–10 个“读者此刻需要理解什么”的章节，再选组件。不要把每个 JSON block 当作一张卡。分镜批准后，再实现启动时确认的选项：`use_svg: true` 时从不同章节选出 2–3 个 interaction opportunities，`false` 时不选交互模块。一个机会必须对应一个读者任务和一组明确 source blocks，不按子卡或 SVG 数量计数。
 
 每个 `storyboard.chapters[]` 需要：
 
@@ -21,6 +21,6 @@ python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
 
 只有 `ready_for_visual_kit: true` 时才能生图。后续每个插图都必须指定一个分镜章节。
 
-交互计划独立于四类视觉套件。在 `interaction_plan.modules` 中记录 chapter、`source_block_indices`、reader-facing `purpose`、位置带和逐 transport instance 的原文/key/hash。2 个模块使用 early + middle，3 个模块再增加 late；纯装饰动画、微插图和艺术字不能占名额。详见 [interaction-composition.md](interaction-composition.md)。
+交互计划独立于可选的 0–4 个视觉小组件。在动态 `interaction_plan.modules` 中记录 chapter、`source_block_indices`、reader-facing `purpose`、位置带和逐 transport instance 的原文/key/hash。2 个模块使用 early + middle，3 个模块再增加 late；纯装饰动画、微插图和艺术字不能占名额。详见 [interaction-composition.md](interaction-composition.md)。
 
 默认使用 `compact-editorial` 密度。留白强调只能服务于 Hero、转场或结尾，不能让普通正文区出现超过本区高度 20% 的无意空洞。

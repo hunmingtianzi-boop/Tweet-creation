@@ -44,7 +44,7 @@ from transport_fidelity import (
     validate_wechat_upload_map,
     validate_transport_fidelity_diagnostic,
 )
-from asset_role_policy import validate_asset_role
+from asset_role_policy import validate_asset_role, validate_background_assignment
 from pack_assets import PackAssetResolutionError, canonical_pack_root, resolve_pack_asset
 try:
     from safe_paths import (
@@ -70,6 +70,7 @@ from workflow_quality import (
     calibration_state,
     validate_asset_watermark,
     validate_interaction_plan,
+    validate_production_preferences,
     validate_typography_plan,
     validate_visual_review,
     watermark_inventory,
@@ -100,12 +101,6 @@ SUPPORTED_BLOCKS = {
     "cta",
     "references",
     "footer",
-}
-REQUIRED_VISUAL_KIT_ROLES = {
-    "floating-spot",
-    "section-transition",
-    "inline-explainer",
-    "closing-motif",
 }
 MICRO_TRANSPORT_WIDTHS = {
     "floating-spot": 0.34,
@@ -1597,7 +1592,17 @@ def load_context(spec_path: Path, org_dir: Path, output_dir: Path, check: bool) 
 def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: bool) -> dict[str, Any]:
     ctx, spec = load_context(spec_path, org_dir, output_dir, check)
     ardot_doc = read_json(org_dir / "ardot.json")
-    calibration = calibration_state(ctx.organization, ctx.route.get("id"), ctx.assets_doc)
+    production_preferences = validate_production_preferences(
+        spec,
+        resolved_route_id=ctx.route.get("id"),
+    )
+    ctx.errors.extend(production_preferences["errors"])
+    calibration = calibration_state(
+        ctx.organization,
+        ctx.route.get("id"),
+        ctx.assets_doc,
+        require_background_family=production_preferences.get("generate_backgrounds") is True,
+    )
     ctx.errors.extend(calibration["blocking_reasons"])
     storyboard = build_storyboard_plan(spec_path)
     ctx.errors.extend(storyboard["errors"])
@@ -1606,10 +1611,26 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
         ctx.errors.extend(visual_kit_plan["blocking_reasons"])
     except ValueError as exc:
         ctx.errors.append(str(exc))
+        production_preferences = validate_production_preferences(
+            spec,
+            resolved_route_id=ctx.route.get("id"),
+        )
+        fallback_count = production_preferences.get("micro_component_count")
+        if (
+            not isinstance(fallback_count, int)
+            or isinstance(fallback_count, bool)
+            or not 0 <= fallback_count <= 4
+        ):
+            # This path is already blocked.  Zero is a no-work sentinel, not a
+            # production choice, and prevents an invalid record from reviving
+            # the retired four-component default.
+            fallback_count = 0
         visual_kit_plan = {
             "ready_for_layout": False,
             "semantic_errors": [str(exc)],
             "blocking_reasons": [str(exc)],
+            "requested_micro_component_count": fallback_count,
+            "selected_roles": [],
         }
     typography = validate_typography_plan(spec, ctx.organization, ardot_doc)
     ctx.errors.extend(typography["errors"])
@@ -1621,14 +1642,34 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
         ctx.errors.append(f"article contains placeholders: {', '.join(markers)}")
     visual_kit = spec.get("visual_kit")
     article_id = spec.get("article_id")
+    requested_micro_component_count = visual_kit_plan.get(
+        "requested_micro_component_count", 0
+    )
+    if (
+        not isinstance(requested_micro_component_count, int)
+        or isinstance(requested_micro_component_count, bool)
+        or not 0 <= requested_micro_component_count <= 4
+    ):
+        requested_micro_component_count = 0
+    selected_roles_raw = visual_kit_plan.get("selected_roles")
+    selected_roles_list = [
+        item for item in selected_roles_raw if isinstance(item, str)
+    ] if isinstance(selected_roles_raw, list) else []
+    selected_roles = set(selected_roles_list)
+    expected_visual_kit_status = (
+        "not-requested" if requested_micro_component_count == 0 else "approved"
+    )
     if not isinstance(article_id, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", article_id):
         ctx.errors.append("article.article_id must be a lowercase hyphenated slug")
     kit_assets: list[dict[str, Any]] = []
     if not isinstance(visual_kit, dict):
         ctx.errors.append("article requires an approved visual_kit before layout or final transport")
     else:
-        if visual_kit.get("status") != "approved":
-            ctx.errors.append("article.visual_kit.status must be approved after image inspection")
+        if visual_kit.get("status") != expected_visual_kit_status:
+            ctx.errors.append(
+                "article.visual_kit.status must be "
+                f"{expected_visual_kit_status} for the selected component count"
+            )
         raw_assets = visual_kit.get("assets")
         if isinstance(raw_assets, list):
             kit_assets = [item for item in raw_assets if isinstance(item, dict)]
@@ -1651,8 +1692,10 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
         item.get("id") for item in kit_assets if isinstance(item.get("id"), str)
     }
     fresh_kit_asset_ids: set[str] = set()
-    for role in sorted(REQUIRED_VISUAL_KIT_ROLES - kit_roles):
-        ctx.errors.append(f"article.visual_kit is missing required generated role: {role}")
+    for role in sorted(selected_roles - kit_roles):
+        ctx.errors.append(f"article.visual_kit is missing selected generated role: {role}")
+    for role in sorted(kit_roles - selected_roles):
+        ctx.errors.append(f"article.visual_kit contains an unselected generated role: {role}")
     for item in kit_assets:
         asset_id = item.get("id")
         role = item.get("role", "<missing-role>")
@@ -1671,9 +1714,11 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
         elif not role_errors and isinstance(asset_id, str):
             fresh_kit_asset_ids.add(asset_id)
         ctx.asset_src(asset_id, f"visual kit role {role}")
-    if len(fresh_kit_asset_ids) < 4:
+    if len(fresh_kit_asset_ids) != requested_micro_component_count:
         ctx.errors.append(
-            f"article.visual_kit requires 4 distinct assets freshly generated for this article; found {len(fresh_kit_asset_ids)}"
+            "article.visual_kit requires exactly "
+            f"{requested_micro_component_count} distinct assets freshly generated for this article; "
+            f"found {len(fresh_kit_asset_ids)}"
         )
     visual_review: dict[str, Any] = {}
     visual_review_report = {"ready": False, "errors": ["visual review was not loaded"]}
@@ -1765,15 +1810,23 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
         background_ref = block.get("background")
         if isinstance(background_ref, str) and background_ref in registered_assets:
             background = registered_assets[background_ref]
-            if background.get("origin") == "generated-illustrative":
-                ctx.errors.extend(
-                    f"generated background {background_ref}: {message}"
-                    for message in validate_asset_role(background, "background-use")
+            background_errors = validate_background_assignment(
+                background,
+                generated_backgrounds_enabled=(
+                    production_preferences.get("generate_backgrounds") is True
+                ),
+            )
+            ctx.errors.extend(
+                f"article background {background_ref}: {message}"
+                for message in background_errors
+            )
+            if (
+                not background_errors
+                and background.get("background_family_id") != family_id
+            ):
+                ctx.errors.append(
+                    f"generated background is outside the calibrated family {family_id}: {background_ref}"
                 )
-                if background.get("background_family_id") != family_id:
-                    ctx.errors.append(
-                        f"generated background is outside the calibrated family {family_id}: {background_ref}"
-                    )
     micro_after_block: dict[int, list[dict[str, Any]]] = {}
     chapter_by_id = {
         chapter.get("id"): chapter
@@ -1892,6 +1945,7 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
             "route_id": ctx.route.get("id"),
             "route_layout": ctx.route.get("layout"),
         },
+        "production_preferences": production_preferences,
         "calibration": calibration,
         "provenance_watermark": {
             **provenance_watermark,
@@ -1920,7 +1974,9 @@ def compile_article(spec_path: Path, org_dir: Path, output_dir: Path, check: boo
             "copied_assets": len(ctx.copied_assets),
         },
         "visual_kit": {
-            "required_roles": sorted(REQUIRED_VISUAL_KIT_ROLES),
+            "requested_component_count": requested_micro_component_count,
+            "selected_roles": selected_roles_list,
+            "required_roles": selected_roles_list,
             "registered_roles": sorted(role for role in kit_roles if role),
             "unique_asset_count": len(unique_kit_asset_ids),
             "fresh_asset_count": len(fresh_kit_asset_ids),

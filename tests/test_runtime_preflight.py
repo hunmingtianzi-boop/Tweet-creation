@@ -473,6 +473,7 @@ class RuntimePreflightTests(unittest.TestCase):
         phase: str = "full",
         *,
         binding_only: bool = False,
+        include_legacy_rgba_probe: bool = False,
         environment: dict[str, str] | None = None,
         installed_registry_override: dict | None = None,
     ) -> dict:
@@ -501,6 +502,7 @@ class RuntimePreflightTests(unittest.TestCase):
                 else environment
             ),
             binding_only=binding_only,
+            include_legacy_rgba_probe=include_legacy_rgba_probe,
             installed_registry_override=installed_registry_override,
         )
 
@@ -848,7 +850,7 @@ class RuntimePreflightTests(unittest.TestCase):
         self.assertRegex(report["binding_digest"], r"^sha256:[0-9a-f]{64}$")
         self.assertEqual(
             report["resolved_capabilities"]["rgba_cutout_generation"]["live_proof"],
-            "deferred-until-first-generated-asset",
+            "deferred-until-first-generated-asset-nonblocking-for-source-reading",
         )
         self.assertRegex(
             report["python"]["cryptography_version"], r"^(?:4[3-9]|50)\."
@@ -984,19 +986,7 @@ class RuntimePreflightTests(unittest.TestCase):
             "remote-mutation-success",
             actions["connect-ardot-mcp"]["configuration_or-oauth-does-not-prove"],
         )
-        migration_gate = actions["enforce-migration-rgba-route-gate"]
-        self.assertTrue(migration_gate["blocking"])
-        self.assertFalse(
-            migration_gate["local-profile-report-or-model-claim-can-satisfy"]
-        )
-        self.assertEqual(
-            migration_gate["scope"]["generation_route_id"],
-            "chatgpt-web-image-route-v1",
-        )
-        self.assertRegex(
-            migration_gate["scope"]["trusted_bundle_sha256"],
-            r"^sha256:[0-9a-f]{64}$",
-        )
+        self.assertNotIn("enforce-migration-rgba-route-gate", actions)
         self.assertEqual(
             actions["prepare-codex-with-chatgpt"]["steps"],
             [
@@ -1059,10 +1049,38 @@ class RuntimePreflightTests(unittest.TestCase):
             {item["id"] for item in report["host_setup_actions"]},
         )
 
-    def test_migration_phase_requires_neutral_rgba_route_probe_before_sources(self) -> None:
+    def test_migration_phase_omits_legacy_rgba_probe_by_default(self) -> None:
         profile = select_migration_profile(valid_profile())
         report = self.run_check(
             profile, phase="migration", binding_only=True, environment={}
+        )
+        actions = {item["id"]: item for item in report["host_setup_actions"]}
+        self.assertNotIn("run-migration-rgba-route-probe", actions)
+        self.assertNotIn("finalize-migration-rgba-route-probe", actions)
+        self.assertNotIn("finalize-current-session-migration-probe", actions)
+        self.assertIn("finalize-current-session-runtime-binding", actions)
+        self.assertEqual(report["migration_selftest"]["status"], "not-requested")
+        self.assertIsNone(report["migration_selftest"]["action_id"])
+        self.assertFalse(report["migration_selftest"]["action_emitted"])
+        self.assertFalse(
+            report["migration_selftest"]["explicit_legacy_diagnostic_requested"]
+        )
+        self.assertFalse(
+            report["migration_selftest"]["article_asset_registration_allowed"]
+        )
+        self.assertIn(
+            "each-real-asset",
+            report["migration_selftest"]["article_asset_registration_policy"],
+        )
+
+    def test_migration_phase_emits_legacy_rgba_probe_only_when_explicit(self) -> None:
+        profile = select_migration_profile(valid_profile())
+        report = self.run_check(
+            profile,
+            phase="migration",
+            binding_only=True,
+            include_legacy_rgba_probe=True,
+            environment={},
         )
         self.assertTrue(report["binding_ready"], report["errors"])
         self.assertFalse(report["phase_ready"])
@@ -1080,27 +1098,42 @@ class RuntimePreflightTests(unittest.TestCase):
             report["resolved_capabilities"]["rgba_cutout_generation"][
                 "live_proof"
             ],
-            "required-neutral-migration-probe-in-current-host-trace",
+            "deferred-until-first-generated-asset-nonblocking-for-source-reading",
         )
         self.assertEqual(
             report["migration_selftest"]["contract"],
             MIGRATION_RGBA_PROBE_CONTRACT,
         )
-        self.assertTrue(report["migration_selftest"]["before_source_material"])
+        self.assertFalse(report["migration_selftest"]["required"])
+        self.assertFalse(report["migration_selftest"]["before_source_material"])
         self.assertEqual(
             report["migration_selftest"]["truth_columns"],
             {
-                "local_pixel_chain_verified": "host-trace-required",
-                "host_route_verified": "host-trace-required",
+                "local_pixel_chain_verified": "not-required",
+                "host_route_verified": "not-required-before-source-reading",
             },
         )
         self.assertFalse(
             report["migration_selftest"]["article_asset_registration_allowed"]
         )
+        self.assertTrue(
+            report["migration_selftest"]["explicit_legacy_diagnostic_requested"]
+        )
+        self.assertEqual(
+            report["migration_selftest"]["action_id"],
+            "run-migration-rgba-route-probe",
+        )
+        self.assertTrue(report["migration_selftest"]["action_emitted"])
         actions = {item["id"]: item for item in report["host_setup_actions"]}
         probe_action = actions["run-migration-rgba-route-probe"]
-        self.assertTrue(probe_action["blocking"])
-        self.assertIn("read-source-material", probe_action["must_complete_before"])
+        self.assertFalse(probe_action["blocking"])
+        self.assertEqual(probe_action["must_complete_before"], [])
+        self.assertTrue(probe_action["explicit_legacy_diagnostic"])
+        self.assertIn("finalize-current-session-runtime-binding", actions)
+        self.assertEqual(
+            actions["finalize-current-session-runtime-binding"]["evidence_kind"],
+            "org-wechat-runtime-session-evidence-v1",
+        )
         self.assertEqual(
             probe_action["artifact_root_template"],
             "{session_root}/migration-probes/{binding_nonce}",
@@ -1238,7 +1271,11 @@ class RuntimePreflightTests(unittest.TestCase):
             select_codex_chatgpt_rgba_route(valid_profile())
         )
         report = self.run_check(
-            profile, phase="migration", binding_only=True, environment={}
+            profile,
+            phase="migration",
+            binding_only=True,
+            include_legacy_rgba_probe=True,
+            environment={},
         )
         self.assertTrue(report["binding_ready"], report["errors"])
         action_ids = [item["id"] for item in report["host_setup_actions"]]
@@ -1279,7 +1316,7 @@ class RuntimePreflightTests(unittest.TestCase):
             action["host_evidence_required"],
         )
 
-    def test_migration_phase_rejects_missing_probe_contract(self) -> None:
+    def test_migration_phase_does_not_require_probe_contract(self) -> None:
         profile = select_migration_profile(valid_profile())
         profile["capabilities"]["rgba_cutout_generation"].pop(
             "migration_probe_contract"
@@ -1287,7 +1324,7 @@ class RuntimePreflightTests(unittest.TestCase):
         report = self.run_check(
             profile, phase="migration", binding_only=True, environment={}
         )
-        self.assertIn(
+        self.assertNotIn(
             "runtime.capability.rgba_migration_probe_contract_missing",
             error_codes(report),
         )
@@ -1338,6 +1375,7 @@ class RuntimePreflightTests(unittest.TestCase):
             environment={},
             binding_only=True,
             challenge_nonce="A" * 32,
+            include_legacy_rgba_probe=True,
             installed_registry_override=installed_registry_for(profile),
         )
         second = validate_runtime_profile(
@@ -1349,6 +1387,7 @@ class RuntimePreflightTests(unittest.TestCase):
             environment={},
             binding_only=True,
             challenge_nonce="B" * 32,
+            include_legacy_rgba_probe=True,
             installed_registry_override=installed_registry_for(profile),
         )
         first_action = next(
@@ -1385,6 +1424,7 @@ class RuntimePreflightTests(unittest.TestCase):
                 environment={},
                 binding_only=True,
                 challenge_nonce="../unsafe/path" + "x" * 32,
+                include_legacy_rgba_probe=True,
                 installed_registry_override=installed_registry_for(profile),
             )
 
@@ -1399,9 +1439,62 @@ class RuntimePreflightTests(unittest.TestCase):
         self.assertFalse(report["ok"])
         self.assertFalse(report["phase_ready"])
         self.assertEqual(
-            report["migration_selftest"]["status"], "host-trace-required"
+            report["migration_selftest"]["status"], "not-requested"
         )
         self.assertIn("runtime.probe.unattested", error_codes(report))
+
+    def test_current_session_runtime_binding_needs_no_rgba_probe(self) -> None:
+        profile = select_migration_profile(
+            select_codex_chatgpt_rgba_route(valid_profile())
+        )
+        binding = validate_runtime_profile(
+            profile,
+            ROOT,
+            "migration",
+            session_root=Path(self.private_root).resolve(),
+            now=NOW,
+            environment={},
+            binding_only=True,
+            challenge_nonce=secrets.token_urlsafe(32),
+            installed_registry_override=installed_registry_for(profile),
+        )
+        source_sha = "sha256:" + "a" * 64
+        evidence = {
+            "schema_version": 1,
+            "kind": "org-wechat-runtime-session-evidence-v1",
+            "created_at": NOW.isoformat(),
+            "binding": {
+                "binding_nonce": binding["binding_nonce"],
+                "binding_digest": binding["binding_digest"],
+                "source_binding_report_sha256": source_sha,
+                "trusted_bundle_sha256": binding["local"]["trusted_bundle_sha256"],
+                "installed_release_sha256": binding["local"]["installed_release_sha256"],
+                "registry_digest": binding["local"]["registry_digest"],
+                "adapter_sha256": binding["resolved_harness"]["adapter_sha256"],
+                "generation_route_id": binding["resolved_capabilities"][
+                    "rgba_cutout_generation"
+                ]["generation_route_id"],
+            },
+            "provider_session_id": "current-provider-session",
+        }
+        result = finalize_current_session_migration(
+            binding,
+            evidence,
+            ROOT,
+            source_binding_report_sha256=source_sha,
+            now=NOW,
+        )
+        self.assertTrue(result["operational_ready"])
+        self.assertFalse(result["phase_ready"])
+        self.assertFalse(result["migration_selftest"]["required"])
+        self.assertEqual(result["migration_selftest"]["status"], "not-requested")
+        self.assertFalse(
+            result["migration_selftest"]["article_asset_registration_allowed"]
+        )
+        self.assertIn(
+            "each-real-asset",
+            result["migration_selftest"]["article_asset_registration_policy"],
+        )
 
     def test_current_session_migration_closes_operationally_without_signed_claim(self) -> None:
         profile = select_migration_profile(
@@ -1417,6 +1510,7 @@ class RuntimePreflightTests(unittest.TestCase):
             environment={},
             binding_only=True,
             challenge_nonce=nonce,
+            include_legacy_rgba_probe=True,
             installed_registry_override=installed_registry_for(profile),
         )
         self.assertTrue(binding["binding_ready"], binding["errors"])
@@ -1500,7 +1594,11 @@ class RuntimePreflightTests(unittest.TestCase):
             select_codex_chatgpt_rgba_route(valid_profile())
         )
         binding = self.run_check(
-            profile, phase="migration", binding_only=True, environment={}
+            profile,
+            phase="migration",
+            binding_only=True,
+            include_legacy_rgba_probe=True,
+            environment={},
         )
         self.assertTrue(binding["binding_ready"], binding["errors"])
         with tempfile.TemporaryDirectory() as directory:
@@ -1547,7 +1645,11 @@ class RuntimePreflightTests(unittest.TestCase):
             select_codex_chatgpt_rgba_route(valid_profile())
         )
         binding = self.run_check(
-            profile, phase="migration", binding_only=True, environment={}
+            profile,
+            phase="migration",
+            binding_only=True,
+            include_legacy_rgba_probe=True,
+            environment={},
         )
         with tempfile.TemporaryDirectory() as directory:
             external = Path(directory).resolve()
@@ -1613,7 +1715,11 @@ class RuntimePreflightTests(unittest.TestCase):
             select_codex_chatgpt_rgba_route(valid_profile())
         )
         binding = self.run_check(
-            profile, phase="migration", binding_only=True, environment={}
+            profile,
+            phase="migration",
+            binding_only=True,
+            include_legacy_rgba_probe=True,
+            environment={},
         )
         with tempfile.TemporaryDirectory() as directory:
             external = Path(directory).resolve()
@@ -1641,7 +1747,11 @@ class RuntimePreflightTests(unittest.TestCase):
             select_codex_chatgpt_rgba_route(valid_profile())
         )
         binding = self.run_check(
-            profile, phase="migration", binding_only=True, environment={}
+            profile,
+            phase="migration",
+            binding_only=True,
+            include_legacy_rgba_probe=True,
+            environment={},
         )
         with tempfile.TemporaryDirectory() as directory:
             external = Path(directory).resolve()
@@ -1698,6 +1808,7 @@ class RuntimePreflightTests(unittest.TestCase):
             environment={},
             binding_only=True,
             challenge_nonce=secrets.token_urlsafe(32),
+            include_legacy_rgba_probe=True,
             installed_registry_override=installed_registry_for(profile),
         )
         self.assertTrue(binding["binding_ready"], binding["errors"])
@@ -1856,7 +1967,11 @@ class RuntimePreflightTests(unittest.TestCase):
     def test_native_migration_route_does_not_load_chatgpt(self) -> None:
         profile = select_migration_profile(valid_profile())
         report = self.run_check(
-            profile, phase="migration", binding_only=True, environment={}
+            profile,
+            phase="migration",
+            binding_only=True,
+            include_legacy_rgba_probe=True,
+            environment={},
         )
         self.assertTrue(report["binding_ready"], report["errors"])
         actions = {item["id"]: item for item in report["host_setup_actions"]}
@@ -2271,10 +2386,30 @@ class RuntimePreflightTests(unittest.TestCase):
         self.assertEqual(rgba_route["processor"], "scripts/prepare_micro_cutout.py")
         self.assertEqual(
             rgba_route["acquisition_preference"],
-            "native-alpha-first-controlled-key-fallback-only",
+            "native-alpha-or-controlled-key-per-real-asset",
         )
-        self.assertEqual(rgba_route["preferred_processor_arg"], "--require-native-alpha")
-        self.assertEqual(rgba_route["fallback_processor_arg"], "--key-color")
+        self.assertEqual(
+            rgba_route["allowed_initial_modes"],
+            ["native-alpha", "controlled-key"],
+        )
+        self.assertEqual(
+            rgba_route["processor_args_by_mode"],
+            {
+                "native-alpha": ["--require-native-alpha"],
+                "controlled-key": [
+                    "--key-color",
+                    "<slot-controlled-key-color>",
+                ],
+            },
+        )
+        self.assertEqual(
+            rgba_route["migration_probe_default"],
+            "disabled-explicit-legacy-diagnostics-only",
+        )
+        self.assertEqual(
+            rgba_route["live_proof"],
+            "runtime-session-binding-plus-independent-per-real-asset-lineage",
+        )
         self.assertEqual(
             rgba_route["migration_probe_contract"],
             MIGRATION_RGBA_PROBE_CONTRACT,

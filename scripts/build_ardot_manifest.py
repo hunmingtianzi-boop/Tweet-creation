@@ -16,6 +16,7 @@ if __name__ == "__main__":
 
 from build_visual_kit import build_visual_kit_plan
 from build_storyboard import build_storyboard_plan
+from asset_role_policy import validate_background_assignment
 from orgs import load_pack, validate_pack
 from pack_assets import PackAssetResolutionError, resolve_pack_asset
 from workflow_quality import (
@@ -24,6 +25,7 @@ from workflow_quality import (
     WORKFLOW_ATTRIBUTION_TEXT_SHA256,
     calibration_state,
     validate_interaction_plan,
+    validate_production_preferences,
     validate_typography_plan,
     watermark_inventory,
 )
@@ -86,7 +88,7 @@ MICRO_COMPONENT_POLICY = {
     "minimum_primary_copy_scale_ratio": 1.35,
     "maximum_image_width_ratio": 0.72,
     "maximum_component_width_ratio": 0.82,
-    "staggering": "use both left and right offsets, at least 3 distinct offsets, and at least 3 composition relations across the four roles",
+    "placement_evidence": "scale to the confirmed selected component count",
 }
 
 
@@ -171,6 +173,8 @@ def resolve_asset(ref: str, pack: dict[str, Any], article_path: Path) -> dict[st
             "registered": True,
             "kind": item.get("kind"),
             "origin": item.get("origin"),
+            "visual_role": item.get("visual_role"),
+            "background_family_id": item.get("background_family_id"),
             "location": location,
             "local_path": local_path,
             "watermark": item.get("watermark"),
@@ -208,7 +212,16 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
     reference_policy = (
         "explicit-style-grammar" if isinstance(style_grammar, dict) else "source-zero"
     )
-    calibration = calibration_state(organization, route["id"], pack["assets"])
+    production_preferences = validate_production_preferences(
+        article,
+        resolved_route_id=route["id"],
+    )
+    calibration = calibration_state(
+        organization,
+        route["id"],
+        pack["assets"],
+        require_background_family=production_preferences.get("generate_backgrounds") is True,
+    )
     calibration["background_family_quality"] = report.get("visual_calibration", {}).get(
         "background_family_quality"
     )
@@ -221,6 +234,24 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
         )
     storyboard = build_storyboard_plan(article_path)
     visual_kit_plan = build_visual_kit_plan(article_path, org_dir)
+    requested_micro_component_count = visual_kit_plan[
+        "requested_micro_component_count"
+    ]
+    selected_micro_roles = visual_kit_plan["selected_roles"]
+    selected_micro_role_set = set(selected_micro_roles)
+    minimum_micro_composition_relations = min(3, requested_micro_component_count)
+    minimum_micro_screenshot_sections = min(3, requested_micro_component_count)
+    if requested_micro_component_count == 0:
+        micro_staggering = "not applicable; no micro components were requested"
+    elif requested_micro_component_count == 1:
+        micro_staggering = "use one content-grounded partial-width placement"
+    elif requested_micro_component_count == 2:
+        micro_staggering = "use both left and right offsets with visible scale variation"
+    else:
+        micro_staggering = (
+            "use both left and right offsets, at least 3 distinct offsets, and at "
+            "least 3 composition relations across the selected roles"
+        )
     ardot = pack["ardot"]
     typography = validate_typography_plan(article, organization, ardot)
     interaction_plan = validate_interaction_plan(
@@ -253,7 +284,14 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
         composition_mode, kit_roles = OPEN_COMPOSITIONS.get(
             kind, ("open-editorial", ["floating-spot"])
         )
-        kit_assets = [kit_asset_by_role[role] for role in kit_roles if role in kit_asset_by_role]
+        block_kit_roles = [
+            role for role in kit_roles if role in selected_micro_role_set
+        ]
+        kit_assets = [
+            kit_asset_by_role[role]
+            for role in block_kit_roles
+            if role in kit_asset_by_role
+        ]
         used_assets.extend(kit_assets)
         content = {
             key: value
@@ -270,8 +308,11 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
                 "ardot_component": component_name,
                 "composition_mode": composition_mode,
                 "container_policy": "open-by-default",
-                "micro_component_policy": MICRO_COMPONENT_POLICY,
-                "micro_visual_roles": kit_roles,
+                "micro_component_policy": {
+                    **MICRO_COMPONENT_POLICY,
+                    "staggering": micro_staggering,
+                },
+                "micro_visual_roles": block_kit_roles,
                 "micro_visual_assets": kit_assets,
                 "content": content,
                 "asset_refs": refs,
@@ -288,6 +329,34 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
         for ref in dict.fromkeys(used_assets)
     ]
     unresolved = [item["ref"] for item in assets if not item.get("local_path")]
+    asset_by_ref = {item["ref"]: item for item in assets}
+    background_refs = list(
+        dict.fromkeys(
+            raw.get("background")
+            for raw in article.get("blocks", [])
+            if isinstance(raw, dict)
+            and isinstance(raw.get("background"), str)
+            and raw.get("background")
+        )
+    )
+    background_assignment_errors: list[str] = []
+    forbidden_background_assignments: list[str] = []
+    for background_ref in background_refs:
+        background_asset = asset_by_ref.get(background_ref)
+        if not isinstance(background_asset, dict) or not background_asset.get("registered"):
+            continue
+        assignment_errors = validate_background_assignment(
+            background_asset,
+            generated_backgrounds_enabled=(
+                production_preferences.get("generate_backgrounds") is True
+            ),
+        )
+        if assignment_errors:
+            forbidden_background_assignments.append(background_ref)
+            background_assignment_errors.extend(
+                f"background {background_ref}: {message}"
+                for message in assignment_errors
+            )
     block_by_index = {item["index"]: item for item in blocks}
     chapters = []
     for chapter in storyboard["chapters"]:
@@ -390,6 +459,7 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
         "storyboard": storyboard,
         "variables": variables,
         "visual_kit": visual_kit_plan,
+        "production_preferences": production_preferences,
         "typography": typography,
         "interaction_plan": interaction_plan,
         "chapters": chapters,
@@ -403,19 +473,48 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
             "STOP if interaction_plan.ready is false",
             "STOP if provenance_watermark.ready is false for a required generated-image watermark policy",
             "when style_reference.policy is explicit-style-grammar, preserve the canonical grammar SHA-256 and copy no reference text, photographs, logos, specific layout, component geometry, or artwork",
-            "generate four distinct micro illustrations, verify real Alpha, register them, and record native Ardot component evidence before article layout",
-            "author 2–3 semantic dynamic modules by default; a repeated card group counts as one module, and fewer modules require an explicit user/editor static exception",
-            "build every dynamic module as native editable closed, open, and information-equivalent fallback states from the current Ardot revision",
-            "place only the pixel-validated background-family master and companions on the declared surface mode, varying crop and opacity instead of style",
+            (
+                "no generated micro illustration was selected; do not fabricate one to satisfy a legacy four-item gate"
+                if requested_micro_component_count == 0
+                else f"generate the {requested_micro_component_count} selected distinct micro illustrations, verify final RGBA pixels and lineage, register them, and record native Ardot component evidence before article layout"
+            ),
+            (
+                "author 2–3 semantic dynamic modules; a repeated card group counts as one module"
+                if production_preferences.get("use_svg") is True
+                else "author no SVG modules; keep the confirmed static-selected interaction plan"
+            ),
+            (
+                "build every dynamic module as native editable closed, open, and information-equivalent fallback states from the current Ardot revision"
+                if production_preferences.get("use_svg") is True
+                else "skip dynamic state construction"
+            ),
+            (
+                "place only the pixel-validated background-family master and companions on the declared surface mode, varying crop and opacity instead of style"
+                if production_preferences.get("generate_backgrounds") is True
+                else "use only continuous Ardot-native surfaces, gradients, and open vectors; do not create raster atmosphere backgrounds"
+            ),
             "apply 2–4 approved expressive typography recipes with at least two non-font construction techniques and native editable text/accent layers; keep body copy standard and never bake Chinese display text into images",
             "apply or update the organization variable mode",
             "fetch reusable components by exact ardot_component name",
             "create missing semantic component variants before article assembly",
             "create one 390px article root and assemble approved storyboard chapters in narrative order",
             "give each chapter a bespoke composition; reuse primitives selectively instead of instantiating one box per block",
-            "place micro illustrations between and beside open text flows; never use them as card backgrounds",
-            "never draw a closed frame, badge, chip, or filled rectangle around micro-component copy; emphasize primary copy with native scale contrast and one additional non-frame technique",
-            "keep every micro image at or below 72 percent of the 390 px row and every micro component at or below 82 percent; distribute the four roles across both text edges with varied scale and at least three composition relations",
+            (
+                "skip micro-illustration placement because zero components were selected"
+                if requested_micro_component_count == 0
+                else "place micro illustrations between and beside open text flows; never use them as card backgrounds"
+            ),
+            (
+                "micro-component copy policy is not applicable because zero components were selected"
+                if requested_micro_component_count == 0
+                else "never draw a closed frame, badge, chip, or filled rectangle around micro-component copy; emphasize primary copy with native scale contrast and one additional non-frame technique"
+            ),
+            (
+                "skip micro-component placement evidence because zero components were selected"
+                if requested_micro_component_count == 0
+                else "keep every selected micro image at or below 72 percent of the 390 px row and every micro component at or below 82 percent; "
+                + micro_staggering
+            ),
             "export every actual visual-kit instance from the article root into the hashed inventory and node-property evidence; repeated roles are allowed but no instance may be omitted",
             "upload registered image assets to their named image slots",
             "use the already-watermarked registered derivative; never embed a watermark for the first time in Ardot or during WeChat compile",
@@ -430,15 +529,18 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
                 and visual_kit_plan["ready_for_layout"]
                 and typography["ready"]
                 and interaction_plan["ready"]
+                and not unresolved
+                and not forbidden_background_assignments
             ),
             "blocking": [
                 "organization or selected route lacks an approved Ardot calibration benchmark",
-                "required generated background or generated cover lacks locally verified watermark evidence",
-                "background family pixels fail surface-mode unity, copy-zone variance, tonal continuity, or 4.5:1 body-text contrast",
+                "a selected generated background or generated cover lacks locally verified watermark evidence",
+                "an article background assignment conflicts with generate_backgrounds or uses a non-background asset duty",
+                "when generated backgrounds are selected, family pixels fail surface-mode unity, copy-zone variance, tonal continuity, or 4.5:1 body-text contrast",
                 "article lacks an approved narrative storyboard with complete block coverage",
-                "article-specific visual kit lacks any required role or does not use four distinct generated micro assets",
+                "article-specific visual kit does not exactly match the confirmed selected role/count contract",
                 "expressive typography is missing, font-swap-only, flattened, ungrounded, unlicensed, or lacks approved recipe/construction/node evidence",
-                "interaction plan is missing the default 2–3 semantic modules, grounded transport instances, or valid chapter distribution; final compile separately requires current-revision state evidence",
+                "interaction plan conflicts with the confirmed SVG/static choice, or a dynamic plan lacks grounded transport instances, valid chapter distribution, or current-revision state evidence",
                 "layout started before micro illustrations became native Ardot components",
                 "missing component variant",
                 "unresolved asset",
@@ -448,7 +550,7 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
                 "every semantic block has its own background, border, or rounded container",
                 "micro illustration is rectangular, framed, generic, or used as a panel background",
                 "micro-component copy is enclosed by a frame, chip, badge, filled rectangle, or enclosing shape node",
-                "a micro image exceeds 72 percent of the row, a micro component exceeds 82 percent, or the four roles lack measurable left/right stagger and scale variation",
+                "a selected micro image exceeds 72 percent of the row, a selected micro component exceeds 82 percent, or the count-scaled placement evidence is incomplete",
                 "copy-bearing micro components lack native text nodes, at least 22 px primary type, 1.35x body scale contrast, or a second non-frame emphasis technique",
                 "organization mode or organization_id mismatch",
                 "terminal workflow attribution is missing, changed, hidden, rasterized, or not the final visible text",
@@ -456,26 +558,41 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
             "layout_policy": {
                 "maximum_boxed_section_ratio": 0.2,
                 "maximum_consecutive_boxed_sections": 1,
-                "minimum_micro_illustration_roles": 4,
-                "minimum_unique_generated_micro_assets": 4,
+                "requested_micro_component_count": requested_micro_component_count,
+                "selected_micro_component_roles": selected_micro_roles,
+                "minimum_micro_illustration_roles": requested_micro_component_count,
+                "minimum_unique_generated_micro_assets": requested_micro_component_count,
                 "minimum_asymmetric_or_edge_breaking_moments": 3,
                 "maximum_micro_image_width_ratio": 0.72,
                 "maximum_micro_component_width_ratio": 0.82,
                 "minimum_micro_copy_font_px": 22,
                 "minimum_micro_copy_scale_ratio": 1.35,
                 "micro_copy_enclosure": "none",
-                "minimum_micro_component_screenshot_sections": 3,
-                "minimum_micro_composition_relations": 3,
+                "minimum_micro_component_screenshot_sections": minimum_micro_screenshot_sections,
+                "minimum_micro_composition_relations": minimum_micro_composition_relations,
                 "default_container": "none",
                 "expressive_typography_moments": "2-4 when strategy is expressive-native",
                 "expressive_typography_recipe": "at least 2 non-font techniques and 2 editable construction layers",
-                "dynamic_modules_per_article": "2-3 semantic modules by default",
+                "use_svg": production_preferences.get("use_svg"),
+                "dynamic_modules_per_article": (
+                    "2-3 semantic modules"
+                    if production_preferences.get("use_svg") is True
+                    else "0; static-selected"
+                ),
                 "dynamic_group_counting": "one repeated-card group equals one semantic module",
                 "dynamic_transport_default": "static fallback until target-account iOS/Android certification",
-                "background_family_surface": "one light/dark mode with pixel-checked copy safety and contrast >= 4.5",
+                "generate_backgrounds": production_preferences.get("generate_backgrounds"),
+                "background_family_surface": (
+                    "one light/dark mode with pixel-checked copy safety and contrast >= 4.5"
+                    if production_preferences.get("generate_backgrounds") is True
+                    else "not applicable; use Ardot-native surfaces with contrast >= 4.5"
+                ),
                 "body_copy_typography": "standard-readable",
             },
             "unresolved_assets": unresolved,
+            "forbidden_generated_backgrounds": forbidden_background_assignments,
+            "forbidden_background_assignments": forbidden_background_assignments,
+            "background_assignment_errors": background_assignment_errors,
             "requires_visual_review": True,
         },
         "handoff": {

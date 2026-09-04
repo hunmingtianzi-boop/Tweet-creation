@@ -48,13 +48,13 @@
 - [x] Source-zero 字节隔离：每个视觉 source 必须声明允许的 kind、pack 内 locator 和当前内容 SHA-256，且只能位于显式 `visual_input_allowed_roots`。从 pack root 到文件的任一路径组件是 symlink 即失败；`examples/output/experiments/archive/other-org` 以及“旧稿/历史/往期/成稿/旧版”目录即使被放入 allowlist 也不得参与视觉校准。该门禁默认在当前会话可执行；宿主 filesystem lease 只能升级 assurance，不得伪称已有 host-enforced 隔离。
 - [x] 入口隔离：不自动读取内置组织包、examples、旧 Ardot、截图或历史文章设计；历史文字若获准只能作为 voice/fact 来源，不能进入视觉校准。
 - [x] 照片/AI 职责：纪录照片使用 `documentary-evidence` 与 `source_id`；AI 底图使用 `illustrative-atmosphere`，不能进入 gallery 证据位。
-- [x] 连续底图：批准校准必须登记一个 generated-family、一个 master、1–3 个 companion、copy-safe zone，并在资产层绑定 family/variant、共享 family prompt/route/master 谱系。除均值颜色外，验收还比较 12×12 空间亮度签名、纹理能量和主方向，同均值但异结构的“拼家族”失败。
-- [x] 四类微组件：四个角色必须由四枚当前文章专属资产分别承担，并绑定正文原句、章节、主体、动作、构图职责和 Ardot 原生组件。
+- [x] 可选底图：启动时确认是否生成 raster 底图。选择后，批准校准必须登记一个 generated-family、一个 master、1–3 个 companion、copy-safe zone，并在资产层绑定 family/variant、共享 family prompt/route/master 谱系；不选择则只校准 Ardot 原生连续阅读面。生成家族的验收除均值颜色外，还比较 12×12 空间亮度签名、纹理能量和主方向，同均值但异结构的“拼家族”失败。
+- [x] 可选微组件：启动时确认 `0..4` 的数量，再从四类角色中选取等量的当前文章专属资产；每枚分别绑定正文原句、章节、主体、动作、构图职责和 Ardot 原生组件，数量为零时不伪造测试组件。
 - [x] Alpha/抠图验收：解码 RGBA8，使用最大连通主体忽略飞点并检查紧裁切、截边、白/黑/彩色 matte、半透明白黑 halo、尺寸、角色宽高比与 SHA-256；登记后每次 ready 门禁都从当前像素重算。
 - [x] ChatGPT 默认生图路由：Codex Desktop 加载仓库内 `chatgpt-web-image-route` 与已安装 `codex-with-chatgpt`，只用内置 Browser 生成和下载原始 PNG；不把 C2C doctor、文字回复、页面预览、截图、Canvas、剪贴板或远程 URL 当成图像证据。
-- [x] 迁移起始 RGBA 实测：新 clone/机器/Codex 会话/adapter-provider route 或新组织迁移在读材料前运行 `migration` 阶段；其他 LLM/harness 在当前 release 直接判 unsupported，不能靠本探针升级。中性 prompt 保持无 nonce/digest 污染，宿主以 canonical request metadata SHA 绑定当前 nonce/digest、route、attempt、mode 和 prompt SHA。宿主 request/generation/original-download 轨迹与本地 secure RGBA8 像素链缺一均失败。探针只在 Git 忽略 runtime 目录，不得注册、上传、加水印、成为风格参考或代替正式资产 lineage。
-- [x] 生图上下文防污染：ChatGPT-web migration 遵守 C2C 单对话规则，不另开 throwaway chat；探针限定为无对象、无品牌、单一中灰的非语义校准轮廓，不携带组织、材质、配色或艺术风格。正式微组件 prompt 明确排除该轮廓与灰度测试处理，探针不能登记或充当视觉参考。
-- [x] 确定性 RGBA 生产链：默认先要求 provider-original 真透明 PNG，以 `prepare_micro_cutout.py --require-native-alpha` 验真、规范化、紧裁切并生成 create-once RGBA8 derivative；RGB、全不透明 RGBA 或伪透明直接失败且不暗中去背景。仅在该严格门禁失败后允许一次受控单色 key 重生成并以 `--key-color` 分离。两条路线都绑定 raw/prompt/provider/处理器/配置/报告/输出 SHA；背景不均、主体碰边或复杂透明材质时 fail-and-stop，不强抠任意照片。
+- [x] 迁移起始绑定：新 clone/机器/Codex 会话/adapter-provider route 或新组织迁移在读材料前运行 `migration` 阶段；它只绑定 release、adapter、provider session 与当前路由，默认不发 RGBA 合成探针，也不因图像检测阻断读材料。首枚已选的真实文章小组件以自己的 request/download/raw/derivative 链承担质量实测。只有显式 `--include-legacy-rgba-probe` 才会发非阻断旧路线诊断，它不能授权正式资产登记。
+- [x] 生图上下文防污染：ChatGPT-web 遵守 C2C 单对话规则，不为迁移自检生成中性图或另开 throwaway chat。只向当前文章已选 slot 提供必要的组织校准与正文依据，不把旧稿、其他组织视觉或测试图当作风格参考。
+- [x] 确定性 RGBA 生产链：每枚已选真实小组件可在请求前选择 provider-original 真透明 PNG，或计划内可安全分离的 controlled-key 纯色底 PNG；二者可直接作为首试，不需伪造 native 失败。native 以 `--require-native-alpha` 验真、规范化和紧裁切，key 源以当前 slot 的 `--key-color` 分离。两条 raw 路线都绑定 request/download/raw/prompt/provider/处理器/配置/报告/输出 SHA；只有终态派生物通过 RGBA8、真 Alpha、紧裁切、open-edge、矩形底/matte/halo/debris 与多底色门禁才能登记。背景不均、主体碰边或复杂透明材质时 fail-and-stop，不强抠任意照片。
 - [x] Alpha 对抗样本：新像素门禁拒绝彩色/key halo、全画布 low-Alpha 残留、未声明脱离碎片和纹理化底板，且只允许 Ardot/transport 引用已验证 derivative SHA。
 - [x] compact-editorial：除字号、行高、字距、段距外，新增 24–40 px `major_gap_px` 门槛，并继续约束内容占用率和最大无意空洞。
 - [x] Ardot 证据：visual review v3 要求当前 revision 的完整 article node census、本地 390 px node exports 和 host export trace receipt，从 census 重算密度、对比度、全篇框体比例/连续框体、错落区段数和艺术字实际节点。主观 checks 必须绑定当前 node/截图 SHA 和有身份的人工复核者；数字或 `pass` 字符串不能自报通过。作者层 receipt 明确是 `current-session-host-trace` 且 `host_enforced: false`；可携带签名的强保证由 runtime/delivery 门禁升级。
@@ -63,7 +63,7 @@
 - [x] 表现型字体：组织校准先批准策略与原生处理；单篇限定 2–4 个语义时刻，必须绑定正文、授权/系统字体、标准回退与唯一 Ardot 文本 node/style；禁止 AI 字图和扁平标题。
 - [x] 底图像素门禁：family 统一声明 light/dark surface mode、结构化复制区、正文颜色、最低 4.5 对比度与复制区方差；`orgs.py validate` 解码最终 PNG，检查明暗面、大块相反色、复制区均匀度、对比度与 family 色差。
 - [x] 艺术字构造门禁：`expressive-native` 至少批准两个 recipe；每个 recipe/文章时刻至少两种非字体技术和两个可编辑文字/点缀层，拒绝 font-swap-only，并在 Ardot 截图复核 `art_type_construction`。
-- [x] 微组件构图门禁：拒绝只留透明边的矩形 alpha tile；所有实际实例逐一进入 inventory，图片/组件宽度分别不超过 72%/82%，四类角色跨至少三个截图区段并左右错落；含字实例禁止闭合文字框，主短句至少 22 px、1.35× 正文。
+- [x] 微组件构图门禁：拒绝只留透明边的矩形 alpha tile；所有已选实际实例逐一进入 inventory，图片/组件宽度分别不超过 72%/82%，并按 `min(3, count)` 要求截图区段、不同偏移和构图关系；数量不小于 2 时必须左右错落且有尺寸变化。含字实例禁止闭合文字框，主短句至少 22 px、1.35× 正文。
 - [x] 截图可读性：五个密度样本都记录实测 `body_text_contrast_ratio >= 4.5`，同时新增 `background_surface_unity` 与 `reading_surface_contrast` 检查。
 - [x] 隐藏来源水印：只对不透明的工作流生成底图/纯生成 raster 封面生成新 derivative；保留无水印母版，在登记及后续每个 ready 门禁中重新验证 HMAC、母版/成品/报告 SHA、独立 `PSNR >= 42 dB` 和完整画面 390px/JPEG-Q75 模拟，不信任报告自报字段，并将严格公开证据透传到 Ardot/compile/publisher。
 - [x] 水印隐私与载体边界：密钥和 raw ID 映射始终在仓库外；真实照片、Logo、二维码、透明小组件、SVG 与 QA 证据不修改；发布前只有从实际微信 CDN/封面派生图回读检出才能标记 `transport_verified`。

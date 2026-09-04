@@ -44,6 +44,12 @@ REQUIRED_VISUAL_CHECKS = {
     "staggered_micro_composition",
     "micro_copy_hierarchy",
 }
+MICRO_COMPONENT_VISUAL_CHECKS = {
+    "no_framed_micro_copy",
+    "no_full_width_micro_image",
+    "staggered_micro_composition",
+    "micro_copy_hierarchy",
+}
 REQUIRED_SCREENSHOT_ROLES = {"hero", "chapter", "evidence", "complex-section", "cta"}
 REQUIRED_MICRO_COMPONENT_ROLES = {
     "floating-spot",
@@ -127,7 +133,19 @@ ALLOWED_ART_TYPE_TECHNIQUES = {
     "vector-accent",
     "vertical-flow",
 }
-ALLOWED_INTERACTION_AUTHORING_MODES = {"dynamic-default", "static-exception"}
+ALLOWED_INTERACTION_AUTHORING_MODES = {
+    "dynamic-default",
+    "static-selected",
+    "static-exception",
+}
+PRODUCTION_PREFERENCE_FIELDS = {
+    "status",
+    "confirmed_by",
+    "micro_component_count",
+    "use_svg",
+    "style_route",
+    "generate_backgrounds",
+}
 ALLOWED_INTERACTION_PATTERNS = {
     "tap-reveal-group",
     "progressive-reveal",
@@ -1843,8 +1861,25 @@ def background_family_state(
     family = calibration.get("background_family") if isinstance(calibration, dict) else None
     reasons: list[str] = []
     if not isinstance(family, dict):
-        family = {}
-        reasons.append("visual calibration requires a generated background_family")
+        # Generated raster backgrounds are an article-level production choice.
+        # A calibrated organization may intentionally use only native Ardot
+        # surfaces, gradients and editable vector decoration.  Callers that
+        # actually request generated backgrounds add the stricter requirement
+        # through calibration_state(require_background_family=True).
+        return {
+            "ready": True,
+            "configured": False,
+            "id": None,
+            "strategy": "native-surfaces",
+            "master_asset_id": None,
+            "companion_asset_ids": [],
+            "surface_mode": None,
+            "copy_safe_zone": {},
+            "body_text_color": None,
+            "minimum_contrast_ratio": None,
+            "maximum_copy_safe_stddev": None,
+            "blocking_reasons": [],
+        }
     if family.get("strategy") != "generated-family":
         reasons.append("background_family.strategy must be generated-family")
     family_id = family.get("id")
@@ -1905,6 +1940,7 @@ def background_family_state(
                 reasons.append(f"background companion must declare background_variant=companion: {asset_id}")
     return {
         "ready": not reasons,
+        "configured": True,
         "id": family_id,
         "strategy": family.get("strategy"),
         "master_asset_id": master_id,
@@ -1993,6 +2029,8 @@ def calibration_state(
     organization: dict[str, Any],
     route_id: str | None = None,
     assets_doc: dict[str, Any] | None = None,
+    *,
+    require_background_family: bool = False,
 ) -> dict[str, Any]:
     calibration = organization.get("visual", {}).get("calibration")
     if not isinstance(calibration, dict):
@@ -2021,6 +2059,10 @@ def calibration_state(
     ):
         reasons.append("visual calibration lacks an Ardot benchmark file, page, and article node")
     reasons.extend(background_family["blocking_reasons"])
+    if require_background_family and not background_family.get("configured"):
+        reasons.append(
+            "article production preferences request generated backgrounds, but visual calibration has no generated background_family"
+        )
     reasons.extend(typography["blocking_reasons"])
     return {
         "ready": not reasons,
@@ -2080,6 +2122,84 @@ def interaction_semantic_hash(source_texts: list[str]) -> str:
     return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def validate_production_preferences(
+    article: dict[str, Any],
+    *,
+    resolved_route_id: str | None = None,
+) -> dict[str, Any]:
+    """Validate the user/editor-confirmed article production choices.
+
+    These fields intentionally live at article scope: an organization may use
+    different component, interaction, style-route, and background choices for
+    different pushes.  Builders may pass an already resolved route ID; callers
+    without organization context require ``article.route`` to be explicit.
+    """
+
+    errors: list[str] = []
+    raw = article.get("production_preferences")
+    if not isinstance(raw, dict):
+        raw = {}
+        errors.append("article requires production_preferences confirmed at workflow start")
+
+    if raw.get("status") != "confirmed":
+        errors.append("article.production_preferences.status must be confirmed")
+    if raw.get("confirmed_by") not in {"user", "editor"}:
+        errors.append(
+            "article.production_preferences.confirmed_by must be user or editor"
+        )
+
+    micro_component_count = raw.get("micro_component_count")
+    if (
+        not isinstance(micro_component_count, int)
+        or isinstance(micro_component_count, bool)
+        or not 0 <= micro_component_count <= 4
+    ):
+        errors.append(
+            "article.production_preferences.micro_component_count must be an integer from 0 to 4"
+        )
+
+    use_svg = raw.get("use_svg")
+    if not isinstance(use_svg, bool):
+        errors.append("article.production_preferences.use_svg must be boolean")
+        use_svg = None
+
+    style_route = raw.get("style_route")
+    if not isinstance(style_route, str) or not SLUG.fullmatch(style_route):
+        errors.append(
+            "article.production_preferences.style_route must be a lowercase hyphenated route id"
+        )
+
+    actual_route = resolved_route_id if resolved_route_id is not None else article.get("route")
+    if not isinstance(actual_route, str) or not SLUG.fullmatch(actual_route):
+        errors.append(
+            "article.route must be explicit so production_preferences.style_route can be verified"
+        )
+    elif isinstance(style_route, str) and style_route != actual_route:
+        errors.append(
+            "article.production_preferences.style_route must match the article route"
+        )
+
+    generate_backgrounds = raw.get("generate_backgrounds")
+    if not isinstance(generate_backgrounds, bool):
+        errors.append(
+            "article.production_preferences.generate_backgrounds must be boolean"
+        )
+        generate_backgrounds = None
+
+    return {
+        "ready": not errors,
+        "status": raw.get("status"),
+        "confirmed_by": raw.get("confirmed_by"),
+        "micro_component_count": micro_component_count,
+        "use_svg": use_svg,
+        "style_route": style_route,
+        "resolved_route_id": actual_route,
+        "generate_backgrounds": generate_backgrounds,
+        "fields": sorted(PRODUCTION_PREFERENCE_FIELDS),
+        "errors": errors,
+    }
+
+
 def validate_interaction_plan(
     article: dict[str, Any],
     ardot: dict[str, Any],
@@ -2087,20 +2207,23 @@ def validate_interaction_plan(
     *,
     require_evidence: bool = True,
 ) -> dict[str, Any]:
-    """Validate 2–3 authored modules, then optionally require final Ardot evidence."""
+    """Validate the selected dynamic/static plan and optional final Ardot evidence."""
     errors: list[str] = []
+    production_preferences = validate_production_preferences(article)
+    errors.extend(production_preferences["errors"])
+    use_svg = production_preferences["use_svg"]
     plan = article.get("interaction_plan")
     if not isinstance(plan, dict):
         plan = {}
         errors.append(
-            "article requires interaction_plan; the default authoring mode uses 2 to 3 semantic dynamic modules"
+            "article requires interaction_plan matching the confirmed use_svg choice"
         )
     if plan.get("status") != "approved":
         errors.append("article.interaction_plan.status must be approved")
     authoring_mode = plan.get("authoring_mode")
     if authoring_mode not in ALLOWED_INTERACTION_AUTHORING_MODES:
         errors.append(
-            "article.interaction_plan.authoring_mode must be dynamic-default or static-exception"
+            "article.interaction_plan.authoring_mode must be dynamic-default, static-selected, or static-exception"
         )
     modules_raw = plan.get("modules")
     modules = [item for item in modules_raw if isinstance(item, dict)] if isinstance(modules_raw, list) else []
@@ -2110,29 +2233,79 @@ def validate_interaction_plan(
     if not isinstance(target_count, int) or isinstance(target_count, bool):
         errors.append("article.interaction_plan.target_module_count must be an integer")
         target_count = -1
-    if authoring_mode == "dynamic-default":
-        if target_count not in {2, 3}:
-            errors.append("dynamic-default interaction plans require target_module_count of 2 or 3")
-        if not 2 <= len(modules) <= 3:
-            errors.append("dynamic-default interaction plans require 2 to 3 semantic modules")
-        if target_count != len(modules):
-            errors.append("interaction target_module_count must equal the number of semantic modules")
+    if use_svg is True:
+        if authoring_mode == "dynamic-default":
+            if target_count not in {2, 3}:
+                errors.append(
+                    "production_preferences.use_svg=true requires target_module_count of 2 or 3"
+                )
+            if not 2 <= len(modules) <= 3:
+                errors.append(
+                    "production_preferences.use_svg=true requires 2 to 3 semantic modules"
+                )
+            if target_count != len(modules):
+                errors.append(
+                    "interaction target_module_count must equal the number of semantic modules"
+                )
+            if isinstance(plan.get("exception"), dict):
+                errors.append(
+                    "dynamic-default interaction plans must not declare a static exception"
+                )
+        elif authoring_mode == "static-exception":
+            if (
+                target_count not in {0, 1}
+                or len(modules) not in {0, 1}
+                or target_count != len(modules)
+            ):
+                errors.append(
+                    "static-exception interaction plans may contain at most one semantic module"
+                )
+            exception = plan.get("exception")
+            if not isinstance(exception, dict):
+                exception = {}
+                errors.append(
+                    "static-exception interaction plans require an explicit exception record"
+                )
+            if exception.get("category") not in ALLOWED_STATIC_EXCEPTION_CATEGORIES:
+                errors.append("static interaction exception category is invalid")
+            reason = exception.get("reason")
+            if not isinstance(reason, str) or len(reason.strip()) < 12:
+                errors.append(
+                    "static interaction exception requires a specific reason of at least 12 characters"
+                )
+            if exception.get("confirmed_by") not in {"user", "editor"}:
+                errors.append(
+                    "static interaction exception must be confirmed_by user or editor"
+                )
+        else:
+            errors.append(
+                "production_preferences.use_svg=true requires dynamic-default or a confirmed static-exception"
+            )
+    elif use_svg is False:
+        if authoring_mode != "static-selected":
+            errors.append(
+                "production_preferences.use_svg=false requires interaction authoring_mode=static-selected"
+            )
+        if target_count != 0 or modules:
+            errors.append(
+                "production_preferences.use_svg=false requires target_module_count=0 and no interaction modules"
+            )
         if isinstance(plan.get("exception"), dict):
-            errors.append("dynamic-default interaction plans must not declare a static exception")
+            errors.append(
+                "static-selected interaction plans must not duplicate the confirmed choice with an exception"
+            )
+        # The confirmed production preference is itself the explicit editorial
+        # choice.  Requiring a second exception record would ask the operator to
+        # confirm the same static decision twice.
+    elif authoring_mode == "dynamic-default":
+        if target_count not in {2, 3} or not 2 <= len(modules) <= 3:
+            errors.append("dynamic-default interaction plans require 2 to 3 semantic modules")
     elif authoring_mode == "static-exception":
         if target_count not in {0, 1} or len(modules) not in {0, 1} or target_count != len(modules):
             errors.append("static-exception interaction plans may contain at most one semantic module")
-        exception = plan.get("exception")
-        if not isinstance(exception, dict):
-            exception = {}
-            errors.append("static-exception interaction plans require an explicit exception record")
-        if exception.get("category") not in ALLOWED_STATIC_EXCEPTION_CATEGORIES:
-            errors.append("static interaction exception category is invalid")
-        reason = exception.get("reason")
-        if not isinstance(reason, str) or len(reason.strip()) < 12:
-            errors.append("static interaction exception requires a specific reason of at least 12 characters")
-        if exception.get("confirmed_by") not in {"user", "editor"}:
-            errors.append("static interaction exception must be confirmed_by user or editor")
+    elif authoring_mode == "static-selected":
+        if target_count != 0 or modules:
+            errors.append("static-selected interaction plans require zero semantic modules")
 
     revision_hash = plan.get("ardot_revision_hash")
     if require_evidence and modules and not isinstance(revision_hash, str):
@@ -2438,6 +2611,7 @@ def validate_interaction_plan(
         "evidence_required": require_evidence,
         "policy_version": "wechat-svg-smil-self-v1",
         "production_default": "static-fallback-until-account-runtime-certification",
+        "production_preferences": production_preferences,
         "errors": errors,
     }
 
@@ -2618,7 +2792,63 @@ def validate_micro_component_layout(
     """Derive micro-component geometry and typography from hashed Ardot node exports."""
     errors: list[str] = []
     error_codes: set[str] = set()
+    preferences = validate_production_preferences(
+        article,
+        resolved_route_id=article.get("route") if isinstance(article.get("route"), str) else None,
+    )
+    errors.extend(preferences["errors"])
+    requested_count = preferences.get("micro_component_count")
+    if not isinstance(requested_count, int) or isinstance(requested_count, bool):
+        requested_count = 0
+    visual_kit = article.get("visual_kit")
+    visual_assets = visual_kit.get("assets") if isinstance(visual_kit, dict) else []
+    visual_assets = (
+        [item for item in visual_assets if isinstance(item, dict)]
+        if isinstance(visual_assets, list)
+        else []
+    )
+    selected_roles_raw = (
+        visual_kit.get("selected_roles") if isinstance(visual_kit, dict) else None
+    )
+    if isinstance(selected_roles_raw, list):
+        selected_roles = [
+            role
+            for role in selected_roles_raw
+            if isinstance(role, str) and role in REQUIRED_MICRO_COMPONENT_ROLES
+        ]
+    else:
+        # Keep old completed article records diagnosable while the visual-kit
+        # builder owns the stricter selected_roles/count contract.
+        selected_roles = [
+            item["role"]
+            for item in visual_assets
+            if item.get("role") in REQUIRED_MICRO_COMPONENT_ROLES
+        ]
+    expected_role_set = set(selected_roles)
+
     layout = review.get("micro_component_layout")
+    if requested_count == 0:
+        placements = layout.get("placements") if isinstance(layout, dict) else []
+        if placements:
+            errors.append(
+                "micro_component_count=0 forbids micro component layout placements"
+            )
+        return {
+            "ready": not errors,
+            "errors": errors,
+            "error_codes": [],
+            "placement_count": len(placements) if isinstance(placements, list) else 0,
+            "roles": [],
+            "requested_roles": [],
+            "requested_component_count": 0,
+            "minimum_screenshot_sections": 0,
+            "minimum_composition_relations": 0,
+            "screenshot_section_count": 0,
+            "composition_relation_count": 0,
+            "copy_bearing_count": 0,
+            "inventory_instance_count": 0,
+            "covered_instance_count": 0,
+        }
     if not isinstance(layout, dict):
         layout = {}
         errors.append("visual review requires micro_component_layout evidence")
@@ -2714,16 +2944,12 @@ def validate_micro_component_layout(
 
     expected_components: dict[str, str] = {}
     expected_micro_assets: dict[str, tuple[str, str]] = {}
-    visual_kit = article.get("visual_kit")
-    visual_assets = visual_kit.get("assets") if isinstance(visual_kit, dict) else []
     if isinstance(visual_assets, list):
         for item in visual_assets:
-            if not isinstance(item, dict):
-                continue
             role = item.get("role")
             component = item.get("ardot_component")
             if (
-                role in REQUIRED_MICRO_COMPONENT_ROLES
+                role in expected_role_set
                 and isinstance(component, dict)
                 and isinstance(component.get("node_id"), str)
                 and component.get("node_id")
@@ -2741,7 +2967,7 @@ def validate_micro_component_layout(
                     )
                 else:
                     expected_micro_assets[role] = (asset_id, asset_sha256)
-    for role in sorted(REQUIRED_MICRO_COMPONENT_ROLES - set(expected_components)):
+    for role in sorted(expected_role_set - set(expected_components)):
         errors.append(
             f"article.visual_kit is missing native component evidence for micro role: {role}"
         )
@@ -2817,7 +3043,7 @@ def validate_micro_component_layout(
             seen_ids.add(placement_id)
 
         role = placement.get("role")
-        if role not in REQUIRED_MICRO_COMPONENT_ROLES:
+        if role not in expected_role_set:
             errors.append(f"{prefix} has unsupported role: {role}")
         else:
             seen_roles.add(role)
@@ -3119,7 +3345,7 @@ def validate_micro_component_layout(
                         f"{prefix} primary-copy must use scale-contrast plus at least one non-frame emphasis technique"
                     )
 
-    missing_roles = REQUIRED_MICRO_COMPONENT_ROLES - seen_roles
+    missing_roles = expected_role_set - seen_roles
     for role in sorted(missing_roles):
         errors.append(f"micro component layout is missing role: {role}")
     missing_instances = set(inventory_by_instance) - seen_instances
@@ -3130,23 +3356,31 @@ def validate_micro_component_layout(
         errors.append(f"micro component layout omits Ardot instance: {instance_node_id}")
     for instance_node_id in sorted(extra_instances):
         errors.append(f"micro component layout includes unregistered Ardot instance: {instance_node_id}")
-    if len(screenshot_nodes) < 3:
+    minimum_sections = min(3, requested_count)
+    minimum_relations = min(3, requested_count)
+    minimum_offsets = min(3, requested_count)
+    if len(screenshot_nodes) < minimum_sections:
         errors.append(
-            "micro components must be distributed across at least 3 screenshot sections, not one horizontal component wall"
+            f"micro components must be distributed across at least {minimum_sections} screenshot sections, not one horizontal component wall"
         )
-    if not any(value <= -0.08 for value in horizontal_offsets) or not any(
-        value >= 0.08 for value in horizontal_offsets
+    if requested_count >= 2 and (
+        not any(value <= -0.08 for value in horizontal_offsets)
+        or not any(value >= 0.08 for value in horizontal_offsets)
     ):
         error_codes.add("micro.layout.not_staggered")
         errors.append(
             "micro component placements must be staggered with both left and right offsets"
         )
-    if len({round(value, 2) for value in horizontal_offsets}) < 3:
+    if len({round(value, 2) for value in horizontal_offsets}) < minimum_offsets:
         error_codes.add("micro.layout.not_staggered")
-        errors.append("micro component placements require at least 3 distinct horizontal offsets")
-    if len(composition_relations) < 3:
-        errors.append("micro component placements require at least 3 composition relations")
-    if component_widths and max(component_widths) - min(component_widths) < 0.08:
+        errors.append(
+            f"micro component placements require at least {minimum_offsets} distinct horizontal offsets"
+        )
+    if len(composition_relations) < minimum_relations:
+        errors.append(
+            f"micro component placements require at least {minimum_relations} composition relations"
+        )
+    if requested_count >= 2 and component_widths and max(component_widths) - min(component_widths) < 0.08:
         error_codes.add("micro.layout.scale_variation_missing")
         errors.append("micro component placements require visible scale variation")
 
@@ -3156,6 +3390,10 @@ def validate_micro_component_layout(
         "error_codes": sorted(error_codes),
         "placement_count": len(placements),
         "roles": sorted(seen_roles),
+        "requested_roles": sorted(expected_role_set),
+        "requested_component_count": requested_count,
+        "minimum_screenshot_sections": minimum_sections,
+        "minimum_composition_relations": minimum_relations,
         "screenshot_section_count": len(screenshot_nodes),
         "composition_relation_count": len(composition_relations),
         "copy_bearing_count": copy_bearing_count,
@@ -3652,7 +3890,21 @@ def validate_visual_review(
     if not isinstance(checks, dict):
         checks = {}
         errors.append("visual review checks must be an object")
-    for check in sorted(REQUIRED_VISUAL_CHECKS):
+    preferences = validate_production_preferences(
+        article,
+        resolved_route_id=article.get("route") if isinstance(article.get("route"), str) else None,
+    )
+    required_visual_checks = set(REQUIRED_VISUAL_CHECKS)
+    if preferences.get("generate_backgrounds") is False:
+        required_visual_checks.discard("background_family_coherence")
+    requested_micro_count = preferences.get("micro_component_count")
+    if (
+        isinstance(requested_micro_count, int)
+        and not isinstance(requested_micro_count, bool)
+        and requested_micro_count == 0
+    ):
+        required_visual_checks.difference_update(MICRO_COMPONENT_VISUAL_CHECKS)
+    for check in sorted(required_visual_checks):
         evidence = checks.get(check)
         if not isinstance(evidence, dict) or evidence.get("status") != "pass":
             errors.append(f"visual review check must pass: {check}")
@@ -3688,11 +3940,12 @@ def validate_visual_review(
         "node_count": len(node_ids),
         "density_mode": density_mode,
         "density_sample_count": len(sample_items),
+        "production_preferences": preferences,
         "micro_component_layout": micro_component_layout,
         "ardot_article_census": census_validation,
         "passed_checks": sorted(
             check
-            for check in REQUIRED_VISUAL_CHECKS
+            for check in required_visual_checks
             if isinstance(checks.get(check), dict) and checks[check].get("status") == "pass"
         ),
     }

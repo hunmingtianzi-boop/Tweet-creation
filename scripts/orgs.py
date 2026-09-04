@@ -700,6 +700,7 @@ def validate_pack(
         errors.append("organization.visual.default_route must reference a registered route")
 
     calibration = visual.get("calibration")
+    background_family: dict[str, Any] | None = None
     if not isinstance(calibration, dict):
         calibration = {}
         warnings.append("organization.visual.calibration is missing; full article production is blocked")
@@ -728,9 +729,7 @@ def validate_pack(
         if calibration.get("density_mode") not in DENSITY_MODES:
             errors.append("approved visual calibration requires a valid density_mode")
         background_family = calibration.get("background_family")
-        if background_family is None:
-            errors.append("approved visual calibration requires a generated background_family")
-        else:
+        if background_family is not None:
             background_family = require_dict(
                 background_family,
                 "organization.visual.calibration.background_family",
@@ -898,6 +897,10 @@ def validate_pack(
         for field in ("id", "kind", "title", "location", "origin"):
             if not asset.get(field):
                 errors.append(f"asset {asset_id} missing {field}")
+        if asset.get("kind") not in ASSET_KINDS:
+            errors.append(f"asset {asset_id}.kind is invalid")
+        if asset.get("origin") not in ASSET_ORIGINS:
+            errors.append(f"asset {asset_id}.origin is invalid")
         uses = asset.get("uses")
         if not isinstance(uses, list) or any(
             not isinstance(value, str) or not value.strip() for value in uses
@@ -1676,76 +1679,27 @@ def style_grammar_prompt(org: dict[str, Any], route: dict[str, Any]) -> str:
     )
 
 
-def _micro_prompt_base(
-    org: dict[str, Any],
-    route: dict[str, Any],
+def build_asset_plan(
+    pack_dir: Path,
     article_type: str,
-    purpose: str,
-    aspect_ratio: str,
-) -> str:
-    tokens = org["visual"]["tokens"]
-    palette = ", ".join(
-        f"{name} {tokens[name]}"
-        for name in ("ink", "accent", "accent_alt", "surface_alt")
-    )
-    motifs = "、".join(org["visual"].get("motifs", []))
-    avoid = "、".join(org["visual"].get("avoid", []))
-    style_grammar_instruction = style_grammar_prompt(org, route)
-    return (
-        f"Create one small, text-free {purpose} for {org['identity']['name']} and a "
-        f"{article_type} WeChat article. Derive the subject from the article's concrete "
-        f"objects, actions, or process rather than generic decoration. Follow the "
-        f"{route['dominant_style']} route; motifs: {motifs}; palette: {palette}; aspect "
-        f"ratio {aspect_ratio}. {style_grammar_instruction}"
-        "Keep an open, soft-edged composition with no rectangular panel, border, card, poster, UI frame, letters, "
-        f"visible numbers, watermark, signature, logo, or QR code. Avoid: {avoid}. "
-        "Never reuse the neutral migration calibration mark or its grayscale test treatment. "
-        "Hidden provenance marking, if any, is handled separately by workflow policy; "
-        "this transparent micro asset remains unmarked in V1."
-    )
-
-
-def micro_prompt_blueprint(
-    org: dict[str, Any],
-    route: dict[str, Any],
-    article_type: str,
-    purpose: str,
-    aspect_ratio: str,
-) -> str:
-    return (
-        _micro_prompt_base(org, route, article_type, purpose, aspect_ratio)
-        + " Return a provider-original PNG with genuine pixel Alpha: background pixels must "
-        "be alpha 0, with no white/black/colored matte, checkerboard pixels, haze, or "
-        "simulated transparency."
-    )
-
-
-def micro_fallback_prompt_blueprint(
-    org: dict[str, Any],
-    route: dict[str, Any],
-    article_type: str,
-    purpose: str,
-    aspect_ratio: str,
-) -> str:
-    return (
-        _micro_prompt_base(org, route, article_type, purpose, aspect_ratio)
-        + " This is the single controlled-key fallback after the native-alpha source failed "
-        "the strict Alpha/pixel gate. Use one perfectly flat "
-        "{SLOT_FALLBACK_KEY_COLOR} background, keep 6-12% key-colored border, and do not use "
-        "that key color inside the subject."
-    )
-
-
-def build_asset_plan(pack_dir: Path, article_type: str) -> dict[str, Any]:
+    *,
+    route_id: str,
+    background_mode: str,
+) -> dict[str, Any]:
     pack = load_pack(pack_dir)
     org = pack["organization"]
     article_types = org.get("article_types", {})
     if article_type not in article_types:
         available = ", ".join(sorted(article_types))
         raise ValueError(f"unknown article type: {article_type}; available: {available}")
-    article_config = article_types[article_type]
     route_map = {route["id"]: route for route in org["visual"]["routes"]}
-    route = route_map[article_config["route"]]
+    if route_id not in route_map:
+        available = ", ".join(sorted(route_map))
+        raise ValueError(f"unknown visual route: {route_id}; available: {available}")
+    if background_mode not in {"generated-family", "native-surfaces"}:
+        raise ValueError("background_mode must be generated-family or native-surfaces")
+    article_config = article_types[article_type]
+    route = route_map[route_id]
     style_grammar = (
         route.get("style_grammar")
         if org.get("provenance", {}).get("visual_reference_policy") == "explicit-style-grammar"
@@ -1765,13 +1719,9 @@ def build_asset_plan(pack_dir: Path, article_type: str) -> dict[str, Any]:
         aspect_ratio: str,
         required: bool,
         generate_allowed: bool,
-        force_generate: bool = False,
-        micro_component: bool = False,
     ) -> None:
         candidates = matching_assets(pack, article_type, kinds)
-        if force_generate:
-            status = "generate-required"
-        elif candidates:
+        if candidates:
             status = "reuse-available"
         elif generate_allowed:
             status = "generate-or-source"
@@ -1792,54 +1742,33 @@ def build_asset_plan(pack_dir: Path, article_type: str) -> dict[str, Any]:
             "aspect_ratio": aspect_ratio,
             "existing_candidates": [item["id"] for item in candidates],
             "suggested_directory": suggested_directory,
-            "micro_component": micro_component,
         }
         if generate_allowed:
-            prompt_builder = micro_prompt_blueprint if micro_component else prompt_blueprint
-            slot["prompt_blueprint"] = prompt_builder(org, route, article_type, purpose, aspect_ratio)
-            if micro_component:
-                slot["fallback_prompt_blueprint"] = micro_fallback_prompt_blueprint(
-                    org, route, article_type, purpose, aspect_ratio
-                )
-                slot["source_generation"] = {
-                    "acquisition_preference": "native-alpha-first-controlled-key-fallback-only",
-                    "preferred_processor_args": ["--require-native-alpha"],
-                    "fallback_key_color_source": "visual-kit-plan.slot.source_generation.fallback_key_color",
-                    "fallback_processor_args_template": [
-                        "--key-color",
-                        "{SLOT_FALLBACK_KEY_COLOR}",
-                    ],
-                    "maximum_source_attempts": 2,
-                }
+            slot["prompt_blueprint"] = prompt_blueprint(
+                org, route, article_type, purpose, aspect_ratio
+            )
         slots.append(slot)
 
-    for slot_id, purpose, aspect_ratio in (
-        ("kit.floating-spot", "floating spot illustration", "1:1 transparent"),
-        ("kit.section-transition", "flowing section transition illustration", "4:1 transparent"),
-        ("kit.inline-explainer", "small inline explanatory illustration", "4:3 open composition"),
-        ("kit.closing-motif", "closing motif beside the call to action", "1:1 transparent"),
-    ):
+    if background_mode == "generated-family":
         add_slot(
-            slot_id,
-            purpose,
-            {"illustration", "decoration"},
-            "Generate before layout; keep it text-free, open-edged, and article-specific.",
-            aspect_ratio,
-            required=True,
+            "visual.hero",
+            "cover or opening background",
+            {"background", "illustration"},
+            "Reuse a registered visual first; generated art must be text-free and illustrative.",
+            "2:3 portrait",
+            required=False,
             generate_allowed=True,
-            force_generate=True,
-            micro_component=True,
         )
-
-    add_slot(
-        "visual.hero",
-        "cover or opening background",
-        {"background", "illustration"},
-        "Reuse a registered visual first; generated art must be text-free and illustrative.",
-        "2:3 portrait",
-        required=False,
-        generate_allowed=True,
-    )
+    else:
+        add_slot(
+            "visual.hero",
+            "cover or opening evidence image on an Ardot-native surface",
+            {"photo"},
+            "Use a supplied or registered image, or compose the opening with Ardot-native surfaces; do not generate a raster atmosphere background.",
+            "2:3 portrait",
+            required=False,
+            generate_allowed=False,
+        )
     if "image" in blocks or "section" in blocks:
         add_slot(
             "visual.section",
@@ -1895,6 +1824,7 @@ def build_asset_plan(pack_dir: Path, article_type: str) -> dict[str, Any]:
         "organization_name": org["identity"]["name"],
         "article_type": article_type,
         "route": route,
+        "background_mode": background_mode,
         "style_reference_policy": route_reference_policy,
         "style_grammar": style_grammar,
         "style_grammar_sha256": (
@@ -1910,13 +1840,20 @@ def build_asset_plan(pack_dir: Path, article_type: str) -> dict[str, Any]:
         "motifs": org["visual"].get("motifs", []),
         "avoid": org["visual"].get("avoid", []),
         "slots": slots,
+        "article_specific_micro_components": {
+            "planned_by": "scripts/build_visual_kit.py",
+            "requires_confirmed_production_preferences": True,
+            "count_range": [0, 4],
+            "reason": (
+                "micro components are selected only after the article storyboard; "
+                "the generic article-type asset plan must not invent four placeholders"
+            ),
+        },
         "rules": [
-            "Generate and approve all four micro-component slots before assembling the article layout.",
-            "Use four distinct article-specific micro assets; one bitmap cannot satisfy two roles.",
-            "Run inspect_asset.py for each micro asset and require decoded PNG Alpha with real transparent pixels.",
-            "Turn the approved micro illustrations into reusable Ardot spot, transition, explainer, and closing components before composing the long article.",
-            "Record each native Ardot component file URL, node ID, and exact name on the article visual-kit item.",
-            "Use only the calibrated background family master and companions for AI atmosphere continuity.",
+            "Do not create generic micro-component placeholders in this article-type plan; use build_visual_kit.py after the storyboard and confirmed 0-4 count.",
+            "For each selected real micro asset, choose native Alpha or a planned controlled-key source, then require a strict decoded RGBA8 transparent derivative before registration.",
+            "Turn only the selected approved micro illustrations into native Ardot components before composing the long article.",
+            "When generated backgrounds are selected, use only the calibrated family master and companions; otherwise use native Ardot surfaces.",
             "Real photographs carry documentary evidence; generated backgrounds carry atmosphere and never substitute for events or outcomes.",
             "Generated images must not contain Chinese copy, dates, metrics, logos, or QR codes.",
             "Inspect every generated asset before registration.",
@@ -1938,7 +1875,12 @@ def command_asset_plan(args: argparse.Namespace) -> None:
             raise SystemExit(str(exc)) from exc
     else:
         output = None
-    plan = build_asset_plan(args.pack, args.article_type)
+    plan = build_asset_plan(
+        args.pack,
+        args.article_type,
+        route_id=args.route,
+        background_mode=args.background_mode,
+    )
     if output is not None:
         try:
             write_text_create_once(
@@ -2232,6 +2174,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     plan_parser.add_argument("pack", type=Path)
     plan_parser.add_argument("article_type")
+    plan_parser.add_argument("--route", required=True)
+    plan_parser.add_argument(
+        "--background-mode",
+        choices=("generated-family", "native-surfaces"),
+        required=True,
+    )
     plan_parser.add_argument("--output", type=Path)
     plan_parser.set_defaults(func=command_asset_plan)
 

@@ -42,6 +42,7 @@ MIGRATION_RGBA_PROBE_FALLBACK_KEY = "#00FF3C"
 MIGRATION_RECEIPT_KIND = "org-wechat-migration-probe-host-receipt-v1"
 MIGRATION_FINAL_REPORT_KIND = "org-wechat-migration-final-report-v1"
 MIGRATION_SESSION_EVIDENCE_KIND = "org-wechat-migration-session-evidence-v1"
+RUNTIME_SESSION_EVIDENCE_KIND = "org-wechat-runtime-session-evidence-v1"
 MIGRATION_SESSION_REPORT_KIND = "org-wechat-migration-current-session-report-v1"
 MIGRATION_CONSUMPTION_KIND = "org-wechat-migration-receipt-consumption-v1"
 MIGRATION_TRUST_STORE_KIND = "org-wechat-migration-host-trust-store-v1"
@@ -1258,7 +1259,12 @@ def finalize_current_session_migration(
     source_binding_report_sha256: str,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Verify the local probe chain and issue a non-portable session continuation."""
+    """Issue a non-portable session continuation.
+
+    New callers use a lightweight runtime-session binding that does not create
+    or inspect an RGBA calibration image.  The older probe evidence kind stays
+    readable for compatibility with already-created session artifacts.
+    """
 
     current_time = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     if (
@@ -1280,11 +1286,13 @@ def finalize_current_session_migration(
     rgba = capabilities.get("rgba_cutout_generation")
     if not isinstance(rgba, dict):
         raise ValueError("migration binding report lacks the RGBA route")
+    evidence_kind = evidence.get("kind")
     if (
         evidence.get("schema_version") != 1
-        or evidence.get("kind") != MIGRATION_SESSION_EVIDENCE_KIND
+        or evidence_kind
+        not in {RUNTIME_SESSION_EVIDENCE_KIND, MIGRATION_SESSION_EVIDENCE_KIND}
     ):
-        raise ValueError("current-session migration evidence schema/kind is invalid")
+        raise ValueError("current-session runtime evidence schema/kind is invalid")
     created_at = _parse_timestamp(evidence.get("created_at"))
     if (
         created_at is None
@@ -1305,7 +1313,57 @@ def finalize_current_session_migration(
         "generation_route_id": rgba.get("generation_route_id"),
     }
     if evidence.get("binding") != expected_binding:
-        raise ValueError("current-session migration evidence binding is not exact")
+        raise ValueError("current-session runtime evidence binding is not exact")
+
+    if evidence_kind == RUNTIME_SESSION_EVIDENCE_KIND:
+        provider_session_id = evidence.get("provider_session_id")
+        if (
+            not isinstance(provider_session_id, str)
+            or not TOOL_ID.fullmatch(provider_session_id)
+        ):
+            raise ValueError("current-session provider session id is invalid")
+        finalized = dict(binding_report)
+        finalized.update(
+            {
+                "kind": MIGRATION_SESSION_REPORT_KIND,
+                "check_level": "current-session-bound",
+                "ok": True,
+                "phase_ready": False,
+                "operational_ready": True,
+                "assurance": "current-session-observed-path-not-portable-signed",
+                "portable_signed_audit": False,
+                "migration_selftest": {
+                    "required": False,
+                    "status": "not-requested",
+                    "reason": "rgba-migration-probe-is-explicit-diagnostics-only",
+                    "before_source_material": False,
+                    "article_asset_registration_allowed": False,
+                    "article_asset_registration_policy": (
+                        "conditional-on-each-real-asset-passing-provider-acquisition-"
+                        "raw-byte-derivation-and-final-quality-gates"
+                    ),
+                },
+                "current_session_evidence": evidence,
+                "continuation": {
+                    "contract": "org-wechat-runtime-current-session-continuation-v1",
+                    "binding_digest": binding_report.get("binding_digest"),
+                    "trusted_bundle_sha256": local.get("trusted_bundle_sha256"),
+                    "installed_release_sha256": local.get(
+                        "installed_release_sha256"
+                    ),
+                    "registry_digest": local.get("registry_digest"),
+                    "adapter_sha256": expected_binding["adapter_sha256"],
+                    "generation_route_id": expected_binding[
+                        "generation_route_id"
+                    ],
+                    "provider_session_id": provider_session_id,
+                    "allowed_next_phases": ["bootstrap", "authoring", "full"],
+                    "scope": "same-host-session-only",
+                },
+                "errors": [],
+            }
+        )
+        return _redact_report(finalized)
 
     probe = evidence.get("probe")
     if not isinstance(probe, dict):
@@ -1844,7 +1902,7 @@ def _validate_local_paths(workspace_root: Path, errors: list[dict[str, str]]) ->
             "clone_check_before_source_material": True,
             "open_after_binding": True,
             "prepare_before_source_material": True,
-            "migration_rgba_probe_before_source_material": True,
+            "migration_rgba_probe_before_source_material": False,
             "wait_for_user_login": True,
             "reprobe_after_login": True,
             "persist_session_query": False,
@@ -3186,7 +3244,7 @@ def build_host_registry_census(
             "host_attested": False,
             "portable": False,
             "required_asset_gates": [
-                "completed-current-session-migration",
+                "current-session-runtime-binding",
                 "canonical-provider-request",
                 "create-once-download-ingestion",
                 "exact-raw-byte-binding",
@@ -4431,22 +4489,15 @@ def _validate_capabilities(
                     f"capability status must be one of {sorted(accepted_statuses)}",
                 )
             elif status == "bound_unprobed":
-                if phase == "migration" and name == "rgba_cutout_generation":
-                    warning_code = "runtime.capability.rgba_migration_probe_required"
-                    warning_message = (
-                        "RGBA generation is bound but the nonce/digest-bound neutral migration "
-                        "probe must still run in the current host trace before source material"
-                    )
-                else:
-                    warning_code = (
-                        "runtime.capability.rgba_live_probe_deferred"
-                        if name == "rgba_cutout_generation"
-                        else "runtime.capability.opaque_live_probe_deferred"
-                    )
-                    warning_message = (
-                        "image generation is bound but unprobed; the first real generation is a "
-                        "blocking live probe"
-                    )
+                warning_code = (
+                    "runtime.capability.rgba_live_probe_deferred"
+                    if name == "rgba_cutout_generation"
+                    else "runtime.capability.opaque_live_probe_deferred"
+                )
+                warning_message = (
+                    "image generation is bound but unprobed; inspect the first real asset "
+                    "without blocking source reading on a synthetic calibration image"
+                )
                 _warning(
                     warnings,
                     warning_code,
@@ -4671,29 +4722,6 @@ def _validate_capabilities(
                     path,
                     "profile generation route ID must match the selected adapter route",
                 )
-            if phase == "migration":
-                migration_probe_contract = item.get("migration_probe_contract")
-                if migration_probe_contract != MIGRATION_RGBA_PROBE_CONTRACT:
-                    _error(
-                        errors,
-                        "runtime.capability.rgba_migration_probe_contract_missing",
-                        f"{path}.migration_probe_contract",
-                        (
-                            "migration must bind the neutral RGBA route probe contract before "
-                            "source material is read"
-                        ),
-                    )
-                if (
-                    not isinstance(adapter_route, dict)
-                    or adapter_route.get("migration_probe_contract")
-                    != MIGRATION_RGBA_PROBE_CONTRACT
-                ):
-                    _error(
-                        errors,
-                        "runtime.capability.rgba_adapter_migration_probe_mismatch",
-                        path,
-                        "selected adapter must declare the neutral RGBA migration probe contract",
-                    )
             if mode == "tool":
                 tool_ids = _require_tool_kinds(
                     item.get("tool_ids"),
@@ -5269,16 +5297,11 @@ def _validate_capabilities(
             )
         resolved_item: dict[str, Any] = {"mode": mode, "tool_ids": tool_ids}
         if name in {"opaque_image_generation", "rgba_cutout_generation"}:
-            if phase == "migration" and name == "rgba_cutout_generation":
-                resolved_item["live_proof"] = (
-                    "required-neutral-migration-probe-in-current-host-trace"
-                )
-            else:
-                resolved_item["live_proof"] = (
-                    "deferred-until-first-generated-asset"
-                    if binding_only or status == "bound_unprobed"
-                    else "profile-claim-unattested"
-                )
+            resolved_item["live_proof"] = (
+                "deferred-until-first-generated-asset-nonblocking-for-source-reading"
+                if binding_only or status == "bound_unprobed"
+                else "profile-claim-unattested"
+            )
         if name == "rgba_cutout_generation":
             resolved_item["output_contract"] = item.get("output_contract")
             resolved_item["processor"] = item.get("processor")
@@ -5745,6 +5768,7 @@ def _build_host_setup_actions(
     binding_digest: str | None = None,
     trusted_bundle_sha256: str | None = None,
     portable_provider_signer_available: bool = False,
+    include_legacy_rgba_probe: bool = False,
 ) -> list[dict[str, Any]]:
     """Return credential-free actions the host must prepare before authoring."""
 
@@ -5805,32 +5829,6 @@ def _build_host_setup_actions(
     )
     rgba_capability = capabilities.get("rgba_cutout_generation")
     rgba_mode = rgba_capability.get("mode") if isinstance(rgba_capability, dict) else None
-    if phase in {"authoring", "full"} and isinstance(rgba_capability, dict):
-        harness = profile.get("harness")
-        if not isinstance(harness, dict):
-            harness = {}
-        actions.append(
-            {
-                "id": "enforce-migration-rgba-route-gate",
-                "action": "require-scope-bound-migration-route-gate",
-                "blocking": True,
-                "must_complete_before": "read-source-material",
-                "scope": {
-                    "trusted_bundle_sha256": trusted_bundle_sha256,
-                    "adapter_sha256": harness.get("adapter_sha256"),
-                    "generation_route_id": rgba_capability.get("generation_route_id"),
-                    "migration_probe_contract": MIGRATION_RGBA_PROBE_CONTRACT,
-                    "filesystem_policy_sha256": filesystem_policy_sha,
-                },
-                "accepted_evidence": [
-                    "current-session-migration-continuation-with-create-once-ingestion-and-local-pixel-chain",
-                    "portable-signed-migration-final-report-with-host-receipt-and-continuation",
-                ],
-                "local-profile-report-or-model-claim-can-satisfy": False,
-                "on_missing": "stop-and-run-phase-migration-before-reading-source-material",
-                "expected_result": "same-bundle-adapter-and-rgba-route-migration-gate-present",
-            }
-        )
     if "rgba_cutout_generation" in PHASE_CAPABILITIES[phase] and rgba_mode == "chatgpt-web":
         actions.extend(
             [
@@ -5911,11 +5909,7 @@ def _build_host_setup_actions(
                     "blocking": True,
                     "expected_result": (
                         "browser-observed-path-create-once-ingestion-and-cutout-processor-visible;"
-                        + (
-                            "neutral-migration-probe-is-required-before-source-material"
-                            if phase == "migration"
-                            else "first-real-generated-file-remains-the-live-proof"
-                        )
+                        "first-real-generated-file-remains-the-quality-evidence"
                     ),
                 },
             ]
@@ -5934,7 +5928,7 @@ def _build_host_setup_actions(
                 "host_attested": False,
                 "portable": False,
                 "required_evidence": [
-                    "completed-current-session-migration",
+                    "current-session-runtime-binding",
                     "canonical-provider-request",
                     "create-once-download-ingestion",
                     "exact-raw-byte-binding",
@@ -6260,9 +6254,7 @@ def _build_host_setup_actions(
                 ],
                 "blocking": True,
                 "expected_result": (
-                    "rgba-callable-and-processor-visible-migration-probe-required"
-                    if phase == "migration"
-                    else "rgba-callable-and-processor-visible-first-real-asset-is-live-proof"
+                    "rgba-callable-and-processor-visible-first-real-asset-is-quality-evidence"
                 ),
             }
         )
@@ -6283,52 +6275,76 @@ def _build_host_setup_actions(
         if not isinstance(generation_route_id, str):
             generation_route_id = "unresolved-generation-route"
         actions.append(
-            _migration_rgba_probe_action(
+            {
+                "id": "finalize-current-session-runtime-binding",
+                "action": "create-session-continuation-without-rgba-probe",
+                "target": "scripts/runtime_preflight.py finalize-current-session-migration",
+                "blocking": True,
+                "must_complete_before": "register-first-formal-article-micro-asset",
+                "evidence_kind": RUNTIME_SESSION_EVIDENCE_KIND,
+                "bindings": {
+                    "binding_nonce": binding_nonce,
+                    "binding_digest": binding_digest,
+                    "trusted_bundle_sha256": trusted_bundle_sha256,
+                },
+                "assurance": "current-session-observed-path-not-portable-signed",
+                "phase_ready_claim_allowed": False,
+                "expected_result": "current-session-runtime-binding-without-rgba-calibration-gate",
+            }
+        )
+        if include_legacy_rgba_probe:
+            optional_probe = _migration_rgba_probe_action(
                 binding_nonce=binding_nonce,
                 binding_digest=binding_digest,
                 generation_route_id=generation_route_id,
                 runtime_root=runtime_root,
                 session_root=migration_session_root,
             )
-        )
-        if isinstance(capabilities.get("migration_probe_finalization"), dict):
-            actions.append(
-                {
-                    "id": "finalize-migration-rgba-route-probe",
-                    "action": "host-sign-and-atomically-consume-migration-probe",
-                    "target": "host.migration.finalize",
-                    "blocking": True,
-                    "must_complete_before": "read-source-material",
-                    "bindings": {
-                        "binding_nonce": binding_nonce,
-                        "binding_digest": binding_digest,
-                        "trusted_bundle_sha256": trusted_bundle_sha256,
-                        "filesystem_policy_sha256": filesystem_policy_sha,
-                    },
-                    "receipt_contract": "runtime/migration-host-receipt-contract.json",
-                    "replay_policy": "host-ledger-atomic-single-use-plus-local-create-once-consumption-record",
-                    "profile-or-model-authored-receipt-can-satisfy": False,
-                    "expected_result": "verified-final-report-with-phase-ready-true-and-reusable-scope-bound-continuation",
-                }
+            optional_probe["blocking"] = False
+            optional_probe["must_complete_before"] = []
+            optional_probe["explicit_legacy_diagnostic"] = True
+            optional_probe["expected_result"] = (
+                "optional-rgba-route-diagnostic-only;never-block-source-reading-or-authoring"
             )
-        else:
-            actions.append(
-                {
-                    "id": "finalize-current-session-migration-probe",
-                    "action": "verify-local-probe-chain-and-create-session-continuation",
-                    "target": "scripts/runtime_preflight.py finalize-current-session-migration",
-                    "blocking": True,
-                    "must_complete_before": "read-source-material",
-                    "bindings": {
-                        "binding_nonce": binding_nonce,
-                        "binding_digest": binding_digest,
-                        "trusted_bundle_sha256": trusted_bundle_sha256,
-                    },
-                    "assurance": "current-session-observed-path-not-portable-signed",
-                    "phase_ready_claim_allowed": False,
-                    "expected_result": "current-session-operational-continuation-with-phase-ready-false",
-                }
-            )
+            actions.append(optional_probe)
+            if isinstance(capabilities.get("migration_probe_finalization"), dict):
+                actions.append(
+                    {
+                        "id": "finalize-migration-rgba-route-probe",
+                        "action": "host-sign-and-atomically-consume-migration-probe",
+                        "target": "host.migration.finalize",
+                        "blocking": False,
+                        "must_complete_before": "portable-signed-audit-only",
+                        "bindings": {
+                            "binding_nonce": binding_nonce,
+                            "binding_digest": binding_digest,
+                            "trusted_bundle_sha256": trusted_bundle_sha256,
+                            "filesystem_policy_sha256": filesystem_policy_sha,
+                        },
+                        "receipt_contract": "runtime/migration-host-receipt-contract.json",
+                        "replay_policy": "host-ledger-atomic-single-use-plus-local-create-once-consumption-record",
+                        "profile-or-model-authored-receipt-can-satisfy": False,
+                        "expected_result": "verified-final-report-with-phase-ready-true-and-reusable-scope-bound-continuation",
+                    }
+                )
+            else:
+                actions.append(
+                    {
+                        "id": "finalize-current-session-migration-probe",
+                        "action": "verify-local-probe-chain-and-create-session-continuation",
+                        "target": "scripts/runtime_preflight.py finalize-current-session-migration",
+                        "blocking": False,
+                        "must_complete_before": "legacy-probe-compatibility-only",
+                        "bindings": {
+                            "binding_nonce": binding_nonce,
+                            "binding_digest": binding_digest,
+                            "trusted_bundle_sha256": trusted_bundle_sha256,
+                        },
+                        "assurance": "current-session-observed-path-not-portable-signed",
+                        "phase_ready_claim_allowed": False,
+                        "expected_result": "current-session-operational-continuation-with-phase-ready-false",
+                    }
+                )
     return actions
 
 
@@ -6344,6 +6360,7 @@ def validate_runtime_profile(
     binding_only: bool = False,
     challenge_nonce: str | None = None,
     installed_registry_override: dict[str, Any] | None = None,
+    include_legacy_rgba_probe: bool = False,
 ) -> dict[str, Any]:
     if phase not in PHASES:
         raise ValueError(f"unsupported phase: {phase}")
@@ -6611,7 +6628,7 @@ def validate_runtime_profile(
                 "host_attested": False,
                 "portable": False,
                 "required_asset_gates": [
-                    "completed-current-session-migration",
+                    "current-session-runtime-binding",
                     "canonical-provider-request",
                     "create-once-download-ingestion",
                     "exact-raw-byte-binding",
@@ -6693,32 +6710,43 @@ def validate_runtime_profile(
             binding_digest=binding_digest,
             trusted_bundle_sha256=str(local.get("trusted_bundle_sha256", "missing")),
             portable_provider_signer_available=portable_provider_signer_available,
+            include_legacy_rgba_probe=include_legacy_rgba_probe,
         ),
         "migration_selftest": (
             {
-                "required": True,
+                "required": False,
                 "contract": MIGRATION_RGBA_PROBE_CONTRACT,
-                "status": "host-trace-required",
-                "operational_assurance": (
-                    "portable-signed"
-                    if "migration_probe_finalization" in capabilities
-                    else "current-session-observed-path"
+                "status": (
+                    "legacy-diagnostic-requested"
+                    if include_legacy_rgba_probe
+                    else "not-requested"
                 ),
+                "reason": "rgba-migration-probe-is-explicit-diagnostics-only",
+                "explicit_legacy_diagnostic_requested": include_legacy_rgba_probe,
                 "portable_signed_upgrade": (
-                    "selected"
+                    "optional"
                     if "migration_probe_finalization" in capabilities
                     else "unavailable-on-selected-adapter"
                     if (adapter_capabilities.get("host.migration.finalize") or {}).get("availability")
                     == "unavailable"
                     else "not-selected"
                 ),
-                "action_id": "run-migration-rgba-route-probe",
-                "before_source_material": True,
+                "action_id": (
+                    "run-migration-rgba-route-probe"
+                    if include_legacy_rgba_probe
+                    else None
+                ),
+                "action_emitted": include_legacy_rgba_probe,
+                "before_source_material": False,
                 "truth_columns": {
-                    "local_pixel_chain_verified": "host-trace-required",
-                    "host_route_verified": "host-trace-required",
+                    "local_pixel_chain_verified": "not-required",
+                    "host_route_verified": "not-required-before-source-reading",
                 },
                 "article_asset_registration_allowed": False,
+                "article_asset_registration_policy": (
+                    "conditional-on-each-real-asset-passing-provider-acquisition-"
+                    "raw-byte-derivation-and-final-quality-gates"
+                ),
                 "reusable_as_official_asset_proof": False,
             }
             if phase == "migration"
@@ -6903,6 +6931,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--binding-only",
         action="store_true",
         help="validate local files, safe links, skill hashes, and tool bindings without claiming live readiness",
+    )
+    parser.add_argument(
+        "--include-legacy-rgba-probe",
+        action="store_true",
+        help=(
+            "emit the retired synthetic RGBA route probe as an explicit non-blocking "
+            "diagnostic; never required for source reading, authoring, or asset registration"
+        ),
     )
     return parser
 
@@ -7302,6 +7338,7 @@ def main() -> int:
             session_root=args.session_root,
             max_age_minutes=args.max_probe_age_minutes,
             binding_only=args.binding_only,
+            include_legacy_rgba_probe=args.include_legacy_rgba_probe,
         )
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc

@@ -12,7 +12,7 @@
     "clone_check_before_source_material": true,
     "open_after_binding": true,
     "prepare_before_source_material": true,
-    "migration_rgba_probe_before_source_material": true,
+    "migration_rgba_probe_before_source_material": false,
     "wait_for_user_login": true,
     "reprobe_after_login": true,
     "persist_session_query": false

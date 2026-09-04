@@ -1,17 +1,17 @@
 {
   "schema": "org-wechat-skill-release-v1",
-  "release_sha256": "a7e6f22f2577f1a03d7b3e13a02254ca07c5ba61aad3ab9671ec92dc0b028b59",
+  "release_sha256": "b2deb6619da5a5285afb0c81c420fbd92a079c147e5fe36d29c373c03ca4a635",
   "packages": [
     {
       "package": "ardot-wechat-publisher",
       "source": "skills/ardot-wechat-publisher",
-      "bundle_sha256": "688989d816280ba341eeb72811b188b30b45efdf14e9a95e69ba7516ea2cbbae",
+      "bundle_sha256": "fffcba3755be4760cefc09756f6d31462cabda291ed7be289311987f76d5aad8",
       "file_count": 6,
       "files": [
         {
           "path": "SKILL.md",
-          "sha256": "baa34b7f79c971c1ed6dc30a439aa20258741b8ac0e2e161d9928e6744cbc1ce",
-          "byte_length": 35009
+          "sha256": "db89330726a5ba7454a0a69eb07d1b2bc65d2b86c733e00d64e889b1d49dad99",
+          "byte_length": 35290
         },
         {
           "path": "agents/openai.yaml",
@@ -43,40 +43,40 @@
     {
       "package": "chatgpt-web-image-route",
       "source": "skills/chatgpt-web-image-route",
-      "bundle_sha256": "d9b51f340364187c534b13070d6d0ef41ead686966928e75b90550cc8d271938",
+      "bundle_sha256": "7d74e82dffdfa6e06f85aa622da5b816384b59288c4f15cf199d00590ab495c8",
       "file_count": 5,
       "files": [
         {
           "path": "SKILL.md",
-          "sha256": "4fb4b91e63a7f6d8101fa52704599e9ca72fda64e4e41498d89c554f65ad0a6f",
-          "byte_length": 8929
+          "sha256": "5a343a41b8c742ddbed0af17819b33e1e8d4a1615f43ccdf9644f29334df2c17",
+          "byte_length": 7891
         },
         {
           "path": "agents/openai.yaml",
-          "sha256": "b8c3b6011582418fb2e799387020d99d997250605edd08227e6e82fae1042758",
-          "byte_length": 1439
+          "sha256": "82c1259f836e521f46bc47b14b0443dba9a3a4081d34110791723c52979de1fa",
+          "byte_length": 2153
         },
         {
           "path": "references/image-generation-contract.md",
-          "sha256": "e0bab87e0b43e53c073cda664802066c7029defcf6dbde35aa26b614ed34cfd0",
-          "byte_length": 17467
+          "sha256": "d1b7c5dbe0124cf867f35c4c754fe39fc729e342f3786ff3211f9b2cea04c35a",
+          "byte_length": 13931
         },
         {
           "path": "references/provider-acquisition-authority.md",
-          "sha256": "a8480c33d141be637c5e32150e0030629de95691cd13c898b7a3f517b7a77ff8",
-          "byte_length": 1370
+          "sha256": "ca4b3aa19ee2abbb84ec8c6c116c840670b7bc88d4bfb1093d7378efe71233c3",
+          "byte_length": 1735
         },
         {
           "path": "references/runtime-location.md",
-          "sha256": "6b93d4990fe158858318c6cb035eae699577b77b465bc73213699bb3d696eb55",
-          "byte_length": 1986
+          "sha256": "ffcf592aaae21dd96b8fb7a4b2ccb16adc2899f4d8cb02c7096b50d3b2b3ed88",
+          "byte_length": 2591
         }
       ]
     },
     {
       "package": "org-wechat-studio",
       "source": ".",
-      "bundle_sha256": "f5ee384d7d24aa7a1e4b9c6677caf535557fd3dbf2f63a2760fb900bc982ec88",
+      "bundle_sha256": "22bf126d5221ba9f28ff383a6567da80e6df7b424cd209a3d2f15159a6c2eea7",
       "file_count": 83,
       "files": [
         {
@@ -86,43 +86,43 @@
         },
         {
           "path": "README.md",
-          "sha256": "2e26142dd8e19d53ce6d0276bb4b85fc988bd2cc45def9011cb94636dc97b3c9",
-          "byte_length": 40347
+          "sha256": "f254642826ea000141f11fe70865891ae2f58c3b56392a5066cb966ded468624",
+          "byte_length": 41690
         },
         {
           "path": "SKILL.md",
-          "sha256": "c0aff3b9a2169ade624b922b6d13d433c2db9907df490c1134214b3c30389d98",
-          "byte_length": 58559
+          "sha256": "a0e5f7cc3398713d2d3d4e880b44d1a573a8b1718d69741fed33c6ea9dec14b6",
+          "byte_length": 60468
         },
         {
           "path": "agents/openai.yaml",
-          "sha256": "c81c148ccf3707a04bf9d4a6a825052bc0bb45347166de84eff24e5467d6b971",
-          "byte_length": 2050
+          "sha256": "de5d3c19dad51dde18bddf044fb726e2db6da3494560c670ba8af7e458a4270d",
+          "byte_length": 2231
         },
         {
           "path": "references/ardot-transport-fidelity.md",
-          "sha256": "547066e44a450136d3fc6eb23a4d094900b1350b23995b834997d257dde567fe",
-          "byte_length": 13350
+          "sha256": "c5905c108deb0bdc29fd30bbe0df3de690638a4465722f8103a9ae2b6057a50a",
+          "byte_length": 13399
         },
         {
           "path": "references/ardot-workflow.md",
-          "sha256": "bc97fc79380b9fe87845acf341a195012d81a3193933bdc5c351e2cbd16d7f5b",
-          "byte_length": 12118
+          "sha256": "be5f2f39f4e9753f3ef0f1c0e0449598dca7158a176e4db9480a9dc3e17dec93",
+          "byte_length": 13341
         },
         {
           "path": "references/article-schema.md",
-          "sha256": "202f9bb5a7800cfec773cbe4a2cbfdd3e08e01a1c691e094eb1e2d399651a926",
-          "byte_length": 17131
+          "sha256": "f14e9657436fc74d2f59f56488124342c3f7656eb587e896d29c1c49f4961ef4",
+          "byte_length": 19611
         },
         {
           "path": "references/component-design.md",
-          "sha256": "ee62d16023bef95c21c5a449df709d9051a7e8c01d7efcaac519f85a1dfa99f1",
-          "byte_length": 6809
+          "sha256": "0c1e38b360c7554030eb478f670b8ccaae13b3d7c7525f25a3a84f896d1cd356",
+          "byte_length": 7020
         },
         {
           "path": "references/end-to-end-breakpoint-matrix.md",
-          "sha256": "f2bd85735bed0b22536a2af22d4e9376ac754bb95305ee8c987da386a0b86cc9",
-          "byte_length": 12010
+          "sha256": "7e4478667539c1d8ccf5a50b3df2d1da05fe818b4508423fde1367fe8a3d34b1",
+          "byte_length": 13445
         },
         {
           "path": "references/expressive-typography.md",
@@ -131,8 +131,8 @@
         },
         {
           "path": "references/host-prerequisites.md",
-          "sha256": "712322bcf82882b38106922810cf78cf287c5780e0aabd7b6546a84b64605d2b",
-          "byte_length": 7530
+          "sha256": "fe239e9e56dea6669f46023ff568698fcf2fc80b87524b3cc44873c69d483f2f",
+          "byte_length": 7865
         },
         {
           "path": "references/information-density.md",
@@ -141,28 +141,28 @@
         },
         {
           "path": "references/interaction-composition.md",
-          "sha256": "c9d4912984c39c179233b0cc107d13c387e44ab3db387b19b8c95b36c9f0204c",
-          "byte_length": 4827
+          "sha256": "685083d84b922c5309cb319645d2ff536176c91d82205f87c369da2ae5273fd5",
+          "byte_length": 5599
         },
         {
           "path": "references/onboarding.md",
-          "sha256": "253d55367a01f3a07a2e5300de04e17522fffffe1b6c02232ea263d67d8615cd",
-          "byte_length": 4031
+          "sha256": "958e204f23c1a14b7d302c8ff57c87bca36141c4e93a73b727cda1afb2d60f2c",
+          "byte_length": 4891
         },
         {
           "path": "references/org-pack-schema.md",
-          "sha256": "fa093ebcf2af90e2ca58139a6811e86fb9eb7b36436ab7095bf965d7f7615d2e",
-          "byte_length": 20718
+          "sha256": "be830359d6f295a9db5143d1b1e88057d8571932e918086c58aba1e8b5c5c8b6",
+          "byte_length": 20699
         },
         {
           "path": "references/organic-layout.md",
-          "sha256": "b902a0c0ec2595ba65099aebca8d55ab96cc30b03c4e0e02386b22e01737b2c1",
-          "byte_length": 8585
+          "sha256": "5d8a1a662c5a8e50ac7ffa2f953c13c0e1ffdd39f1f822b3ac56c196bd28fefb",
+          "byte_length": 9714
         },
         {
           "path": "references/organization-pack-migration.md",
-          "sha256": "b7dc2c803e4810bc0c67df9eb4f3f1a34c6b206bb24ba09940ad73f5653cca69",
-          "byte_length": 13354
+          "sha256": "7507ff2c78e5919f5dbdeff911725485e1e6bfbc46adca26982ba4d5916695f8",
+          "byte_length": 13143
         },
         {
           "path": "references/provenance-watermark.md",
@@ -171,28 +171,28 @@
         },
         {
           "path": "references/provider-acquisition-authority.md",
-          "sha256": "82975070baed7ffe5e4c2fa60f09f2c381fed777e756aa9ddc6a62e04f273289",
-          "byte_length": 4578
+          "sha256": "e7cb70888d590805560813de3be47fd77041b997a7f73b9d9631f568975ff58b",
+          "byte_length": 5607
         },
         {
           "path": "references/qa.md",
-          "sha256": "22f90e9ae7e7f3a3dcae4d0cb600f9e827d077d20fc0644654f4de89836c024b",
-          "byte_length": 13466
+          "sha256": "64cd56714425dbfb35714cfbe6cd71bf4a3e55c1af37576f82e7a25ce2abc990",
+          "byte_length": 14211
         },
         {
           "path": "references/runtime-preflight.md",
-          "sha256": "44852e964730d5685e2bf314fdcbcc3f2c4f160d868736637ffb3bbe408b0609",
-          "byte_length": 23623
+          "sha256": "c9f2a96e4650939338357c07a811ba36a9e91c8226c41a91867a0723e5293715",
+          "byte_length": 23151
         },
         {
           "path": "references/source-zero-audit.md",
-          "sha256": "271c8bc0822c0e2cfee82dd11069a1112777a888fd4fd913f11f3535c6280432",
-          "byte_length": 13833
+          "sha256": "cc79d016a68514b222b94a0097bc4d7de1e40ee45777687a40be31a50c9650ae",
+          "byte_length": 14061
         },
         {
           "path": "references/storyboard.md",
-          "sha256": "e934663c3805dd9a733c8e3eac3c753467c7a0bb37071169954da1734defe0c3",
-          "byte_length": 2021
+          "sha256": "dbb70c84140cbed8bdf182b16bb8beb3e82c9bde35402fd524efd8759038a278",
+          "byte_length": 2109
         },
         {
           "path": "references/style-options.md",
@@ -201,18 +201,18 @@
         },
         {
           "path": "references/visual-calibration.md",
-          "sha256": "7dc78f245425bc3d3dfc08352002175f604cafd4580e0f536a9bfa0860efe707",
-          "byte_length": 3371
+          "sha256": "4808837736785af717198fe14358339bf71b8837357ca80afecf8a8b963c4942",
+          "byte_length": 4220
         },
         {
           "path": "references/visual-review.md",
-          "sha256": "cd238bc5ebd724f1b18ffe6e07fdf676738d38b186c91430d5197b79ef6a87fd",
-          "byte_length": 9262
+          "sha256": "1d79658aeeeb2efc37a6c809102e95b016c3b02dc3f0f5e2f24f45a47f4ca7c9",
+          "byte_length": 9790
         },
         {
           "path": "references/使用说明.md",
-          "sha256": "30b1ec6b627328bd15d958b95b40bd736327cdc806657f88a46f0d047c31ef03",
-          "byte_length": 45414
+          "sha256": "b3abd1a0448c1105a6fa1ddaaaa767bdeb4c68f64adeec9c970143dd0b4b4d7b",
+          "byte_length": 45995
         },
         {
           "path": "requirements.txt",
@@ -221,8 +221,8 @@
         },
         {
           "path": "runtime/adapters/codex-desktop.json",
-          "sha256": "f6dc4c0587c430e39dbd3712602175fd33f233fb9f4e9f5d838a2cfbeeb11a5a",
-          "byte_length": 6662
+          "sha256": "b285d070db26285b2ca4037b86e7946e97abee685b2ee55fe23e6a272c769903",
+          "byte_length": 6861
         },
         {
           "path": "runtime/host-registry-census-contract.json",
@@ -251,8 +251,8 @@
         },
         {
           "path": "runtime/setup-links.json",
-          "sha256": "ba336e6fe99d6e694dc765569ba132b4e5319c247119cd5efde6f3fff13ea2ff",
-          "byte_length": 6762
+          "sha256": "c3b412fcb92ad3f232ba6608a8e63b438f49d81afe6d077c5577ef89d6f17cb1",
+          "byte_length": 6763
         },
         {
           "path": "scripts/asset_quality.py",
@@ -261,13 +261,13 @@
         },
         {
           "path": "scripts/asset_role_policy.py",
-          "sha256": "fb8f43ad441616576e76e2e5e7c15b38cc53411789db410456904d743feb7ed5",
-          "byte_length": 6572
+          "sha256": "9c50226aa19563747259625de8e45b597944c89a61cde7a7a972c066e9984eaf",
+          "byte_length": 7554
         },
         {
           "path": "scripts/build_ardot_manifest.py",
-          "sha256": "56897f168679213721e06715daa85c766779c14ab2abe0e30f1524a5abf58707",
-          "byte_length": 25645
+          "sha256": "7dfd18183356e42b8a8b362ab439d609a9528eb132a3c0d02663dbd32d29b0a5",
+          "byte_length": 31058
         },
         {
           "path": "scripts/build_storyboard.py",
@@ -276,13 +276,13 @@
         },
         {
           "path": "scripts/build_visual_directions.py",
-          "sha256": "c8a74c76e989f03347a3c129d606efefc9ac5c984a851805bf373c76bc7efacd",
-          "byte_length": 11542
+          "sha256": "2423d67e98cb1571dd6c13dbb809ada86fed96c0476403484978cbceb0441734",
+          "byte_length": 13638
         },
         {
           "path": "scripts/build_visual_kit.py",
-          "sha256": "ebea9602c7341e38ead6430bc3bc9f0ba7be65d617b25fd135787d4cd280ffd2",
-          "byte_length": 33441
+          "sha256": "c0a98dc795ad51169e1fb17e6ee296dd1dd1fef2dd3b6e094780c6c8e8583b31",
+          "byte_length": 41008
         },
         {
           "path": "scripts/build_visual_review.py",
@@ -291,8 +291,8 @@
         },
         {
           "path": "scripts/compile_wechat.py",
-          "sha256": "e92c6a445ddb3c052ba4247d23f40add23f1cd7c344560917ebad46819897f99",
-          "byte_length": 97890
+          "sha256": "a51e2dfec9ba7b40f4db12a93e8b7e95e5f0ed0d534616e295f5a0cf0901f3e9",
+          "byte_length": 100290
         },
         {
           "path": "scripts/export_ardot_handoff.py",
@@ -316,8 +316,8 @@
         },
         {
           "path": "scripts/orgs.py",
-          "sha256": "5b80f19d8dae846f86b987c88e33e89b4ba0e30f4a6432d535adc8d71d3d4bfa",
-          "byte_length": 105574
+          "sha256": "8e146ce58fec9adc57b211c8c694f9a87cdcf469acae6347fd407e0e075372be",
+          "byte_length": 103088
         },
         {
           "path": "scripts/pack_assets.py",
@@ -326,8 +326,8 @@
         },
         {
           "path": "scripts/prepare_micro_cutout.py",
-          "sha256": "17ea60f42fa2c547400fd994fc9f8d857840bfb0b234854cab564e189e9865f7",
-          "byte_length": 49856
+          "sha256": "3cd1e64fc81d622301da3e92d9a0501b2a3ee2f33f50f31efa4ff74b85a54181",
+          "byte_length": 50575
         },
         {
           "path": "scripts/prepare_migration_probe.py",
@@ -341,8 +341,8 @@
         },
         {
           "path": "scripts/provider_acquisition_authority.py",
-          "sha256": "54c7e74d845e715dcaa629b913d83bd242475a115422a6b49c1c83d96caeb39e",
-          "byte_length": 35296
+          "sha256": "9487cb41b0f9da98ef8741190a5a55bf34b60429a4bb49e872602ba14a9cebbd",
+          "byte_length": 35346
         },
         {
           "path": "scripts/release_skills.py",
@@ -351,8 +351,8 @@
         },
         {
           "path": "scripts/runtime_preflight.py",
-          "sha256": "39156e6932ed1e8201d3e5faf0fc6123d0266f7add4cc000f64dec75aa363431",
-          "byte_length": 315089
+          "sha256": "c525b0abfce3b09aa4113251b74ef2873e47784262527ac27e65e49fb4948ee2",
+          "byte_length": 316801
         },
         {
           "path": "scripts/safe_paths.py",
@@ -396,8 +396,8 @@
         },
         {
           "path": "scripts/workflow_quality.py",
-          "sha256": "c093e28565ee530798cfa78b17a286e7e736346dc9579912fe61cb8f372b3b8b",
-          "byte_length": 174377
+          "sha256": "aeb6d17fea1a0a141ee8d57ad3eee7741c5cfafb6a5f39c2cd6aa9945d73497f",
+          "byte_length": 184433
         },
         {
           "path": "style-presets/prismatic-paper-editorial.json",
@@ -446,8 +446,8 @@
         },
         {
           "path": "tests/test_prepare_micro_cutout.py",
-          "sha256": "9577c6ebcc911e720b3462ef7f0ca09b4f5049bb2c5362a0ea334033df19d47e",
-          "byte_length": 60183
+          "sha256": "10a5358b3de5f142ce27f70806e65c561694d63f83e51048e84f0ae72912e7dc",
+          "byte_length": 62680
         },
         {
           "path": "tests/test_provenance_watermark.py",
@@ -456,13 +456,13 @@
         },
         {
           "path": "tests/test_release_skills.py",
-          "sha256": "a55dfeac71aa39c4269db711bf64bf4d7ed0517a9e6f049cb9ea9728fdcc51a6",
-          "byte_length": 33949
+          "sha256": "ae78ddc01d32fcab30a6a2ac4cf216825fe82af9c92ce214e58ff98cd0302f92",
+          "byte_length": 34004
         },
         {
           "path": "tests/test_runtime_preflight.py",
-          "sha256": "0fa3af9017ecf7d04a76e7a4683a29611dc4e21e7d9f639e70fc3cc7cfe04893",
-          "byte_length": 147856
+          "sha256": "1b3be1f8b52edb73d1b0bd965cc464404d9cead67280d5a3c6a8c330e1efe5ac",
+          "byte_length": 153131
         },
         {
           "path": "tests/test_safe_paths.py",
@@ -471,8 +471,8 @@
         },
         {
           "path": "tests/test_secure_runner.py",
-          "sha256": "ecbda6ef54deed49891ff21dae49261b5528a404a18779ee1f843a262b039854",
-          "byte_length": 26020
+          "sha256": "342e3cd58cdc73ed0c258b5e226295958ad2f6f0b998ad5cb5ead78213bd457a",
+          "byte_length": 26272
         },
         {
           "path": "tests/test_transport_fidelity.py",
@@ -486,8 +486,8 @@
         },
         {
           "path": "tests/test_workflow.py",
-          "sha256": "993bc0b3b643317747f0441f09217f1d9c5e2ce27dab27abcb19c9249a37c3bf",
-          "byte_length": 169197
+          "sha256": "55cafb9191628387a2307209a65b0fad3a58641cb4cba046f4041d23116fc903",
+          "byte_length": 194553
         },
         {
           "path": "tests/test_workflow_attribution.py",

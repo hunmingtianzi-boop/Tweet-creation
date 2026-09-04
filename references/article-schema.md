@@ -10,7 +10,15 @@ The compiler accepts UTF-8 JSON:
   "article_type": "recruitment",
   "title": "Article title",
   "summary": "Optional draft summary",
-  "route": "optional-route-override",
+  "route": "approved-route-selected-at-startup",
+  "production_preferences": {
+    "status": "confirmed",
+    "confirmed_by": "user",
+    "micro_component_count": 2,
+    "use_svg": true,
+    "style_route": "approved-route-selected-at-startup",
+    "generate_backgrounds": false
+  },
   "storyboard": {
     "status": "approved",
     "chapters": [
@@ -27,6 +35,7 @@ The compiler accepts UTF-8 JSON:
   },
   "visual_kit": {
     "status": "approved",
+    "selected_roles": ["floating-spot", "inline-explainer"],
     "direction": "Short article-specific visual direction",
     "assets": [
       {
@@ -95,13 +104,21 @@ The compiler accepts UTF-8 JSON:
 }
 ```
 
-`article_id` is a stable lowercase slug for this exact article. `organization_id` must match the organization pack. `article_type` must exist in `organization.json`. Omit `route` to use the article type’s configured route.
+`article_id` is a stable lowercase slug for this exact article. `organization_id` must match the organization pack. `article_type` must exist in `organization.json`. `route` is explicit because the chosen style is part of the startup intake.
+
+## Startup production preferences
+
+Before source reading or image generation, ask once for four related choices and record the answer in `production_preferences`: micro-component count (`0`–`4`), whether this article authors SVG interaction candidates, which approved organization style route to use, and whether to generate raster backgrounds. `status: confirmed` plus `confirmed_by: user|editor` is required downstream; a missing object is not silently replaced by defaults.
+
+`visual_kit.selected_roles` contains exactly `micro_component_count` distinct roles chosen for the article from `floating-spot`, `section-transition`, `inline-explainer`, and `closing-motif`. The planner chooses the semantically useful roles after the storyboard, but may not change the confirmed count without asking again. With count `0`, use `visual_kit: {"status":"not-requested","selected_roles":[],"assets":[]}` and omit micro-component layout evidence. Every selected component still needs its own article-grounded provider original, final RGBA8 cutout, lineage, asset SHA, and native Ardot component evidence.
+
+`use_svg: true` requires a `dynamic-default` plan with 2–3 semantic modules. `use_svg: false` requires `authoring_mode: static-selected`, `target_module_count: 0`, and no modules; this is a normal startup choice, not an editorial exception. `style_route` must equal `article.route`. `generate_backgrounds: false` uses continuous Ardot-native surfaces, gradients, and open vectors and creates no raster background family; `true` requires the calibrated generated family and its pixel/watermark gates.
 
 This JSON drives semantic validation and Ardot assembly. It does not drive final WeChat layout. After visual approval, only a frozen `ardot-current-root-layer-export-v1` from the current root may drive delivery HTML; the article-JSON adapter is an explicit non-delivery preview. Ardot is the visual source of truth. A block may set optional `variant`; otherwise the selected route supplies the variant and `ardot.json` maps it to an exact native component.
 
 ## Interaction plan
 
-常规文章必须在 `article.json` 中使用 `dynamic-default` 规划 2–3 个创作层 semantic modules。module 是一个连续区域和一个读者任务；一个 module 可以包含多个实际 transport instances。例如四个部门分别点击展开，仍是一个 module，但需要四个逐项 key/hash。完整规则见 [interaction-composition.md](interaction-composition.md)。
+当启动选择 `use_svg: true` 时，文章必须在 `article.json` 中使用 `dynamic-default` 规划 2–3 个创作层 semantic modules。module 是一个连续区域和一个读者任务；一个 module 可以包含多个实际 transport instances。例如四个部门分别点击展开，仍是一个 module，但需要四个逐项 key/hash。选择 `use_svg: false` 时使用零 module 的 `static-selected`。完整规则见 [interaction-composition.md](interaction-composition.md)。
 
 ```json
 {
@@ -186,7 +203,7 @@ This JSON drives semantic validation and Ardot assembly. It does not drive final
 
 `build_ardot_manifest.py` 在装配前只校验 module 数量、分布、source block 落点、instance key/hash 与静态例外；此时三态节点可以尚未完成。作者预览才从 article JSON 渲染，必须显式加 `--authoring-preview`，不得导入公众号。两档投递都只接受当前 article root 的冻结图层 export 和独立 fresh reread：无 signer 时使用 `compile_wechat.py --transport-fidelity ... --live-root-export ... --session-draft --check`，产生 `wechat-candidate.html` / `candidate-report.json` 并固定 `portable_audit_verified: false`；有宿主 Ed25519 attestor 时可使用带 `--live-root-receipt` 的 `portable-signed-audit`，其 receipt 额外绑定 runtime/trusted bundle 与 intended HTML path。transport 本身同时绑定 root/revision、连续 chapter geometry、完整 source-node/font/render-style/body-asset census、独立资产，以及每个 module 的 `closed/open/fallback` 节点与 tree hash。两档都只能创建/验证草稿，不授权正式发表或群发。
 
-如果原始材料只有 0–1 个合理交互机会，或用户明确要求静态，改用 `authoring_mode: static-exception`，并写入允许的 `category`、至少 12 字的具体 `reason` 与 `confirmed_by: user|editor`。目标账号暂无能力档案不属于创作例外；它只让投递层选静态等价版。
+新文章在启动时明确选择不用 SVG，应使用 `authoring_mode: static-selected`、`target_module_count: 0` 与空 `modules`；`production_preferences` 已记录这次选择，不再重复要求例外说明。`static-exception` 只用于迁移旧记录，或在已确认动态后因材料只有 0–1 个合理机会而发生的编辑例外，并写入允许的 `category`、至少 12 字的具体 `reason` 与 `confirmed_by: user|editor`。目标账号暂无能力档案不属于创作例外；它只让投递层选静态等价版。
 
 Before visual authoring, validate the 4–10 chapter storyboard:
 
@@ -196,7 +213,7 @@ python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
   --output output/<organization-id>/<slug>/storyboard-plan.json
 ```
 
-Then generate and complete the mandatory article-specific visual kit:
+Then generate and complete the article-specific visual-kit decision. The record is mandatory, but it is intentionally empty when the confirmed component count is zero:
 
 ```bash
 python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
@@ -205,7 +222,7 @@ python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
   --output output/<organization-id>/<slug>/visual-kit-plan.json
 ```
 
-The four required roles are `floating-spot`, `section-transition`, `inline-explainer`, and `closing-motif`. Every entry must bind to exact article copy and one approved storyboard chapter, with a specific subject/action and a composition role of `anchor`, `motion`, `connector`, or `punctuation`. Use at least three different composition roles and four distinct derived assets. On the only supported execution host, Codex Desktop, `build_visual_kit.py` defaults each source request to `chatgpt-web-image-route-v1`: Codex operates ChatGPT only through the built-in Browser, requests a genuinely transparent provider-original PNG first, downloads it, and runs the secure `prepare_micro_cutout.py --require-native-alpha` route. One controlled-key fallback is allowed only after strict Alpha/pixel failure. A future harness port must preserve this acquisition order and output contract, but no alternate harness is supported by this release. Each registered article-micro asset must bind its raw source, prompt/provider route, processor/config, derivation report, and final SHA; pass the RGBA8/robust-Alpha/tight-crop/no-matte/no-halo/no-debris gate; record its exact derivative `asset_sha256`; and record its native Ardot component file URL, node ID, and exact name. Then generate the Ardot assembly manifest:
+The selected roles are an exact subset of `floating-spot`, `section-transition`, `inline-explainer`, and `closing-motif`. Every selected entry must bind to exact article copy and one approved storyboard chapter, with a specific subject/action and a composition role of `anchor`, `motion`, `connector`, or `punctuation`. Use `min(3, selected count)` different composition roles and the same number of distinct derived assets as selected components. On the only supported execution host, Codex Desktop, `build_visual_kit.py` defaults each source request to `chatgpt-web-image-route-v1`: Codex operates ChatGPT only through the built-in Browser, asks for an article-specific provider original, downloads the original, and uses native Alpha or a controlled-key cutout route according to that real asset. The synthetic startup image is gone; the first selected article component is the route's real quality test. A future harness port must preserve this acquisition/output contract, but no alternate harness is supported by this release. Each registered article-micro asset must bind its raw source, prompt/provider route, processor/config, derivation report, and final SHA; pass the final RGBA8/robust-Alpha/tight-crop/no-matte/no-halo/no-debris gate; record its exact derivative `asset_sha256`; and record its native Ardot component file URL, node ID, and exact name. Then generate the Ardot assembly manifest:
 
 ```bash
 python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
@@ -264,7 +281,7 @@ watermark ID or secret is permitted in an article, manifest, HTML, or report.
   a preserved source, independently verified PSNR, matching final/report hashes,
   or authenticated detection blocks `--check` when the organization policy is
   `required`.
-- Missing visual-kit roles, fewer than four distinct current-article derived micro assets, missing original-download/derivation lineage, RGB or all-opaque pseudo-RGBA, failed Alpha/aspect/halo/debris/matte validation, a raw source referenced by Ardot, or missing native Ardot component evidence blocks `--check`.
+- Missing any selected visual-kit role, fewer distinct current-article derived micro assets than the confirmed count, missing original-download/derivation lineage, RGB or all-opaque pseudo-RGBA, failed final Alpha/aspect/halo/debris/matte validation, a raw source referenced by Ardot, or missing native Ardot component evidence blocks `--check`.
 - A missing organization/route calibration, incomplete storyboard, ungrounded visual subject, or failed `visual_review_file` blocks `--check`.
 - A missing, changed, duplicated, hidden, rasterized, or non-terminal reserved workflow attribution blocks transport and handoff.
 - Missing expressive typography recipe/construction evidence, fewer than two non-font techniques or editable layers, a font-swap-only moment, a baked title image, an unlicensed font, or an ungrounded display phrase blocks `--check` when the organization uses `expressive-native`.

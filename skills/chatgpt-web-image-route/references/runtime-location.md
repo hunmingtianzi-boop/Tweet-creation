@@ -34,10 +34,21 @@ python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
   /ABSOLUTE/PROJECT/assets/generated/provider-original.png \
   /ABSOLUTE/PROJECT/assets/derived/micro.png \
   --report /ABSOLUTE/PROJECT/assets/derived/micro-cutout.json \
-  --role floating-spot --require-native-alpha
+  --role floating-spot \
+  --article-id article-slug \
+  --asset-slot-id kit.floating-spot \
+  --prompt-sha256 sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+  --generation-route chatgpt-web-image-route-v1 \
+  --acquisition-report /ABSOLUTE/PROJECT/assets/generated/micro-acquisition-v2.json \
+  --require-native-alpha
 ```
 
-Do not `cd` into or write `output/` beneath the installed Skill. Runtime probe
+The example selects native-alpha. For a slot whose first source option is the
+planned uniform key, replace `--require-native-alpha` with that option's exact
+`--key-color '#RRGGBB'`. Never pass both, and never omit both; either raw route
+must still produce the same strictly validated final derivative.
+
+Do not `cd` into or write `output/` beneath the installed Skill. Runtime session
 and ingestion artifacts must be create-once absolute paths outside the Skill
 root. On macOS use canonical `/private/tmp/...`, not the `/tmp` symlink, for a
 temporary artifact root.

@@ -17,6 +17,8 @@ python3 -I -S "$ORG_WECHAT_SOURCE_ROOT/scripts/release_skills.py" clone-check \
 `--visible-tool-id ID`。`current_task_reload_required: true` 必须先重载/新开任务。
 ChatGPT、Ardot、微信登录和当前文件/账号权限仍必须由本次 Codex 会话的 live probes 证明。
 
+宿主声明之后、读取组织材料之前，工作流必须一次性询问并记录四项文章选择：小组件数量 `0–4`、是否制作 SVG 交互、视觉风格 route、是否生成 raster 背景底图。不得默认代选。确认值写入 `article.production_preferences`，其中 `style_route` 与 `article.route` 必须一致。
+
 一套可迁移到不同组织和公众号的 **Codex Desktop + Ardot** 工作流。它把可编辑视觉组件、每个组织的品牌资料、单篇文章事实和最终微信投递适配分开管理。这里的“可迁移”指不同组织与公众号之间的内容/品牌迁移，不代表已经支持任意 LLM 或运行宿主。
 
 不是“换 Logo 和颜色”的统一模板。新公众号会先建立组织包，再按该组织的受众、语气、视觉母题、文章类型和真实资料生成文章与文件资产。
@@ -143,7 +145,7 @@ python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
 
 新公众号只从本轮明确允许的组织资料、原始文案、品牌文件和真实照片开始视觉校准。工作流不会打开 `examples/`、另一组织的 pack、旧推文截图/PDF 或旧 Ardot 文件来“找风格”。仓库中的历史目录仅用于迁移兼容审计，不是视觉基准，也不参与测试。
 
-机器门槛会检查 source-zero 输入清单、四类旧视觉排除项、同家族底图、四枚文章专属微组件、常规文章 2–3 个 semantic interaction modules 与逐实例 fallback hash、RGBA8/robust Alpha/紧裁切/无 matte cutout、Ardot 原生组件 node 与 asset SHA 证据、表现型字体的原生文本 node/style 证据，schema-v3 的 390 px 视觉证据，以及 handoff v5 的逐章冻结图层与草稿回读。
+机器门槛会检查 source-zero 输入清单、四类旧视觉排除项、四项已确认生产偏好、按 `0–4` 选定的文章专属微组件、与 SVG 选择相符的零模块或 2–3 个 semantic interaction modules、与底图选择相符的原生连续表面或同家族底图、每个已选小组件的 RGBA8/robust Alpha/紧裁切/无 matte 最终 cutout、Ardot 原生组件 node 与 asset SHA 证据、表现型字体的原生文本 node/style 证据，schema-v3 的 390 px 视觉证据，以及 handoff v5 的逐章冻结图层与草稿回读。
 
 只有 `portable-signed-audit` 要求宿主从真实 Ardot 工具响应签发短时效 `ardot-host-live-read-receipt-v1`，并在重新打开微信草稿后签发 `wechat-host-saved-draft-receipt-v1`。宿主私有 Ed25519 私钥；仓库只能从 root-owned、非 symlink、组/其他用户不可写的信任库读取公钥，`ORG_WECHAT_HOST_RECEIPT_TRUST_STORE` 最多选择这个受保护文件的绝对路径，不能直接注入公钥。`host.receipt.attest` 缺失不再阻断 `delivery/full` 中的 current-session 草稿写入；它只使 `portable-signed-audit` 不可用。无 signer 时仍必须在同一宿主会话中真实重读精确 Ardot file/root，绑定 live export、`wechat-candidate.html`、`candidate-report.json`，写入微信后重新打开并逐章验收；本地 JSON 不能代替这些宿主轨迹。receipt 会绑定 runtime binding、provider/session/request、目标 HTML 路径、handoff、编译报告、微信账号/草稿与整份 readback 字节，因此普通环境变量、复制 JSON、改时间戳或伪造 mmbiz URL 都不能自证“刚刚读取”。
 
@@ -156,16 +158,16 @@ python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
 - 新组织调研与组织包初始化。
 - 全文前先做 2–3 组 Ardot 小样校准，未批准路线不得开始整篇。
 - 先写 4–10 章叙事分镜，再选组件和生图，避免 block 直接变卡片。
-- 常规文章创作层默认规划 2–3 个语义动态模块；四张并列点击卡仍只算一个模块，逐卡 transport instance 分别保留静态 key/hash。
+- 启动时选择 SVG 才规划 2–3 个语义动态模块；不选则使用零模块 `static-selected`。四张并列点击卡仍只算一个模块，逐卡 transport instance 分别保留静态 key/hash。
 - 语气、品牌色、视觉路线、文章类型与事实来源建模。
 - 按公众号与文章类型生成资产计划。
-- 排版前强制生成四枚互不相同的文章专属浮动插图、章节转场、行内解释图和收尾视觉，并先做成 Ardot 小组件。
+- 分镜后按已确认数量从浮动插图、章节转场、行内解释图和收尾视觉中选择 0–4 个语义角色，只生成当前推文真正需要的互不相同小组件。
 - 封面背景、章节视觉、透明/开放边缘插画、技术解释图与照片派生资产的生成和注册。
-- AI 底图按“一个母版 + 1–3 个同系列变体”登记 family/variant/copy-safe zone，章节只改变裁切、透明度和局部构图，不随机换风格。
+- 选择生成底图时，按“一个母版 + 1–3 个同系列变体”登记 family/variant/copy-safe zone；不选时只用 Ardot 原生填充、渐变与开放矢量。两种模式都禁止黑白表面跳变。
 - Ardot 语义变量模式、原生组件、390 px 长文画板和分段视觉 QA。
 - 由文章 JSON 生成可执行的 Ardot 装配清单。
 - 默认开放式构图；闭合方框不超过正文区块的 20%、不连续，并至少保留三处不对称或越界视觉。
-- 微组件图片不超过 72% 行宽、整体不超过 82%，四类角色左右错落并跨至少三个截图区段；含字组件禁止文字框/底板，主短句至少 22 px、1.35× 正文。静态微信适配也保留所有实际实例，不转成通栏卡片。
+- 微组件图片不超过 72% 行宽、整体不超过 82%；证据要求随数量缩放为 `min(3, count)` 个截图区段/偏移/构图关系，数量不小于 2 时必须左右错落且有明显尺寸变化。含字组件禁止文字框/底板，主短句至少 22 px、1.35× 正文。静态微信适配也保留所有实际实例，不转成通栏卡片。
 - 默认 `compact-editorial` 信息密度：15–17 px 正文、1.45–1.62 行高、轻微负字距、8–14 px 段距、24–40 px 章内主间隔，并校验内容占用率与最大无意空洞。
 - 每个组织先校准表现型字体策略；单篇只在 2–4 个高影响位置使用可编辑 Ardot 标题字，正文保持紧凑可读，禁止 AI 字图。
 - 16 类语义区块用于 Ardot 作者组装；最终微信 HTML 只从冻结的 Ardot 章节/图层/文字/几何证据编译，不再按 block 模板二次设计。
@@ -219,7 +221,7 @@ python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
   --output "$ORG_WECHAT_SESSION_ROOT/migration-binding-UNIQUE.json"
 ```
 
-Migration profile 只绑定 opaque/RGBA/inspect，不包含组织、Ardot 或微信链接。`--session-root` 是强制外置边界：必须是已存在、全路径无 symlink、位于已安装 Skill 之外且在 Git 外或被 owning Git 忽略的绝对目录；报告中的 probe/ingest/processor 路径全部绝对绑定到这里，严禁写进 Skill。已安装 runtime 可为只读，自检不会往 Skill 根写 `.runtime-preflight-*`；所有可写探针只落在外置 session root。该 census 明确是 `current-session-model-visible-intent`，不是 host-attested registry，后续仍要真实 live probes。报告会列出 C2C tunnel/setup/project/connector/workspace identity、Browser 登录和 original-download 的精确动作。Browser 返回绝对下载路径后，必须通过 `scripts/ingest_browser_download.py` create-once 摄取，再执行 binding case 中绝对 `scripts/prepare_migration_probe.py` 命令。该处理器只产生不可注册/不可携带 lineage，attempt 2 必须重验 attempt 1 的 create-once 失败证据。当前 Codex Desktop 可在该真实 host trace 中以 `finalize-current-session-migration` 产生 `operational_ready: true`的同会话续跑报告；它保持 `phase_ready: false`，因为只有真实 host signer 可产生可携带的 `phase_ready: true`。缺少 `filesystem.access.lease` 或 `host.migration.finalize` 不阻断 migration 当前会话续跑，只使相应高等级保证不可用。正式微组件通过完整 migration + canonical request + create-once ingestion + exact raw/RGBA 像素链后可在当前会话 operational accept；即使当前 Codex Desktop 没有 provider callback 或 signer，`authoring/full` 也不因此报错。这一档固定 `host_attested=false`、`portable=false`；普通 Python callback 只能作可选 veto policy，不能升级保证。
+Migration profile 只绑定生图/摄取/检查能力，不包含组织、Ardot 或微信链接。`--session-root` 是强制外置边界：必须是已存在、全路径无 symlink、位于已安装 Skill 之外且在 Git 外或被 owning Git 忽略的绝对目录；摄取/处理器路径全部绝对绑定到这里，严禁写进 Skill。已安装 runtime 可为只读，自检不会往 Skill 根写 `.runtime-preflight-*`。该 census 明确是 `current-session-model-visible-intent`，不是 host-attested registry，后续仍要真实 live probes。默认 migration 报告不生成 RGBA 探针动作；只有显式 `--include-legacy-rgba-probe` 才生成一个非阻断旧路线诊断，它不授权正式资产注册。Browser 生成第一个实际文章小组件后，必须通过 `scripts/ingest_browser_download.py` create-once 摄取宿主返回的绝对原图路径；原图可为真 Alpha 或事先规划的均匀纯色 key 源，但注册前派生图仍必须通过真 RGBA8、Alpha、matte/光晕/边缘/紧裁切门槛。当前 Codex Desktop 可在该真实 host trace 中以 `finalize-current-session-migration` 产生 `operational_ready: true`的同会话续跑报告；它保持 `phase_ready: false`，因为只有真实 host signer 可产生可携带的 `phase_ready: true`。缺少 `filesystem.access.lease` 或 `host.migration.finalize` 不阻断 migration 当前会话续跑，只使相应高等级保证不可用。普通 Python callback 只能作可选 veto policy，不能升级保证。
 
 迁移自测通过后，将 target 阶段改为 `authoring`、`delivery` 或 `full`。当前会话路径要先以新阶段重跑 `init-current-session-census --phase <新阶段>`，再对新 census 调用 `init-profile`；不允许把 phase-bound migration census 用于其他阶段。然后对新 profile 运行 binding gate。`authoring/full` 只接受同一 trusted bundle/adapter/route 的当前会话迁移续跑，或宿主签名迁移结果。`delivery/full` target 的 `terminal_state` 缺省为 `draft`；`wechat.draft` API 不推导正式发布权限，`publish+api` 必须另有 `wechat.current-session-authority` 或 portable receipt，否则报告会将 API live publish 标为不可用并列出 UI live 候选。
 
@@ -270,15 +272,20 @@ python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
 python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
   "$ORG_WECHAT_RUNTIME_ROOT/scripts/build_visual_directions.py" \
   organizations/new-account-id recruitment \
+  --background-mode generated-family \
   --output output/new-account-id/visual-directions.json
 ```
 
-待用户批准 Ardot 小样并回写 `organization.visual.calibration` 后，生成资产计划与文章叙事分镜：
+`--background-mode` 必须与启动时已确认的选择一致：生成底图用 `generated-family`，不生成用 `native-surfaces`。
+
+待用户批准 Ardot 小样并回写 `organization.visual.calibration` 后，生成通用资产计划与文章叙事分镜。`asset-plan` 不再预造四枚通用微组件；分镜批准后由 `build_visual_kit.py` 按 `production_preferences.micro_component_count` 和 `visual_kit.selected_roles` 生成当前推文实际需要的 0–4 枚：
 
 ```bash
 python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
   "$ORG_WECHAT_RUNTIME_ROOT/scripts/orgs.py" asset-plan \
   organizations/new-account-id recruitment \
+  --route confirmed-route \
+  --background-mode generated-family \
   --output output/new-account-id/recruitment-asset-plan.json
 ```
 
@@ -286,6 +293,13 @@ python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
 python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
   "$ORG_WECHAT_RUNTIME_ROOT/scripts/build_storyboard.py" article.json \
   --output output/new-account-id/article-slug/storyboard-plan.json
+```
+
+```bash
+python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
+  "$ORG_WECHAT_RUNTIME_ROOT/scripts/build_visual_kit.py" article.json \
+  --org organizations/new-account-id \
+  --output output/new-account-id/article-slug/visual-kit-plan.json
 ```
 
 AI 生成的不透明底图或纯生成 raster 封面，在登记资产前先保留无水印母版并生成带来源水印的派生图。`PROVENANCE_WATERMARK_KEY` 必须来自仓库外的 secret store，以 `hex:` 或 `base64:` 表示至少 32 个随机字节；裸口令会被拒绝。如需 raw-ID 记录，先将 `PROVENANCE_WATERMARK_PRIVATE_ROOT` 设为一个已存在且位于所有 Git 仓库外的私密目录：
@@ -400,7 +414,7 @@ python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
 `payload_fingerprint`、`key_epoch`、`version`、`purpose`、`algorithm`。
 微信 CDN 可能改变文件 SHA；任一应检载体无法鉴真都阻断交付。
 
-在 `article.json` 写入 `interaction_plan`：常规文章使用 `dynamic-default`，2 个模块分布在 `early` + `middle`，3 个再增加 `late`。先绑定 chapter、source blocks 和逐实例语义哈希；当前 Ardot revision 的三态截图在全文装配后补齐。详见 [动态组件构图与计数](references/interaction-composition.md)。
+按启动时确认的选项在 `article.json` 写入 `interaction_plan`：`use_svg: true` 时使用 `dynamic-default`，2 个模块分布在 `early` + `middle`，3 个再增加 `late`；`use_svg: false` 时使用零模块的 `static-selected`。动态方案先绑定 chapter、source blocks 和逐实例语义哈希，当前 Ardot revision 的三态截图在全文装配后补齐。详见 [动态组件构图与计数](references/interaction-composition.md)。
 
 为本篇文章生成小组件/小插图计划：
 
@@ -411,7 +425,7 @@ python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
   --output output/new-account-id/article-slug/visual-kit-plan.json
 ```
 
-逐张生图、验图，每张都必须绑定正文原句、具体主体/动作、分镜章节和构图职责。Codex Desktop 默认先让 ChatGPT 直接生成具有真实透明像素的 provider-original PNG，用内置 Browser 下载原图；原图放 `assets/generated/`，不直接进 Ardot。首轮必须使用原生 Alpha 路由生成 create-once 的规范化派生图与报告：
+逐张生图、验图，每张都必须绑定正文原句、具体主体/动作、分镜章节和构图职责。Codex Desktop 用内置 Browser 让 ChatGPT 生成并下载 provider-original PNG；原图放 `assets/generated/`，不直接进 Ardot。每张真实组件在请求前从 `source_generation.source_options` 选择真透明 `native-alpha` 或易安全分离的纯色 `controlled-key`，两者都可作为首试。以下是 `native-alpha` 的处理示例：
 
 ```bash
 python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
@@ -435,7 +449,7 @@ python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
   path/to/derived.png --role floating-spot
 ```
 
-`--require-native-alpha` 会拒绝 RGB、全不透明 RGBA 和假棋盘格，不会在首轮暗中去背景；通过时本地只做验真、清理透明像素 RGB、紧裁切和规范化。只有该原图未通过 Alpha/像素门禁时，才按当前 slot 的 `fallback_prompt` 重生成一次受控单色底原图，并严格使用该 slot 的 `source_generation.fallback_processor_args` / `fallback_key_color`，不得把所有 slot 硬编码为同一绿色。背景不均、主体碰边、彩色 halo、碎片或底板均阻断，不降低门槛。把四张 `assets/derived/` 成品做成 Ardot 原生组件，将 component file/node/name 证据写回文章。只有 `ready_for_layout: true` 才生成 Ardot 装配清单：
+每个已选真实小组件可在请求前直接选择 `source_generation.source_options` 中的 native-alpha 或 controlled-key。前者使用 `--require-native-alpha` 验真且不暗中去背景；后者使用当前 slot 的 `controlled_key_color` 与完整 `processor_args`，可直接作为首试，不需伪造 native-alpha 失败。不得把所有 slot 硬编码为同一键色。无论 raw 路线，只有终态 `assets/derived/` 成品通过 RGBA8、真 Alpha、紧裁切、open-edge、矩形底/matte/halo/debris 与多底色像素门禁才能做成 Ardot 原生组件。将每个已选组件的 file/node/name 证据写回文章；只有 `ready_for_layout: true` 才生成 Ardot 装配清单：
 
 ```bash
 python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
@@ -491,13 +505,13 @@ python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
 └── tests/
 ```
 
-`organizations/` 与 `examples/` 中的历史内容不得作为新公众号的视觉输入。其他公众号应从空 organization pack 开始，新增独立组织证据、Ardot 品牌模式、底图家族和文章组件。
+`organizations/` 与 `examples/` 中的历史内容不得作为新公众号的视觉输入。其他公众号应从空 organization pack 开始，新增独立组织证据、Ardot 品牌模式和文章组件；只有启动时选择生成底图时才建立底图家族。
 
 `article.json` 是内容源，Ardot 是视觉源；`wechat.html` 只是最终传输文件。
 
 ## 动态组件 A/B MVP
 
-仓库开发树可以保留同输入的静态/动态对照实验，但 release 包不携带 `experiments/`。主工作流默认 2–3 个 semantic modules；transport marker 数量不等于 module 数量。任何实验候选都不提供剪贴板直投入口；采用后的状态必须回到当前 Ardot root，并经 handoff v5 冻结编译、草稿回读和目标账号 iOS/Android 能力验证后才可选择动态 payload。
+仓库开发树可以保留同输入的静态/动态对照实验，但 release 包不携带 `experiments/`。主工作流只在已确认 `use_svg: true` 时创建 2–3 个 semantic modules；否则为零模块。transport marker 数量不等于 module 数量。任何实验候选都不提供剪贴板直投入口；采用后的状态必须回到当前 Ardot root，并经 handoff v5 冻结编译、草稿回读和目标账号 iOS/Android 能力验证后才可选择动态 payload。
 
 ## 安全边界
 

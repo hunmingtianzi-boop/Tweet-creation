@@ -35,18 +35,16 @@ Run these actions before source-material reading in `migration`, `authoring`, or
    `c2c session`; `https://chatgpt.com/` is only the credential-free login entry
    or the C2C-approved new-chat entry in long-chat mode. Do not persist the
    resolved conversation URL, and do not use Computer Use or an external browser.
-4. In normal `authoring`/`full`, confirm only that the image composer and
-   original-download action are reachable; do not consume image quota with a
-   smoke generation. In `migration`, execute the binding report's one neutral
-   `neutral-rgba-route-probe-v1` after these preparations and before any source,
-   pack, Ardot, or WeChat action.
+4. Confirm only that the image composer and original-download action are
+   reachable; do not consume image quota with a smoke or migration generation.
+   No synthetic RGBA image may block source reading, pack creation, or Ardot work.
 5. If ChatGPT requires login, CAPTCHA, 2FA, consent, subscription repair, or
    image entitlement, keep the same tab and request one user action. Continue
    only after the same session is re-read.
 
 For article production, one digest-bound approval covers the storyboard,
-interaction plan, and all four visual-kit slot briefs. Do not request approval
-again for each slot or for a processor-authorized controlled-key fallback.
+interaction plan, and all user-selected visual-kit slot briefs. Do not request approval
+again for each slot or for a processor-authorized controlled-key source option.
 Only a substantive change to that digest or a real login/consent wall requires
 new user input. Publication and group send remain separate fresh confirmations.
 
@@ -55,77 +53,19 @@ ChatGPT chat URL, pairing code, cookie, token, session storage value, or login
 result in the repository runtime profile, organization pack, article JSON, or
 public evidence.
 
-## Migration self-test
+## Runtime session binding
 
-Every workflow/organization migration into a new clone, machine, Codex session,
-adapter/provider route, or changed trusted bundle begins with runtime phase `migration`.
-Its profile has no organization, Ardot, or WeChat links. It binds opaque image
-generation, the selected RGBA route, and image inspection. The RGBA capability
-must match both `migration_probe_contract: neutral-rgba-route-probe-v1` and the
-adapter's actual stable `generation_route_id`.
+New clones, machines, sessions, and provider routes bind the verified release,
+adapter, stable `generation_route_id`, and current provider session without
+generating or inspecting a calibration image. `org-wechat-runtime-session-evidence-v1`
+may close this current-session binding. It never blocks source reading and does
+not claim host attestation or portability. The former
+`neutral-rgba-route-probe-v1` path is optional legacy diagnostics only.
 
-The binding report emits an exact direct-transparency prompt, one controlled-key
-fallback prompt, both prompt SHAs, per-attempt absolute
-`prepare_migration_probe.py` commands, and a
-nonce-specific directory under the caller's explicit external
-`ORG_WECHAT_SESSION_ROOT`. It must never write beneath the installed Skill. Attempt 1
-requires a provider-original PNG with genuine native Alpha and runs the
-processor with `--require-native-alpha`; it cannot silently remove a background.
-This processor accepts only the fixed migration article/slot/role and emits
-`migration_only=true`, `article_asset_authority=false`, `registerable=false`,
-`portable=false`, and `carry_forward=false`. Attempt 2 is allowed only when the
-same locked processor created an attempt-1 failure report whose raw/ingestion
-bytes independently reproduce an allowed native-Alpha gate failure; both
-current-session and portable finalizers revalidate that chain. It alone may use `--key-color`. Login, CAPTCHA, 2FA,
-consent, generation interruption, or download repair resumes the same attempt
-and never spends the fallback.
-
-Provider/browser state is independent of pixel-attempt state. Use
-`provider-pending`, `completed-await-download`, `provider-terminal-failed`, or
-`browser-control-unavailable`. An unknown or timed-out request is first resumed
-read-only in the same C2C session; duplicate submission is forbidden. A Browser
-transport failure requires host-task recovery and does not consume a source
-attempt. Only explicit provider-terminal failure permits a new request using
-the same mode and exact bound prompt.
-
-The nonce and binding digest stay out of the image prompt. The host records them
-in a canonical `org-wechat-migration-rgba-request-v1` metadata envelope that
-also binds the route, attempt, acquisition mode, and prompt SHA. Its SHA must be
-associated with the same current provider request, completed generation, and
-original-download event. This avoids visual/semantic prompt pollution while
-still preventing an old raw file or report from satisfying the current run.
-
-Passing the current-session migration requires two bound layers:
-
-- `local_pixel_chain_verified`: downloaded PNG bytes, prompt SHA, secure
-  processor/config/report chain, true RGBA8, tight Alpha bounds, and the final
-  pixel gate;
-- `current_session_route_bound`: the current provider request, completed generation,
-  same current Browser/provider session, visible provider-original download
-  event, local PNG magic/MIME/byte length/SHA/time, and host inspection of the
-  exact derivative on transparent, light, and dark surfaces.
-
-Neither layer implies the other, and neither cryptographically attests the
-Browser event. A profile field, local report, copied file,
-old host trace, model-authored receipt, C2C status, screenshot, preview Canvas,
-clipboard image, or remote URL cannot make the migration ready. The repository
-report remains `phase_ready: false`; only the current host trace can close the
-external action. Probe paths are create-once, Git-ignored, bound to the current
-nonce/digest, and forbidden from organization `assets.json`, article assets,
-watermarking, Ardot, transport, or later style/prompt references.
-
-For the ChatGPT-web route, obey the exact `conversation.mode` returned by C2C.
-In `long-chat` mode there is exactly one managed ChatGPT conversation per
-workspace, reused across Codex tasks. In `project` mode there is exactly one
-ChatGPT Project per workspace; the current Codex conversation reuses its own
-saved chat, while a new Codex conversation starts a new chat from that Project
-collection and never reuses another task's chat URL. Neither mode permits a
-throwaway verification chat. The exact migration prompt therefore uses only
-one nonsemantic, uniform mid-gray open-stroke
-calibration mark with deep negative space: no organization, recognizable object, palette, material, lighting,
-or artistic style. Continue in the same C2C-managed conversation, but every
-official image prompt must explicitly exclude the calibration mark and
-its grayscale test treatment. The probe remains route QA, never a design input.
+Provider/browser recovery still uses `provider-pending`,
+`completed-await-download`, `provider-terminal-failed`, and
+`browser-control-unavailable`. Resume an unknown request read-only before any
+resubmission. These states are independent of per-asset image quality.
 
 ## Prompt scope
 
@@ -155,11 +95,11 @@ For an article micro source, request:
   shadow;
 - a safety margin around the subject, with no substantive pixel touching an
   edge;
-- a provider-original PNG with genuine native transparency as the required
-  first attempt;
-- only after that original fails the strict native-Alpha or pixel gate, one flat
-  fallback key color selected by the visual-kit plan and absent from the subject
-  and organization palette.
+- a provider-original PNG using either genuine native transparency or one flat
+  key color selected by the visual-kit plan and absent from the subject and
+  organization palette;
+- at most two real source attempts for a slot; every accepted route must still
+  produce a final derivative that passes the same strict cutout gate.
 
 The key background is an acquisition aid, not a publishable asset. Do not ask
 for a checkerboard, white, black, gradient, textured, photographic, or blurred
@@ -169,8 +109,9 @@ background. Do not use a key color that appears materially in the subject.
 
 An accepted source begins with the ChatGPT page's visible original-download
 action and a browser-observed download event. Predetermine a create-once path
-under the article's Git-ignored staging area, or the binding report's
-nonce-specific migration directory for the neutral probe. Reject:
+under the article's Git-ignored staging area. The binding report's
+nonce-specific migration directory is reserved for an explicitly requested
+legacy diagnostic probe and never supplies an article source. Reject:
 
 - a screenshot or cropped page capture;
 - a Canvas extraction or preview thumbnail;
@@ -188,10 +129,9 @@ The raw file is retained even when a derivative is required.
 Before derivation, every formal article attempt must have an
 `org-wechat-provider-image-acquisition-v2` record. It binds the verified
 installed-release census, exact adapter bytes, adapter-declared route, the
-same-session migration result, canonical request metadata, a create-once
-Browser ingestion report, and its exact raw target SHA/bytes. The migration
-probe keeps its separate nonce-bound contract; it is never reused as this
-article record.
+same-session runtime binding, canonical request metadata, a create-once Browser
+ingestion report, and its exact raw target SHA/bytes. No migration image is
+required for this article record.
 
 The command shape below shows the stronger portable invocation. It requires a
 portable migration receipt plus provider receipt and supplies
@@ -213,8 +153,8 @@ python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
 ```
 
 For the normal Codex Desktop current-session route, the same CLI or Python API
-may run without `--portable-trust-store` after the completed same-session
-migration, canonical request, create-once ingestion, exact raw-byte, and RGBA
+may run without `--portable-trust-store` after the same-session runtime binding,
+canonical request, create-once ingestion, exact raw-byte, and RGBA
 pixel gates pass. The result is operationally accepted but fixed to
 `host_attested=false` and `portable=false`. The compatibility function
 `live_provider_acquisition_authority(callback)` is only an optional
@@ -223,10 +163,16 @@ exception blocks. A plain Python callback, including `lambda challenge: True`,
 cannot create a signature, host attestation, or portability claim. A JSON field
 named `callback`, `authorized`, or `passed` likewise has no assurance effect.
 
-This is the mandatory first attempt. It rejects RGB and all-opaque RGBA without
-trying to infer a background. Only after that route fails may the single
-controlled-key fallback replace `--require-native-alpha` with
-`--key-color '#KEYHEX'`.
+Use `--require-native-alpha` for a true-alpha source. A deliberately generated,
+uniform controlled-key source may instead use `--key-color '#KEYHEX'` on its
+first article-specific attempt. The processor never guesses a background; the
+selected route and exact key are explicit.
+
+The acquisition ledger for either successful first route contains one accepted
+attempt. If a real native-alpha source is rejected and the slot then uses its
+controlled-key option, the two-attempt ledger contains the reproducible rejected
+native source followed by the accepted key source. Do not invent that first
+failure when controlled-key was selected from the outset.
 
 Use the actual CLI help as the final authority if optional color-probe flags
 are present. The processor may:
@@ -242,7 +188,7 @@ touches an edge, material transparency cannot be separated, or the resulting
 shape still resembles a matte/card. It may not process documentary photos,
 logos, QR codes, or arbitrary complex scenes.
 
-After derivation, including for a migration probe, run the inspection through
+After derivation of a real transparent article asset, run the inspection through
 the locked secure runner:
 
 ```bash
@@ -273,21 +219,19 @@ the opaque-background provenance watermark.
 ## Failure and retry
 
 One failed cutout never authorizes a weaker threshold or a manual white-card
-fallback. Each attempt records its own prompt SHA; the acquisition and
-derivation bind the accepted attempt's SHA. When the provider-original
-native-alpha attempt fails, the validator must reopen the exact ingested raw
-bytes and reproduce an allowed Alpha/pixel failure before regenerating once on
-the approved controlled key color. A self-reported failure code is
-insufficient. If that second source also fails, stop that visual-kit slot,
+fallback. Each actual attempt records its own prompt SHA; the acquisition and
+derivation bind the accepted attempt's SHA. When a provider-original native-alpha
+attempt is recorded as rejected, the validator must reopen the exact ingested
+raw bytes and reproduce the stated Alpha/pixel failure; a self-reported failure
+code is insufficient. A rejected controlled-key first source must not be
+serialized as a fabricated reverse fallback ledger. If two source attempts fail, stop that visual-kit slot,
 preserve both reports, and explain the exact blocker. Layout cannot begin while
-any mandatory role lacks a valid derivative and native Ardot component.
+any selected role lacks a valid derivative and native Ardot component.
 
 ## Live evidence boundary
 
-Normal article startup can declare only `bound_unprobed`. The migration phase
-is the single startup exception: its neutral probe proves only that the route
-worked in the current migration host trace. It never becomes an article asset
-or replaces the first official asset's lineage. Each official asset becomes
+Normal article startup can declare `bound_unprobed`; that state does not block
+source reading or planning. There is no startup RGBA probe exception. Each official asset becomes
 accepted only when its own evidence chain contains:
 
 1. current ChatGPT tab request;
@@ -297,14 +241,15 @@ accepted only when its own evidence chain contains:
 5. cutout derivative and derivation report when the role requires RGBA;
 6. final pixel gate plus visual inspection.
 
-For a four-role article kit, each report uses the exact `kit.<role>` slot. The
-layout-ready gate requires four distinct accepted raw SHA values, provider
-request IDs, acquisition authority bindings, and derivative SHA values. A
-single provider original copied to another path or recropped for another role
+For an article with `N` selected roles, each report uses the exact
+`kit.<role>` slot. The layout-ready gate requires `N` distinct accepted raw SHA
+values, provider request IDs, acquisition authority bindings, and derivative
+SHA values. When `N` is zero, no image attempt or synthetic replacement is
+created. A single provider original copied to another path or recropped for another role
 is rejected even when every individual PNG passes Alpha inspection.
 
 C2C update/doctor output, connector status, `workspace_info`, a ChatGPT text
-reply, a page preview, a prior migration probe, or a model-authored JSON receipt
+reply, a page preview, or a model-authored JSON receipt
 cannot replace this chain.
 
 An article record with a complete current-session chain is operationally
@@ -320,8 +265,7 @@ Browser. The following is only a specification for a future reviewed release,
 not an operator-selectable fallback: a new harness would need a native/API
 generator bound to `image.generate.rgba`, an original local source, the exact
 `subject-cutout-rgba8-v1` processor/inspection/lineage/registration gates, a
-real stable `generation_route_id`, the same `neutral-rgba-route-probe-v1`
-migration contract, equivalent login/download evidence, full forward tests and
+real stable `generation_route_id`, equivalent login/download evidence, full forward tests and
 a new release lock. Until those are shipped, the route is unsupported even if
 its tools have similar names. Provider substitution never changes the final
 asset contract.

@@ -2,9 +2,10 @@
 """Validate formal provider-image acquisition and its assurance boundary.
 
 The current-session path is an operational, operator/harness-trusted contract:
-it binds a completed current-session migration probe to canonical provider
-requests, create-once download ingestion, the exact raw bytes, and the later
-RGBA pixel gate.  It is deliberately *not* host-attested or portable.  A plain
+it binds the current runtime/provider session to canonical provider requests,
+create-once download ingestion, the exact raw bytes, and the later per-asset
+quality inspection.  No synthetic RGBA migration probe is required.  It is
+deliberately *not* host-attested or portable.  A plain
 Python callback cannot strengthen that assurance; when present it is only a
 trusted-harness policy hook that may veto the exact acquisition challenge.
 
@@ -512,7 +513,7 @@ def validate_provider_acquisition_bundle(
                 or continuation.get("provider_session_id") != provider_session
             ):
                 structural_errors.append(
-                    "current-session migration result is not valid for this provider session"
+                    "current-session runtime binding is not valid for this provider session"
                 )
         elif migration.get("kind") == PORTABLE_MIGRATION_KIND:
             migration_mode = "portable-signed"
@@ -784,7 +785,7 @@ def validate_provider_acquisition_bundle(
     errors = [*structural_errors, *errors]
     if require_authority and not operationally_accepted:
         errors.append(
-            "provider acquisition is not operationally accepted; use a complete current-session migration and exact create-once acquisition chain, or supply a verified portable host receipt"
+            "provider acquisition is not operationally accepted; use a current-session runtime binding and exact create-once acquisition chain, or supply a verified portable host receipt"
         )
     return {
         "ok": structural_ok

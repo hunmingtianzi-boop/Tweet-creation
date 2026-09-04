@@ -186,6 +186,31 @@ def validate_asset_role(
     return list(dict.fromkeys(errors))
 
 
+def validate_background_assignment(
+    asset: Mapping[str, Any],
+    *,
+    generated_backgrounds_enabled: bool,
+) -> list[str]:
+    """Validate an asset used by an article block's ``background`` field.
+
+    A disabled generated-background preference means the reading surface must
+    be built from editable Ardot fills, gradients, and vectors, so no raster
+    registry asset may be smuggled into the background slot.  When enabled,
+    the slot still accepts only the dedicated generated atmosphere duty; a
+    photo, identity asset, or derived article micro can never become a panel.
+    """
+
+    errors = validate_asset_role(asset, "background-use")
+    if not generated_backgrounds_enabled:
+        errors.append(
+            _error(
+                "background.generated_disabled",
+                "generated backgrounds are disabled; use Ardot-native editable surfaces instead of a raster background asset",
+            )
+        )
+    return list(dict.fromkeys(errors))
+
+
 def is_documentary_photo(asset: Mapping[str, Any]) -> bool:
     """Return True only for an asset that passes the evidence-use matrix."""
 

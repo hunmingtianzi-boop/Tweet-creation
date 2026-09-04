@@ -1,6 +1,6 @@
 # 动态组件构图与计数
 
-主工作流在常规 4–10 章公众号文章中，默认规划 2–3 个 `interaction module`。这是创作层预算，不代表目标公众号一定启用动态 payload；投递层仍以静态等价版为默认，只有目标账号当前有效的保存回读与 iOS/Android 真机能力档案同时通过，才可保留动态候选。
+主工作流在开始时询问是否制作 SVG 交互。选择后，常规 4–10 章公众号文章规划 2–3 个 `interaction module`；不选择则创建零模块 `static-selected` 计划。动态规划不代表目标公众号一定启用动态 payload；投递层仍以静态等价版为默认，只有目标账号当前有效的保存回读与 iOS/Android 真机能力档案同时通过，才可保留动态候选。
 
 ## 两种计数单位
 
@@ -9,7 +9,7 @@
 
 四个并列部门各自点击展开，是 1 个 `tap-reveal-group` module、4 个 SVG transport instances；横向照片组整体是 1 个 module、1 个 swipe instance。模块数量只取 `modules.length`，绝不取 SVG 数、卡片数或 `instances.length`。
 
-四枚文章专属微型插图、2–4 处表现型字体、纯装饰动画、无读者任务的动效都不计入 interaction module。
+文章所选的 0–4 个微型插图、2–4 处表现型字体、纯装饰动画、无读者任务的动效都不计入 interaction module。
 
 ## 什么内容够资格
 
@@ -23,7 +23,12 @@
 
 2 个 module 必须分布在 `early` 与 `middle`，3 个必须分布在 `early`、`middle`、`late`，并绑定不同 storyboard chapters。位置带由批准后的 chapter 顺序按三等分计算，不接受把晚段 chapter 手写成 `early`。交互区域仍受开放式构图与 20% 方框上限约束，不能连续堆成组件墙。
 
-## `interaction_plan` 两阶段门槛
+## 启动选择与 `interaction_plan` 两阶段门槛
+
+工作流开始时与组件数量、风格路线、底图开关一起询问是否制作 SVG 交互，并把答案写进 `article.production_preferences.use_svg`。这是文章级选择，不由目标公众号的能力档案反推。
+
+- `use_svg: true`：使用 `authoring_mode: dynamic-default`，创作 2–3 个 semantic modules；
+- `use_svg: false`：使用 `authoring_mode: static-selected`，`target_module_count: 0` 且 `modules: []`。这是正常选项，不需要再写一份 exception reason。
 
 装配前校验创作计划：
 
@@ -52,9 +57,9 @@
 
 禁止 JavaScript、`details/summary`、任何 transport `id`、跨 ID timing、fragment reference、`<use>`、`foreignObject` 与未探测 SMIL。
 
-## 静态例外
+## 静态选择与旧式例外
 
-原始材料确实只有 0–1 个合理交互机会，或用户明确要求静态时，可使用 `authoring_mode: static-exception`。必须记录：
+用户在启动时明确不要 SVG 时，使用 `static-selected`。`static-exception` 只保留给迁移旧记录，或在已确认动态后才发现原始材料确实只有 0–1 个合理交互机会的编辑例外。使用例外时必须记录：
 
 - `category`：`user-requested-static`、`short-utility-notice`、`editorially-unsuitable` 或 `accessibility-priority`；
 - 至少 12 字的具体 `reason`；
@@ -64,6 +69,6 @@
 
 ## 生产边界
 
-创作层默认动态候选，生产层默认静态安全。冻结的 Ardot layer export 中，每个 module 要么绑定 `ardot-state-export-v1` 的 source node/SHA 并原样导出 SVG，要么明确选择信息等价 static fallback；不允许手画新 SVG。语义模块数量不得写入 `wechat_interaction_policy.py`，因为 transport marker 数量与创作层 module 数量不同。
+创作层严格实现已确认的动态/静态选择，生产层对动态候选仍默认静态安全。冻结的 Ardot layer export 中，每个 module 要么绑定 `ardot-state-export-v1` 的 source node/SHA 并原样导出 SVG，要么明确选择信息等价 static fallback；不允许手画新 SVG。语义模块数量不得写入 `wechat_interaction_policy.py`，因为 transport marker 数量与创作层 module 数量不同。
 
 保存草稿后的结构回读只证明标签与属性未被清洗。只有目标账号、策略版本、iOS/Android 微信版本、有效期和真机证据全部匹配，`wechat-svg-smil-self-v1` 才能选择动态 payload；否则更新同一草稿为静态等价版。

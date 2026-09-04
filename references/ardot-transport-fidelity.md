@@ -17,7 +17,7 @@
 - `reference_screenshot`：同一 section node 的本地 `390 × chapter_height` Ardot 截图与 SHA，只能作证据，不能进正文。
 - `background_layer`：必须是完整章节的 `1170 × (chapter_height × 3)` PNG，`export_scale: 3`。除 `contains_text: false` / `text_baked: false` / `text_node_count: 0` 外，还必须附带本地哈希绑定的 `ardot-background-only-node-export-v1`，由该 node export 证明 file/root/section/background node、资产 SHA 与 0 个文字后代。自报布尔值或文件名不算证据。
 - `visible_text_nodes`：Ardot 原生可编辑文字，包含 source node、归一化文本 SHA、顺序、语义标签、几何，以及完整受支持 style。字体族只能选择 `system-sans-cn` / `system-serif-cn` 的明确微信原生映射；未知字体/样式不得静默替换。
-- `decorations`：与底图独立的 `article-micro` 图层，保留真实 `source_node_id`、已验收 cutout asset ID/SHA、四类语义 role、几何与受支持 render style。`independent` 必须为 `true`，`contained_in_background` 必须为 `false`。
+- `decorations`：与底图独立的 `article-micro` 图层，保留真实 `source_node_id`、已验收 cutout asset ID/SHA、启动时选定的 0–4 类语义 role、几何与受支持 render style。`independent` 必须为 `true`，`contained_in_background` 必须为 `false`；选择 0 时数组为空。
 - `photos`：显式数组，每张真实照片保留真实 source node、`role: documentary-evidence`、`source_id`、asset ID/SHA、独立几何、crop/object-position 与图层顺序；不得焚入 AI 底图或章节合成图。
 - `interaction`：SVG 只能来自本地哈希绑定的 `ardot-interaction-state-export-v1`，其 file/root/section/source node、closed/open/fallback states 与 `svg_structure_sha256` 都必须与当前导出一致。`structure_sha256` 由校验器对实际 frozen SVG 结构重算，不接受自报。SVG 模式同时冻结 `fallback_key` / `fallback_semantic_sha256` / `fallback_asset`；否则明确选择信息等价的 `static-fallback`。编译 HTML 和草稿回读都从实际 SVG 字节重算同一签名。
 

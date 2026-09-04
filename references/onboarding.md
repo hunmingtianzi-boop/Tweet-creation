@@ -2,6 +2,8 @@
 
 Use onboarding when the requested organization has no validated organization pack or when its identity has materially changed.
 
+For an article-producing run, after the Codex Desktop host declaration/preflight and before reading organization material, ask one grouped question and record the user/editor-confirmed `production_preferences`: `micro_component_count: 0..4`, `use_svg`, `style_route`, and `generate_backgrounds`. Do not infer any of the four from the organization category, an existing route, a target-account capability profile, or a previous article. A later substantive change requires grouped reconfirmation before generation or layout.
+
 ## Minimum evidence
 
 Collect the best available subset of:
@@ -47,18 +49,18 @@ Propose two or three routes when the evidence permits multiple interpretations. 
 - motifs and explicit avoid rules;
 - a short explanation tied to evidence.
 
-Choose a default only after user confirmation or when the organization already has a clear, consistently used system. Otherwise mark the pack `provisional`.
+Do not choose a route on the user's behalf. An existing clear system may be presented as a recommendation, but the current article's `style_route` still requires user/editor confirmation. Otherwise mark the pack `provisional`.
 
 ## Calibration strip, then first article
 
-First compare two or three five-part Ardot calibration strips and record the approved route, background family, plus benchmark file/page/node under `organization.visual.calibration`. Only then create the first real article as a 390 px native Ardot board and use it to test:
+First compare two or three five-part Ardot calibration strips and record the approved route plus benchmark file/page/node under `organization.visual.calibration`. When `generate_backgrounds: true`, also record and validate the approved generated background family; when false, calibrate continuous Ardot-native fills, gradients, and editable vectors without a raster family. Only then create the first real article as a 390 px native Ardot board and use it to test:
 
 - whether the voice sounds like the organization rather than a generic campaign;
 - whether verified facts remain distinguishable from promotional interpretation;
 - whether the visual route survives a complete mobile article, not only a cover;
 - whether supplied photos, logos, and QR codes integrate cleanly;
 - whether the component recommendations suit the article’s actual information.
-- whether an article-specific visual kit was generated before layout and turned into four reusable ornament roles;
+- whether the confirmed `micro_component_count` was honored and exactly that many (`0..4`) article-specific selected roles were generated and turned into reusable ornaments before layout;
 - whether the article reads as an open editorial composition rather than a stack of rounded cards.
 
 After review, update the organization pack instead of accumulating one-off prompt rules.

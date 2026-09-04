@@ -67,6 +67,7 @@ from workflow_quality import (  # noqa: E402
     style_grammar_errors,
     style_grammar_sha256,
     validate_interaction_plan,
+    validate_production_preferences,
     validate_visual_review,
     derive_section_density_metrics,
     source_content_sha256,
@@ -823,9 +824,22 @@ def make_article(root: Path, pack: Path) -> Path:
         "article_id": "fresh-article",
         "organization_id": "fresh-organization",
         "article_type": "introduction",
+        "route": "field-notes",
         "title": "Fresh article",
+        "production_preferences": {
+            "status": "confirmed",
+            "confirmed_by": "user",
+            "micro_component_count": 4,
+            "use_svg": True,
+            "style_route": "field-notes",
+            "generate_backgrounds": True,
+        },
         "storyboard": {"status": "approved", "chapters": chapters},
-        "visual_kit": {"status": "approved", "assets": visual_assets},
+        "visual_kit": {
+            "status": "approved",
+            "selected_roles": [item[0] for item in ROLES],
+            "assets": visual_assets,
+        },
         "interaction_plan": {
             "status": "approved",
             "authoring_mode": "dynamic-default",
@@ -947,6 +961,9 @@ def add_visual_review(article_path: Path) -> Path:
         ("identity-section-transition", "section-transition", 1, 0.68, 0.16, 0.60, "chapter-bridge", None, None),
         ("evidence-inline-explainer", "inline-explainer", 2, 0.48, -0.11, 0.38, "between-paragraphs", 23, "color-contrast"),
         ("join-closing-motif", "closing-motif", 4, 0.42, 0.24, 0.32, "cta-anchor", None, None),
+    ]
+    placement_specs = [
+        item for item in placement_specs if item[1] in visual_component_by_role
     ]
     micro_placements = []
     inventory_instances = []
@@ -1564,6 +1581,22 @@ class OrganizationPackTests(FreshWorkflowTestCase):
             report["errors"],
         )
 
+    def test_asset_registry_rejects_unknown_kind_and_origin(self) -> None:
+        assets_path = self.pack / "assets.json"
+        baseline = json.loads(assets_path.read_text(encoding="utf-8"))
+        for field, value in (("kind", "mystery-kind"), ("origin", "mystery-origin")):
+            with self.subTest(field=field):
+                assets = json.loads(json.dumps(baseline, ensure_ascii=False))
+                assets["assets"][0][field] = value
+                write_json(assets_path, assets)
+                report = validate_pack(self.pack)
+                self.assertFalse(report["ok"])
+                self.assertTrue(
+                    any(f".{field} is invalid" in error for error in report["errors"]),
+                    report["errors"],
+                )
+        write_json(assets_path, baseline)
+
     def test_scaffold_starts_source_zero_but_remains_blocked(self) -> None:
         pack = self.root / "new-org"
         pack.mkdir()
@@ -1578,7 +1611,9 @@ class OrganizationPackTests(FreshWorkflowTestCase):
                 "key_id": "external",
             },
         )
-        directions = build_directions(pack, "introduction")
+        directions = build_directions(
+            pack, "introduction", background_mode="generated-family"
+        )
         self.assertFalse(directions["full_article_allowed"])
         self.assertEqual(directions["source_isolation"]["policy"], "source-zero")
         self.assertTrue(any("visual_input_source_ids" in item for item in directions["blocking_reasons"]))
@@ -1587,7 +1622,9 @@ class OrganizationPackTests(FreshWorkflowTestCase):
         grammar = enable_explicit_style_reference(self.pack)
         report = validate_pack(self.pack)
         self.assertTrue(report["ok"], report["errors"])
-        directions = build_directions(self.pack, "introduction")
+        directions = build_directions(
+            self.pack, "introduction", background_mode="generated-family"
+        )
         self.assertTrue(directions["full_article_allowed"], directions["blocking_reasons"])
         self.assertEqual(
             directions["source_isolation"]["policy"],
@@ -1725,13 +1762,34 @@ class OrganizationPackTests(FreshWorkflowTestCase):
         for folder in ("official", "photos", "generated", "derived"):
             self.assertTrue((self.root / "new-org" / "assets" / folder).is_dir())
 
-    def test_generated_background_family_is_mandatory(self) -> None:
+    def test_background_family_is_optional_for_native_surface_calibration(self) -> None:
         organization = json.loads((self.pack / "organization.json").read_text(encoding="utf-8"))
         organization["visual"]["calibration"]["background_family"] = None
         write_json(self.pack / "organization.json", organization)
         report = validate_pack(self.pack)
-        self.assertFalse(report["ok"])
-        self.assertTrue(any("background_family" in item for item in report["errors"]))
+        self.assertTrue(report["ok"], report["errors"])
+
+    def test_generated_background_preference_requires_calibrated_family(self) -> None:
+        organization = json.loads((self.pack / "organization.json").read_text(encoding="utf-8"))
+        organization["visual"]["calibration"]["background_family"] = None
+        write_json(self.pack / "organization.json", organization)
+        plan = build_visual_kit_plan(self.article, self.pack)
+        self.assertFalse(plan["ready_for_layout"])
+        self.assertTrue(
+            any("request generated backgrounds" in item for item in plan["blocking_reasons"]),
+            plan["blocking_reasons"],
+        )
+
+    def test_native_surface_preference_does_not_require_background_family(self) -> None:
+        organization = json.loads((self.pack / "organization.json").read_text(encoding="utf-8"))
+        organization["visual"]["calibration"]["background_family"] = None
+        write_json(self.pack / "organization.json", organization)
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article["production_preferences"]["generate_backgrounds"] = False
+        write_json(self.article, article)
+        plan = build_visual_kit_plan(self.article, self.pack)
+        self.assertTrue(plan["ready_for_layout"], plan["blocking_reasons"])
+        self.assertEqual(plan["calibration"]["background_family"]["strategy"], "native-surfaces")
 
     def test_background_family_rejects_black_white_surface_jump(self) -> None:
         companion = self.pack / "assets" / "generated" / "background-companion.png"
@@ -2490,44 +2548,187 @@ class VisualKitTests(FreshWorkflowTestCase):
         self.assertFalse(route["alpha_claim_trusted"])
         self.assertEqual(
             route["acquisition_preference"],
-            "native-alpha-first-controlled-key-fallback-only",
+            "native-alpha-or-controlled-key-per-real-asset",
         )
         self.assertEqual(route["processor"], "scripts/prepare_micro_cutout.py")
         self.assertEqual(route["output_contract"], "subject-cutout-rgba8-v1")
         self.assertEqual(
-            len({slot["source_generation"]["fallback_key_color"] for slot in plan["slots"]}),
+            len({slot["source_generation"]["controlled_key_color"] for slot in plan["slots"]}),
             4,
         )
         for slot in plan["slots"]:
             source = slot["source_generation"]
             self.assertRegex(slot["prompt_sha256"], r"^sha256:[0-9a-f]{64}$")
             self.assertRegex(
-                slot["fallback_prompt_sha256"], r"^sha256:[0-9a-f]{64}$"
+                slot["controlled_key_prompt_sha256"], r"^sha256:[0-9a-f]{64}$"
             )
             self.assertNotEqual(
-                slot["prompt_sha256"], slot["fallback_prompt_sha256"]
+                slot["prompt_sha256"], slot["controlled_key_prompt_sha256"]
             )
             self.assertEqual(
                 [item["prompt_sha256"] for item in source["attempt_prompts"]],
-                [slot["prompt_sha256"], slot["fallback_prompt_sha256"]],
+                [slot["prompt_sha256"], slot["controlled_key_prompt_sha256"]],
             )
             self.assertEqual(slot["asset_slot_id"], f"kit.{slot['role']}")
             self.assertEqual(source["route"], "chatgpt-web-image-route-v1")
-            self.assertEqual(source["preferred_mode"], "native-alpha")
-            self.assertEqual(source["preferred_processor_args"], ["--require-native-alpha"])
+            self.assertEqual(source["preferred_mode"], "select-per-real-asset")
+            self.assertEqual(
+                source["allowed_initial_modes"],
+                ["native-alpha", "controlled-key"],
+            )
+            self.assertEqual(
+                source["processor_args_by_mode"],
+                {
+                    "native-alpha": ["--require-native-alpha"],
+                    "controlled-key": [
+                        "--key-color",
+                        source["controlled_key_color"],
+                    ],
+                },
+            )
+            self.assertEqual(
+                [item["mode"] for item in source["source_options"]],
+                ["native-alpha", "controlled-key"],
+            )
+            self.assertTrue(
+                all(item["allowed_as_first_attempt"] for item in source["source_options"])
+            )
+            self.assertFalse(
+                source["legacy_compatibility"]["implies_native_first"]
+            )
+            self.assertEqual(
+                source["legacy_compatibility"]["canonical_field"],
+                "source_options",
+            )
             self.assertEqual(source["maximum_source_attempts"], 2)
-            self.assertNotIn(source["fallback_key_color"], slot["prompt"])
-            self.assertIn(source["fallback_key_color"], slot["fallback_prompt"])
+            self.assertNotIn(source["controlled_key_color"], slot["prompt"])
+            self.assertIn(
+                source["controlled_key_color"], slot["controlled_key_prompt"]
+            )
             self.assertIn("genuinely transparent background", slot["prompt"])
             self.assertIn("download the original PNG", slot["prompt"])
             self.assertIn("Never reuse a neutral migration calibration mark", slot["prompt"])
-            self.assertIn("native-alpha original failed", slot["fallback_prompt"])
+            self.assertIn("first real-asset source", slot["controlled_key_prompt"])
 
     def test_four_distinct_grounded_alpha_components_unlock_layout(self) -> None:
         plan = build_visual_kit_plan(self.article, self.pack)
         self.assertTrue(plan["ready_for_layout"], plan["blocking_reasons"])
         self.assertEqual(plan["minimum_unique_generated_micro_assets"], 4)
         self.assertTrue(all(slot["alpha_validation"]["ok"] for slot in plan["slots"]))
+
+    def test_confirmed_zero_components_needs_no_generated_micro_asset(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article["production_preferences"]["micro_component_count"] = 0
+        article["visual_kit"] = {
+            "status": "not-requested",
+            "selected_roles": [],
+            "assets": [],
+        }
+        write_json(self.article, article)
+
+        plan = build_visual_kit_plan(self.article, self.pack)
+
+        self.assertTrue(plan["ready_for_layout"], plan["blocking_reasons"])
+        self.assertEqual(plan["requested_micro_component_count"], 0)
+        self.assertEqual(plan["selected_roles"], [])
+        self.assertEqual(plan["slots"], [])
+        self.assertEqual(plan["minimum_unique_generated_micro_assets"], 0)
+        self.assertEqual(plan["minimum_composition_roles"], 0)
+        self.assertFalse(plan["generation_route"]["required"])
+        self.assertFalse(
+            any(
+                "download" in step or "prepare_micro_cutout.py" in step
+                for step in plan["required_sequence"]
+            ),
+            plan["required_sequence"],
+        )
+
+        article["visual_kit"]["assets"] = [None]
+        write_json(self.article, article)
+        invalid_plan = build_visual_kit_plan(self.article, self.pack)
+        self.assertFalse(invalid_plan["ready_for_layout"])
+        self.assertTrue(
+            any(
+                "assets entries must be objects" in item
+                for item in invalid_plan["semantic_errors"]
+            ),
+            invalid_plan["semantic_errors"],
+        )
+
+    def test_two_selected_components_scale_uniqueness_and_composition_gates(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        selected = ["floating-spot", "closing-motif"]
+        article["production_preferences"]["micro_component_count"] = 2
+        article["visual_kit"]["selected_roles"] = selected
+        article["visual_kit"]["assets"] = [
+            item for item in article["visual_kit"]["assets"] if item["role"] in selected
+        ]
+        write_json(self.article, article)
+
+        plan = build_visual_kit_plan(self.article, self.pack)
+
+        self.assertTrue(plan["ready_for_layout"], plan["blocking_reasons"])
+        self.assertEqual(plan["selected_roles"], selected)
+        self.assertEqual(len(plan["slots"]), 2)
+        self.assertEqual(plan["minimum_unique_generated_micro_assets"], 2)
+        self.assertEqual(plan["minimum_composition_roles"], 2)
+        self.assertEqual(plan["lineage_uniqueness"]["required_distinct_per_field"], 2)
+
+    def test_selected_role_count_and_order_are_fail_closed(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article["production_preferences"]["micro_component_count"] = 2
+        article["visual_kit"]["selected_roles"] = [
+            "closing-motif",
+            "floating-spot",
+        ]
+        article["visual_kit"]["assets"] = [
+            item
+            for item in article["visual_kit"]["assets"]
+            if item["role"] in {"closing-motif", "floating-spot"}
+        ]
+        write_json(self.article, article)
+
+        plan = build_visual_kit_plan(self.article, self.pack)
+
+        self.assertFalse(plan["ready_for_layout"])
+        self.assertTrue(
+            any("canonical role order" in item for item in plan["semantic_errors"]),
+            plan["semantic_errors"],
+        )
+
+    def test_invalid_component_count_never_revives_legacy_four_slot_default(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article["production_preferences"]["micro_component_count"] = 5
+        write_json(self.article, article)
+
+        plan = build_visual_kit_plan(self.article, self.pack)
+
+        self.assertFalse(plan["ready_for_layout"])
+        self.assertEqual(plan["requested_micro_component_count"], 0)
+        self.assertEqual(plan["selected_roles"], [])
+        self.assertEqual(plan["slots"], [])
+        self.assertFalse(plan["generation_route"]["required"])
+        self.assertTrue(
+            any("micro_component_count" in item for item in plan["semantic_errors"]),
+            plan["semantic_errors"],
+        )
+
+    def test_missing_role_selection_never_schedules_catalog_defaults(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article["visual_kit"].pop("selected_roles")
+        write_json(self.article, article)
+
+        plan = build_visual_kit_plan(self.article, self.pack)
+
+        self.assertFalse(plan["ready_for_layout"])
+        self.assertEqual(plan["requested_micro_component_count"], 4)
+        self.assertEqual(plan["selected_roles"], [])
+        self.assertEqual(plan["slots"], [])
+        self.assertTrue(plan["generation_route"]["required"])
+        self.assertTrue(
+            any("selected_roles must be an array" in item for item in plan["semantic_errors"]),
+            plan["semantic_errors"],
+        )
 
     def test_current_session_chain_unlocks_ready_without_python_callback(self) -> None:
         token = authority_module._LIVE_AUTHORITY.set(None)
@@ -2725,7 +2926,9 @@ class VisualKitTests(FreshWorkflowTestCase):
         )
 
     def test_visual_directions_have_five_source_zero_calibration_samples(self) -> None:
-        plan = build_directions(self.pack, "introduction")
+        plan = build_directions(
+            self.pack, "introduction", background_mode="generated-family"
+        )
         self.assertEqual(len(plan["directions"]), 2)
         self.assertTrue(all(len(item["calibration_strip"]) == 5 for item in plan["directions"]))
         family_trial = plan["directions"][0]["background_family_trial"]
@@ -2733,6 +2936,14 @@ class VisualKitTests(FreshWorkflowTestCase):
         self.assertIn("one of light or dark", family_trial["approval_contract"]["surface_mode"])
         self.assertIn("neutral migration calibration mark", family_trial["master"])
         self.assertIn("neutral migration calibration mark", family_trial["companions"])
+        micro_sample = next(
+            item
+            for item in plan["directions"][0]["calibration_strip"]
+            if item["role"] == "micro-visual"
+        )
+        self.assertNotIn("prompt", micro_sample)
+        self.assertIn("do not invoke provider image generation", micro_sample["instruction"])
+        self.assertIn("first real selected article component", micro_sample["instruction"])
         typography_trial = plan["directions"][0]["typography_trial"]
         self.assertTrue(typography_trial["approve_as_recipes"])
         self.assertIn("A font swap alone", typography_trial["forbidden"])
@@ -2742,46 +2953,78 @@ class VisualKitTests(FreshWorkflowTestCase):
         self.assertIn("background_family_trial", serialized)
         self.assertIn("typography_trial", serialized)
 
-        asset_plan = build_asset_plan(self.pack, "introduction")
+        asset_plan = build_asset_plan(
+            self.pack,
+            "introduction",
+            route_id="field-notes",
+            background_mode="generated-family",
+        )
         for slot in asset_plan["slots"]:
             if "prompt_blueprint" in slot:
                 self.assertIn(
                     "neutral migration calibration mark", slot["prompt_blueprint"]
                 )
-        generated_slots = [
-            item for item in asset_plan["slots"] if item.get("micro_component")
-        ]
-        self.assertEqual(len(generated_slots), 4)
-        for slot in generated_slots:
-            self.assertIn("genuine pixel Alpha", slot["prompt_blueprint"])
-            self.assertNotIn(
-                "{SLOT_FALLBACK_KEY_COLOR}", slot["prompt_blueprint"]
+        self.assertFalse(
+            any(item.get("id", "").startswith("kit.") for item in asset_plan["slots"])
+        )
+        micro_contract = asset_plan["article_specific_micro_components"]
+        self.assertEqual(micro_contract["count_range"], [0, 4])
+        self.assertTrue(micro_contract["requires_confirmed_production_preferences"])
+        self.assertEqual(
+            micro_contract["planned_by"], "scripts/build_visual_kit.py"
+        )
+
+    def test_visual_directions_can_calibrate_native_surfaces_without_background_generation(self) -> None:
+        plan = build_directions(
+            self.pack,
+            "introduction",
+            background_mode="native-surfaces",
+        )
+        self.assertEqual(plan["background_mode"], "native-surfaces")
+        for direction in plan["directions"]:
+            trial = direction["background_family_trial"]
+            self.assertFalse(trial["required"])
+            self.assertEqual(trial["mode"], "native-surfaces")
+            self.assertNotIn("master", trial)
+            self.assertNotIn("companions", trial)
+
+    def test_asset_plan_requires_explicit_route_and_background_choice(self) -> None:
+        native = build_asset_plan(
+            self.pack,
+            "introduction",
+            route_id="field-notes",
+            background_mode="native-surfaces",
+        )
+        self.assertEqual(native["route"]["id"], "field-notes")
+        self.assertEqual(native["background_mode"], "native-surfaces")
+        hero = next(item for item in native["slots"] if item["id"] == "visual.hero")
+        self.assertNotIn("prompt_blueprint", hero)
+        self.assertIn("Ardot-native", hero["policy"])
+
+        with self.assertRaisesRegex(ValueError, "unknown visual route"):
+            build_asset_plan(
+                self.pack,
+                "introduction",
+                route_id="unknown-route",
+                background_mode="native-surfaces",
             )
-            self.assertIn(
-                "neutral migration calibration mark", slot["prompt_blueprint"]
-            )
-            self.assertIn(
-                "{SLOT_FALLBACK_KEY_COLOR}", slot["fallback_prompt_blueprint"]
-            )
-            self.assertNotIn(
-                "genuine pixel Alpha", slot["fallback_prompt_blueprint"]
-            )
-            self.assertEqual(
-                slot["source_generation"]["acquisition_preference"],
-                "native-alpha-first-controlled-key-fallback-only",
-            )
-            self.assertEqual(
-                slot["source_generation"]["maximum_source_attempts"], 2
-            )
-            self.assertEqual(
-                slot["source_generation"]["fallback_key_color_source"],
-                "visual-kit-plan.slot.source_generation.fallback_key_color",
+        with self.assertRaisesRegex(ValueError, "background_mode"):
+            build_asset_plan(
+                self.pack,
+                "introduction",
+                route_id="field-notes",
+                background_mode="implicit-default",
             )
 
     def test_explicit_style_grammar_hash_propagates_to_all_build_plans(self) -> None:
         grammar = enable_explicit_style_reference(self.pack)
         expected_hash = grammar["sha256"]
-        asset_plan = build_asset_plan(self.pack, "introduction")
+        asset_plan = build_asset_plan(
+            self.pack,
+            "introduction",
+            route_id="field-notes",
+            background_mode="generated-family",
+        )
         visual_kit = build_visual_kit_plan(self.article, self.pack)
         manifest = build_manifest(self.article, self.pack)
         self.assertEqual(asset_plan["style_grammar_sha256"], expected_hash)
@@ -2858,6 +3101,95 @@ class VisualKitTests(FreshWorkflowTestCase):
         )
 
 
+class ProductionPreferencesTests(FreshWorkflowTestCase):
+    def _preferences_report(self, article: dict[str, Any] | None = None) -> dict[str, Any]:
+        value = article or json.loads(self.article.read_text(encoding="utf-8"))
+        return validate_production_preferences(value)
+
+    def test_confirmed_preferences_bind_all_startup_choices(self) -> None:
+        report = self._preferences_report()
+        self.assertTrue(report["ready"], report["errors"])
+        self.assertEqual(report["micro_component_count"], 4)
+        self.assertTrue(report["use_svg"])
+        self.assertEqual(report["style_route"], "field-notes")
+        self.assertTrue(report["generate_backgrounds"])
+
+    def test_preferences_are_required_and_must_be_confirmed(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article.pop("production_preferences")
+        report = self._preferences_report(article)
+        self.assertFalse(report["ready"])
+        self.assertTrue(
+            any("requires production_preferences" in item for item in report["errors"]),
+            report["errors"],
+        )
+
+        article["production_preferences"] = {
+            "status": "draft",
+            "confirmed_by": "model",
+            "micro_component_count": 4,
+            "use_svg": True,
+            "style_route": "field-notes",
+            "generate_backgrounds": True,
+        }
+        report = self._preferences_report(article)
+        self.assertFalse(report["ready"])
+        self.assertTrue(any("status must be confirmed" in item for item in report["errors"]))
+        self.assertTrue(any("confirmed_by" in item for item in report["errors"]))
+
+    def test_micro_component_count_is_zero_to_four_and_not_boolean(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        for invalid in (-1, 5, True, 2.5, "4"):
+            with self.subTest(invalid=invalid):
+                article["production_preferences"]["micro_component_count"] = invalid
+                report = self._preferences_report(article)
+                self.assertFalse(report["ready"])
+                self.assertTrue(
+                    any("micro_component_count" in item for item in report["errors"]),
+                    report["errors"],
+                )
+        for valid in range(5):
+            with self.subTest(valid=valid):
+                article["production_preferences"]["micro_component_count"] = valid
+                report = self._preferences_report(article)
+                self.assertTrue(report["ready"], report["errors"])
+
+    def test_boolean_preferences_reject_truthy_substitutes(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        for field in ("use_svg", "generate_backgrounds"):
+            with self.subTest(field=field):
+                changed = json.loads(json.dumps(article, ensure_ascii=False))
+                changed["production_preferences"][field] = 1
+                report = self._preferences_report(changed)
+                self.assertFalse(report["ready"])
+                self.assertTrue(any(field in item for item in report["errors"]))
+
+    def test_style_route_must_match_explicit_article_route(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article["production_preferences"]["style_route"] = "another-route"
+        report = self._preferences_report(article)
+        self.assertFalse(report["ready"])
+        self.assertTrue(
+            any("must match the article route" in item for item in report["errors"]),
+            report["errors"],
+        )
+
+        article["production_preferences"]["style_route"] = "field-notes"
+        article.pop("route")
+        report = self._preferences_report(article)
+        self.assertFalse(report["ready"])
+        self.assertTrue(any("article.route must be explicit" in item for item in report["errors"]))
+
+    def test_resolved_route_can_be_supplied_by_a_builder(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article.pop("route")
+        report = validate_production_preferences(
+            article,
+            resolved_route_id="field-notes",
+        )
+        self.assertTrue(report["ready"], report["errors"])
+
+
 class InteractionPlanTests(FreshWorkflowTestCase):
     def _report(self, *, require_evidence: bool = True) -> dict:
         article = json.loads(self.article.read_text(encoding="utf-8"))
@@ -2928,7 +3260,47 @@ class InteractionPlanTests(FreshWorkflowTestCase):
         self.assertFalse(report["ready"])
         self.assertTrue(any("2 to 3 semantic modules" in item for item in report["errors"]))
 
-    def test_static_exception_requires_explicit_editorial_record(self) -> None:
+    def test_confirmed_no_svg_choice_uses_zero_module_static_plan(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article["production_preferences"]["use_svg"] = False
+        article["interaction_plan"] = {
+            "status": "approved",
+            "authoring_mode": "static-selected",
+            "target_module_count": 0,
+            "modules": [],
+        }
+        write_json(self.article, article)
+        report = self._report()
+        self.assertTrue(report["ready"], report["errors"])
+
+    def test_no_svg_choice_rejects_dynamic_modules(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article["production_preferences"]["use_svg"] = False
+        write_json(self.article, article)
+        report = self._report()
+        self.assertFalse(report["ready"])
+        self.assertTrue(
+            any("use_svg=false requires" in item for item in report["errors"]),
+            report["errors"],
+        )
+
+    def test_svg_choice_rejects_zero_module_static_plan(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article["interaction_plan"] = {
+            "status": "approved",
+            "authoring_mode": "static-selected",
+            "target_module_count": 0,
+            "modules": [],
+        }
+        write_json(self.article, article)
+        report = self._report()
+        self.assertFalse(report["ready"])
+        self.assertTrue(
+            any("use_svg=true requires" in item for item in report["errors"]),
+            report["errors"],
+        )
+
+    def test_svg_choice_allows_confirmed_editorial_static_exception(self) -> None:
         article = json.loads(self.article.read_text(encoding="utf-8"))
         article["interaction_plan"] = {
             "status": "approved",
@@ -2936,19 +3308,36 @@ class InteractionPlanTests(FreshWorkflowTestCase):
             "target_module_count": 0,
             "modules": [],
             "exception": {
-                "category": "user-requested-static",
-                "reason": "用户明确要求本篇只保留静态阅读体验。",
-                "confirmed_by": "user",
+                "category": "editorially-unsuitable",
+                "reason": "原始材料没有两处可在不隐藏必要信息的前提下展开的内容。",
+                "confirmed_by": "editor",
             },
         }
         write_json(self.article, article)
         report = self._report()
         self.assertTrue(report["ready"], report["errors"])
-        article["interaction_plan"]["exception"].pop("reason")
+
+    def test_static_selected_rejects_duplicate_exception_record(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article["production_preferences"]["use_svg"] = False
+        article["interaction_plan"] = {
+            "status": "approved",
+            "authoring_mode": "static-selected",
+            "target_module_count": 0,
+            "modules": [],
+            "exception": {
+                "category": "user-requested-static",
+                "reason": "启动时已经确认不用交互，这里不应再重复登记例外。",
+                "confirmed_by": "user",
+            },
+        }
         write_json(self.article, article)
         report = self._report()
         self.assertFalse(report["ready"])
-        self.assertTrue(any("specific reason" in item for item in report["errors"]))
+        self.assertTrue(
+            any("must not duplicate" in item for item in report["errors"]),
+            report["errors"],
+        )
 
     def test_modules_must_be_distributed_across_early_and_middle(self) -> None:
         article = json.loads(self.article.read_text(encoding="utf-8"))
@@ -3118,6 +3507,168 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
         )
         self.assertTrue(all(block["container_policy"] == "open-by-default" for block in manifest["blocks"]))
 
+    def test_manifest_uses_confirmed_micro_component_count(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        selected = ["floating-spot", "closing-motif"]
+        article["production_preferences"]["micro_component_count"] = 2
+        article["visual_kit"]["selected_roles"] = selected
+        article["visual_kit"]["assets"] = [
+            item for item in article["visual_kit"]["assets"] if item["role"] in selected
+        ]
+        write_json(self.article, article)
+
+        manifest = build_manifest(self.article, self.pack)
+
+        self.assertTrue(manifest["qa"]["ready_for_layout"], manifest["visual_kit"]["blocking_reasons"])
+        policy = manifest["qa"]["layout_policy"]
+        self.assertEqual(policy["requested_micro_component_count"], 2)
+        self.assertEqual(policy["selected_micro_component_roles"], selected)
+        self.assertEqual(policy["minimum_unique_generated_micro_assets"], 2)
+        self.assertEqual(policy["minimum_micro_component_screenshot_sections"], 2)
+        self.assertEqual(policy["minimum_micro_composition_relations"], 2)
+        self.assertTrue(
+            all(
+                set(block["micro_visual_roles"]).issubset(set(selected))
+                for block in manifest["blocks"]
+            )
+        )
+
+    def test_manifest_blocks_unregistered_background_reference(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article["blocks"][0]["background"] = "unregistered-background"
+        write_json(self.article, article)
+
+        manifest = build_manifest(self.article, self.pack)
+
+        self.assertFalse(manifest["qa"]["ready_for_layout"])
+        self.assertEqual(
+            manifest["qa"]["unresolved_assets"],
+            ["unregistered-background"],
+        )
+
+    def test_manifest_allows_confirmed_zero_micro_components(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article["production_preferences"]["micro_component_count"] = 0
+        article["visual_kit"] = {
+            "status": "not-requested",
+            "selected_roles": [],
+            "assets": [],
+        }
+        write_json(self.article, article)
+
+        manifest = build_manifest(self.article, self.pack)
+
+        self.assertTrue(manifest["qa"]["ready_for_layout"], manifest["visual_kit"]["blocking_reasons"])
+        self.assertEqual(manifest["visual_kit"]["slots"], [])
+        self.assertEqual(
+            manifest["qa"]["layout_policy"]["requested_micro_component_count"],
+            0,
+        )
+        self.assertTrue(
+            all(
+                block["micro_visual_roles"] == []
+                and block["micro_visual_assets"] == []
+                for block in manifest["blocks"]
+            )
+        )
+        self.assertFalse(
+            any(
+                step.startswith("place micro illustrations")
+                for step in manifest["assembly"]
+            ),
+            manifest["assembly"],
+        )
+
+    def test_manifest_and_compile_honor_static_native_surface_preferences(self) -> None:
+        organization_path = self.pack / "organization.json"
+        organization = json.loads(organization_path.read_text(encoding="utf-8"))
+        organization["visual"]["calibration"]["background_family"] = None
+        write_json(organization_path, organization)
+
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article["production_preferences"]["use_svg"] = False
+        article["production_preferences"]["generate_backgrounds"] = False
+        article["interaction_plan"] = {
+            "status": "approved",
+            "authoring_mode": "static-selected",
+            "target_module_count": 0,
+            "modules": [],
+        }
+        for block in article["blocks"]:
+            block.pop("background", None)
+            block.pop("background_alt", None)
+        write_json(self.article, article)
+
+        manifest = build_manifest(self.article, self.pack)
+        self.assertTrue(manifest["qa"]["ready_for_layout"], manifest["qa"])
+        policy = manifest["qa"]["layout_policy"]
+        self.assertFalse(policy["use_svg"])
+        self.assertEqual(policy["dynamic_modules_per_article"], "0; static-selected")
+        self.assertFalse(policy["generate_backgrounds"])
+        self.assertEqual(manifest["qa"]["forbidden_generated_backgrounds"], [])
+
+        review_path = add_visual_review(self.article)
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        review["checks"].pop("background_family_coherence")
+        write_json(review_path, review)
+        report = compile_article(self.article, self.pack, self.root / "output", check=True)
+        self.assertTrue(report["ok"], report["errors"])
+        self.assertEqual(report["interaction_authoring"]["module_count"], 0)
+
+    def test_native_surface_choice_rejects_micro_asset_as_raster_background(self) -> None:
+        organization_path = self.pack / "organization.json"
+        organization = json.loads(organization_path.read_text(encoding="utf-8"))
+        organization["visual"]["calibration"]["background_family"] = None
+        write_json(organization_path, organization)
+
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article["production_preferences"]["use_svg"] = False
+        article["production_preferences"]["generate_backgrounds"] = False
+        article["interaction_plan"] = {
+            "status": "approved",
+            "authoring_mode": "static-selected",
+            "target_module_count": 0,
+            "modules": [],
+        }
+        for block in article["blocks"]:
+            block.pop("background", None)
+            block.pop("background_alt", None)
+        article["blocks"][0]["background"] = "spot.opening"
+        write_json(self.article, article)
+
+        manifest = build_manifest(self.article, self.pack)
+        self.assertFalse(manifest["qa"]["ready_for_layout"])
+        self.assertEqual(
+            manifest["qa"]["forbidden_background_assignments"],
+            ["spot.opening"],
+        )
+        self.assertTrue(
+            any(
+                "generated backgrounds are disabled" in error
+                for error in manifest["qa"]["background_assignment_errors"]
+            ),
+            manifest["qa"]["background_assignment_errors"],
+        )
+
+        review_path = add_visual_review(self.article)
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        review["checks"].pop("background_family_coherence")
+        write_json(review_path, review)
+        report = compile_article(
+            self.article,
+            self.pack,
+            self.root / "output-background-misuse",
+            check=True,
+        )
+        self.assertFalse(report["ok"])
+        self.assertTrue(
+            any(
+                "generated backgrounds are disabled" in error
+                for error in report["errors"]
+            ),
+            report["errors"],
+        )
+
     def test_compile_passes_only_with_hashed_390px_ardot_evidence(self) -> None:
         add_visual_review(self.article)
         report = compile_article(self.article, self.pack, self.root / "output", check=True)
@@ -3249,6 +3800,36 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
             self.assertNotIn("border:", section)
             self.assertNotIn("border-radius:", section)
             self.assertIn('data-micro-copy="none"', section)
+
+    def test_compiler_emits_no_micro_transport_when_zero_was_confirmed(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article["production_preferences"]["micro_component_count"] = 0
+        article["visual_kit"] = {
+            "status": "not-requested",
+            "selected_roles": [],
+            "assets": [],
+        }
+        write_json(self.article, article)
+        review_path = add_visual_review(self.article)
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        for check in (
+            "no_framed_micro_copy",
+            "no_full_width_micro_image",
+            "staggered_micro_composition",
+            "micro_copy_hierarchy",
+        ):
+            review["checks"].pop(check)
+        write_json(review_path, review)
+
+        output = self.root / "output"
+        report = compile_article(self.article, self.pack, output, check=True)
+
+        self.assertTrue(report["ok"], report["errors"])
+        self.assertEqual(report["visual_kit"]["requested_component_count"], 0)
+        self.assertEqual(report["visual_kit"]["selected_roles"], [])
+        self.assertEqual(report["visual_kit"]["transport_instance_count"], 0)
+        body = (output / "authoring-preview.html").read_text(encoding="utf-8")
+        self.assertNotIn('data-visual-role="article-micro"', body)
 
     def test_repeated_micro_role_instances_are_all_reviewed_and_transported(self) -> None:
         review_path = add_visual_review(self.article)

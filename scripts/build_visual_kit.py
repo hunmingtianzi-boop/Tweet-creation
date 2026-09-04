@@ -26,6 +26,7 @@ from workflow_quality import (
     calibration_state,
     concrete_subject_is_specific,
     source_text_is_grounded,
+    validate_production_preferences,
 )
 
 try:
@@ -146,6 +147,51 @@ def visual_kit_assets(article: dict[str, Any]) -> list[dict[str, Any]]:
     return [item for item in assets if isinstance(item, dict)] if isinstance(assets, list) else []
 
 
+def selected_kit_roles(
+    article: dict[str, Any],
+    requested_count: int,
+) -> tuple[list[str], list[str]]:
+    """Resolve the user-selected role subset without hiding an invalid choice.
+
+    The fixed role catalog remains the semantic vocabulary, but it is no longer
+    a four-item minimum.  Invalid or missing selections return no executable
+    slots; the accompanying errors keep ``ready_for_layout`` false.  This keeps
+    the role catalog from becoming an implicit article choice.
+    """
+
+    catalog = [str(item["role"]) for item in KIT_ROLES]
+    visual_kit = article.get("visual_kit")
+    raw_roles = visual_kit.get("selected_roles") if isinstance(visual_kit, dict) else None
+    errors: list[str] = []
+    if not isinstance(raw_roles, list) or not all(
+        isinstance(item, str) for item in raw_roles
+    ):
+        errors.append("article.visual_kit.selected_roles must be an array of role ids")
+        return [], errors
+    selected = [str(item) for item in raw_roles]
+    if len(selected) != len(set(selected)):
+        errors.append("article.visual_kit.selected_roles must not contain duplicates")
+    unsupported = sorted(set(selected) - set(catalog))
+    if unsupported:
+        errors.append(
+            "article.visual_kit.selected_roles contains unsupported roles: "
+            + ", ".join(unsupported)
+        )
+    canonical = [role for role in catalog if role in selected]
+    if selected != canonical:
+        errors.append(
+            "article.visual_kit.selected_roles must follow the canonical role order"
+        )
+    if len(selected) != requested_count:
+        errors.append(
+            "article.visual_kit.selected_roles length must equal "
+            "production_preferences.micro_component_count"
+        )
+    if errors:
+        return [], errors
+    return canonical, errors
+
+
 def build_visual_kit_plan(
     article_path: Path,
     org_dir: Path,
@@ -169,6 +215,26 @@ def build_visual_kit_plan(
     if not isinstance(article_id, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", article_id):
         raise ValueError("article.article_id must be a lowercase hyphenated slug")
     route = choose_route(article, organization)
+    production_preferences = validate_production_preferences(
+        article,
+        resolved_route_id=route["id"],
+    )
+    requested_count_raw = production_preferences.get("micro_component_count")
+    requested_count = (
+        requested_count_raw
+        if isinstance(requested_count_raw, int)
+        and not isinstance(requested_count_raw, bool)
+        and 0 <= requested_count_raw <= len(KIT_ROLES)
+        # Invalid or missing preferences are already blocking errors.  Use a
+        # zero-work sentinel so validation never schedules the legacy four
+        # slots as an implicit choice.
+        else 0
+    )
+    selected_roles, selection_errors = selected_kit_roles(article, requested_count)
+    selected_role_set = set(selected_roles)
+    selected_definitions = [
+        definition for definition in KIT_ROLES if definition["role"] in selected_role_set
+    ]
     organization_reference_policy = organization.get("provenance", {}).get(
         "visual_reference_policy", "source-zero"
     )
@@ -194,7 +260,12 @@ def build_visual_kit_plan(
         )
     else:
         grammar_instruction = ""
-    calibration = calibration_state(organization, route["id"], pack["assets"])
+    calibration = calibration_state(
+        organization,
+        route["id"],
+        pack["assets"],
+        require_background_family=production_preferences.get("generate_backgrounds") is True,
+    )
     storyboard = build_storyboard_plan(article_path)
     storyboard_by_id = {
         item.get("id"): item for item in storyboard["chapters"] if item.get("id")
@@ -205,16 +276,44 @@ def build_visual_kit_plan(
         if isinstance(item, dict) and item.get("id")
     }
     approved_assets = visual_kit_assets(article)
+    visual_kit_document = article.get("visual_kit")
+    raw_visual_kit_assets = (
+        visual_kit_document.get("assets")
+        if isinstance(visual_kit_document, dict)
+        else None
+    )
+    visual_kit_shape_errors: list[str] = []
+    if not isinstance(raw_visual_kit_assets, list):
+        visual_kit_shape_errors.append("article.visual_kit.assets must be an array")
+    elif any(not isinstance(item, dict) for item in raw_visual_kit_assets):
+        visual_kit_shape_errors.append(
+            "article.visual_kit.assets entries must be objects"
+        )
     visual_kit_status = (
         article.get("visual_kit", {}).get("status")
         if isinstance(article.get("visual_kit"), dict)
         else None
     )
-    by_role = {
-        item.get("role"): item
-        for item in approved_assets
-        if isinstance(item.get("role"), str) and isinstance(item.get("id"), str)
-    }
+    by_role: dict[str, dict[str, Any]] = {}
+    asset_selection_errors: list[str] = []
+    for item in approved_assets:
+        role = item.get("role")
+        if not isinstance(role, str):
+            asset_selection_errors.append(
+                "article.visual_kit.assets entries require a role"
+            )
+            continue
+        if role not in selected_role_set:
+            asset_selection_errors.append(
+                f"article.visual_kit asset role is not selected: {role}"
+            )
+            continue
+        if role in by_role:
+            asset_selection_errors.append(
+                f"article.visual_kit contains more than one asset for selected role: {role}"
+            )
+            continue
+        by_role[role] = item
     grounded_texts = article_texts(article)
     motifs = "、".join(organization.get("visual", {}).get("motifs", []))
     avoid = "、".join(organization.get("visual", {}).get("avoid", []))
@@ -226,16 +325,21 @@ def build_visual_kit_plan(
     key_backgrounds = ranked_key_backgrounds(tokens)
     slots: list[dict[str, Any]] = []
     missing_roles: list[str] = []
-    semantic_errors: list[str] = []
+    semantic_errors: list[str] = [
+        *production_preferences["errors"],
+        *selection_errors,
+        *visual_kit_shape_errors,
+        *asset_selection_errors,
+    ]
     composition_roles: set[str] = set()
     registered_generated_ids: set[str] = set()
     native_component_node_ids: set[str] = set()
     validated_lineage_entries: list[dict[str, str]] = []
-    for slot_index, definition in enumerate(KIT_ROLES):
+    for slot_index, definition in enumerate(selected_definitions):
         role = definition["role"]
         validated_lineage: dict[str, Any] | None = None
         acquisition_assurance: dict[str, Any] | None = None
-        fallback_key_color = key_backgrounds[slot_index % len(key_backgrounds)]
+        controlled_key_color = key_backgrounds[slot_index % len(key_backgrounds)]
         approved = by_role.get(role)
         asset_id = approved.get("id") if approved else None
         chapter_id = approved.get("storyboard_chapter") if approved else None
@@ -494,19 +598,19 @@ def build_visual_kit_plan(
             "a colored plane, checkerboard pixels, haze, or a rectangular matte. Codex will download "
             "the original PNG and verify its actual Alpha channel locally."
         )
-        fallback_prompt = (
+        controlled_key_prompt = (
             prompt_prefix
-            + f" Return the provider-original PNG on a perfectly flat {fallback_key_color} key "
+            + f" Return the provider-original PNG on a perfectly flat {controlled_key_color} key "
             "background, keeping a clean 6–12% key-colored border around every substantive pixel. "
             "The key color must not appear in the subject. Do not add a shadow or semi-transparent "
-            "effect onto the background. This controlled-key request is allowed only after the "
-            "native-alpha original failed the strict Alpha or pixel gate."
+            "effect onto the background. This may be selected as the first real-asset source when "
+            "uniform key separation is safer than relying on provider-native transparency."
         )
         native_prompt_sha256 = "sha256:" + hashlib.sha256(
             prompt.encode("utf-8")
         ).hexdigest()
-        fallback_prompt_sha256 = "sha256:" + hashlib.sha256(
-            fallback_prompt.encode("utf-8")
+        controlled_key_prompt_sha256 = "sha256:" + hashlib.sha256(
+            controlled_key_prompt.encode("utf-8")
         ).hexdigest()
         slots.append(
             {
@@ -522,31 +626,73 @@ def build_visual_kit_plan(
                 "placement": placement,
                 "prompt": prompt,
                 "prompt_sha256": native_prompt_sha256,
-                "fallback_prompt": fallback_prompt,
-                "fallback_prompt_sha256": fallback_prompt_sha256,
+                "controlled_key_prompt": controlled_key_prompt,
+                "controlled_key_prompt_sha256": controlled_key_prompt_sha256,
+                # Compatibility aliases for readers of the previous plan shape.
+                # They do not make controlled-key secondary or require a failed
+                # native-alpha request.
+                "fallback_prompt": controlled_key_prompt,
+                "fallback_prompt_sha256": controlled_key_prompt_sha256,
                 "source_generation": {
                     "route": "chatgpt-web-image-route-v1",
                     "provider_skill": "chatgpt-web-image-route",
                     "raw_output_contract": "original-png-v1",
                     "alpha_claim_trusted": False,
-                    "acquisition_preference": "native-alpha-first-controlled-key-fallback-only",
-                    "preferred_mode": "native-alpha",
+                    "acquisition_preference": "native-alpha-or-controlled-key-per-real-asset",
+                    "preferred_mode": "select-per-real-asset",
+                    "allowed_initial_modes": ["native-alpha", "controlled-key"],
+                    "processor_args_by_mode": {
+                        "native-alpha": ["--require-native-alpha"],
+                        "controlled-key": ["--key-color", controlled_key_color],
+                    },
+                    "controlled_key_color": controlled_key_color,
+                    "source_options": [
+                        {
+                            "mode": "native-alpha",
+                            "prompt_field": "prompt",
+                            "prompt_sha256": native_prompt_sha256,
+                            "processor_args": ["--require-native-alpha"],
+                            "allowed_as_first_attempt": True,
+                        },
+                        {
+                            "mode": "controlled-key",
+                            "prompt_field": "controlled_key_prompt",
+                            "prompt_sha256": controlled_key_prompt_sha256,
+                            "processor_args": ["--key-color", controlled_key_color],
+                            "key_color": controlled_key_color,
+                            "allowed_as_first_attempt": True,
+                        },
+                    ],
+                    # Deprecated aliases retained for plan readers from the
+                    # previous release; canonical readers use source_options.
                     "preferred_processor_args": ["--require-native-alpha"],
                     "maximum_source_attempts": 2,
                     "fallback_mode": "controlled-key",
-                    "fallback_key_color": fallback_key_color,
-                    "fallback_processor_args": ["--key-color", fallback_key_color],
+                    "fallback_key_color": controlled_key_color,
+                    "fallback_processor_args": ["--key-color", controlled_key_color],
+                    "legacy_compatibility": {
+                        "alias_fields": [
+                            "preferred_processor_args",
+                            "fallback_mode",
+                            "fallback_key_color",
+                            "fallback_processor_args",
+                            "attempt_prompts",
+                        ],
+                        "implies_native_first": False,
+                        "canonical_field": "source_options",
+                    },
                     "attempt_prompts": [
                         {
-                            "attempt_index": 1,
+                            "source_option": 1,
                             "mode": "native-alpha",
                             "prompt_sha256": native_prompt_sha256,
+                            "allowed_as_first_attempt": True,
                         },
                         {
-                            "attempt_index": 2,
+                            "source_option": 2,
                             "mode": "controlled-key",
-                            "prompt_sha256": fallback_prompt_sha256,
-                            "requires_recomputed_attempt_1_pixel_failure": True,
+                            "prompt_sha256": controlled_key_prompt_sha256,
+                            "allowed_as_first_attempt": True,
                         },
                     ],
                     "request_recovery": {
@@ -570,7 +716,8 @@ def build_visual_kit_plan(
                 "ardot_component_name": expected_component_name,
             }
         )
-    minimum_unique_assets = 4
+    minimum_unique_assets = requested_count
+    minimum_composition_roles = min(3, requested_count)
     lineage_uniqueness = {
         field: len({entry[field] for entry in validated_lineage_entries})
         for field in (
@@ -580,31 +727,58 @@ def build_visual_kit_plan(
         )
     }
     for field, unique_count in lineage_uniqueness.items():
-        if unique_count < len(KIT_ROLES):
+        if unique_count < requested_count:
             semantic_errors.append(
-                f"visual kit requires {len(KIT_ROLES)} distinct {field} values; found {unique_count}"
+                f"visual kit requires {requested_count} distinct {field} values; found {unique_count}"
             )
+    expected_status = "not-requested" if requested_count == 0 else "approved"
     ready_for_layout = (
         calibration["ready"]
         and storyboard["ready_for_visual_kit"]
-        and visual_kit_status == "approved"
+        and visual_kit_status == expected_status
         and not missing_roles
         and not semantic_errors
-        and len(composition_roles) >= 3
+        and len(composition_roles) >= minimum_composition_roles
         and len(registered_generated_ids) >= minimum_unique_assets
     )
     blocking_reasons = calibration["blocking_reasons"] + storyboard["errors"]
     blocking_reasons.extend(f"missing visual role: {role}" for role in missing_roles)
     blocking_reasons.extend(semantic_errors)
-    if visual_kit_status != "approved":
-        blocking_reasons.append("article.visual_kit.status must be approved after image inspection")
+    if visual_kit_status != expected_status:
+        blocking_reasons.append(
+            f"article.visual_kit.status must be {expected_status} for the selected component count"
+        )
     if len(registered_generated_ids) < minimum_unique_assets:
         blocking_reasons.append(
             f"needs at least {minimum_unique_assets} unique generated micro assets; found {len(registered_generated_ids)}"
         )
-    if len(composition_roles) < 3:
+    if len(composition_roles) < minimum_composition_roles:
         blocking_reasons.append(
-            f"visual kit needs at least 3 composition roles; found {len(composition_roles)}"
+            f"visual kit needs at least {minimum_composition_roles} composition roles; found {len(composition_roles)}"
+        )
+    required_sequence = [
+        "STOP if the organization route has no approved Ardot calibration benchmark",
+        "STOP if the narrative storyboard is not approved and complete",
+    ]
+    if requested_count == 0:
+        required_sequence.extend(
+            [
+                "no generated micro component was requested; keep visual_kit.status=not-requested and assets=[]",
+                "assemble the long article without generated micro-component slots",
+            ]
+        )
+    else:
+        required_sequence.extend(
+            [
+                "load chatgpt-web-image-route and codex-with-chatgpt, then generate every selected missing slot through one visible built-in-browser ChatGPT session before any article layout",
+                "download each original PNG; screenshots, preview canvases, clipboard pixels, and copied remote URLs are forbidden substitutes",
+                "select native-alpha or the plan's uniform controlled-key source for each real component; run prepare_micro_cutout.py with the matching explicit arguments and never infer a background",
+                "run inspect_asset.py for each role; reject unsafe source separation, missing/opaque final Alpha, wrong aspect, matte, halo, debris, framing, generic subjects, or text",
+                f"save raw sources under assets/generated and register only approved derived RGBA cutouts with generated_for_articles={article_id}",
+                "record the registered IDs under article.visual_kit.assets",
+                f"create {requested_count} distinct native Ardot ornament components and record file_url, node_id, and exact name on each selected article.visual_kit asset",
+                "only then assemble the long article",
+            ]
         )
     return {
         "schema_version": 1,
@@ -625,16 +799,21 @@ def build_visual_kit_plan(
         "style_preset_label": (
             style_grammar.get("label") if isinstance(style_grammar, dict) else None
         ),
+        "production_preferences": production_preferences,
         "calibration": calibration,
         "storyboard": storyboard,
-        "minimum_micro_component_roles": len(KIT_ROLES),
+        "requested_micro_component_count": requested_count,
+        "selected_roles": selected_roles,
+        "minimum_micro_component_roles": requested_count,
         "minimum_unique_generated_micro_assets": minimum_unique_assets,
+        "minimum_composition_roles": minimum_composition_roles,
         "lineage_uniqueness": {
-            "required_distinct_per_field": len(KIT_ROLES),
+            "required_distinct_per_field": requested_count,
             "validated_role_count": len(validated_lineage_entries),
             **lineage_uniqueness,
         },
         "generation_route": {
+            "required": requested_count > 0,
             "default": "chatgpt-web-image-route-v1",
             "provider_skill": "chatgpt-web-image-route",
             "session_skill": "codex-with-chatgpt",
@@ -642,7 +821,7 @@ def build_visual_kit_plan(
             "computer_use_allowed": False,
             "raw_download_required": True,
             "alpha_claim_trusted": False,
-            "acquisition_preference": "native-alpha-first-controlled-key-fallback-only",
+            "acquisition_preference": "native-alpha-or-controlled-key-per-real-asset",
             "processor": "scripts/prepare_micro_cutout.py",
             "output_contract": "subject-cutout-rgba8-v1",
             "current_session_assurance": (
@@ -658,18 +837,7 @@ def build_visual_kit_plan(
         "blocking_reasons": blocking_reasons,
         "semantic_errors": semantic_errors,
         "slots": slots,
-        "required_sequence": [
-            "STOP if the organization route has no approved Ardot calibration benchmark",
-            "STOP if the narrative storyboard is not approved and complete",
-            "load chatgpt-web-image-route and codex-with-chatgpt, then generate every missing slot through one visible built-in-browser ChatGPT session before any article layout",
-            "download each original PNG; screenshots, preview canvases, clipboard pixels, and copied remote URLs are forbidden substitutes",
-            "request provider-original native transparency first and run prepare_micro_cutout.py with --require-native-alpha; only a strict Alpha/pixel failure permits one controlled-key fallback",
-            "run inspect_asset.py for each role; reject unsafe fallback backgrounds, missing/opaque Alpha, wrong aspect, matte, halo, debris, framing, generic subjects, or text",
-            f"save raw sources under assets/generated and register only approved derived RGBA cutouts with generated_for_articles={article_id}",
-            "record the registered IDs under article.visual_kit.assets",
-            "create four distinct native Ardot ornament components and record file_url, node_id, and exact name on each article.visual_kit asset",
-            "only then assemble the long article",
-        ],
+        "required_sequence": required_sequence,
     }
 
 

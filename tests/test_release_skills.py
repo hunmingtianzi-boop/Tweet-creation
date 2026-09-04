@@ -587,6 +587,7 @@ class ReleaseSkillTests(unittest.TestCase):
                         "--output",
                         str(report_path),
                         "--binding-only",
+                        "--include-legacy-rgba-probe",
                     ],
                     cwd=project,
                     check=False,

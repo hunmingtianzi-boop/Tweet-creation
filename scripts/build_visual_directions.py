@@ -40,7 +40,14 @@ CALIBRATION_EXCLUSION = (
 )
 
 
-def build_directions(org_dir: Path, article_type: str) -> dict[str, Any]:
+def build_directions(
+    org_dir: Path,
+    article_type: str,
+    *,
+    background_mode: str,
+) -> dict[str, Any]:
+    if background_mode not in {"generated-family", "native-surfaces"}:
+        raise ValueError("background_mode must be generated-family or native-surfaces")
     report = validate_pack(org_dir)
     if not report["ok"]:
         raise ValueError("invalid organization pack: " + "; ".join(report["errors"]))
@@ -115,6 +122,39 @@ def build_directions(org_dir: Path, article_type: str) -> dict[str, Any]:
             + "text remains editable in Ardot; no generated letters, logo, QR, dashboard, or generic AI glow."
             + CALIBRATION_EXCLUSION
         )
+        background_trial: dict[str, Any]
+        if background_mode == "generated-family":
+            background_trial = {
+                "required": True,
+                "mode": "generated-family",
+                "master": "Generate one text-free atmosphere master with a near-solid copy-safe zone."
+                + CALIBRATION_EXCLUSION,
+                "companions": "Generate 1 to 3 variants with the same spatial logic, material, light direction, palette, and declared surface mode."
+                + CALIBRATION_EXCLUSION,
+                "approval_contract": {
+                    "surface_mode": "choose exactly one of light or dark for the whole family",
+                    "copy_safe_zone": "record normalized x/y/width/height",
+                    "body_text_color": "record one hex color used for the contrast preflight",
+                    "minimum_contrast_ratio": 4.5,
+                    "maximum_copy_safe_stddev": 0.10,
+                },
+                "preflight": "Export final opaque PNGs, register the master and companions, then run orgs.py validate. Do not begin an article root until pixel inspection passes.",
+                "forbidden": "Do not mix light and dark chapter surfaces, accept a high-variance copy zone, generate unrelated chapter backgrounds, use generated scenes as documentary evidence, or reuse the neutral migration calibration mark/grayscale test treatment.",
+            }
+        else:
+            background_trial = {
+                "required": False,
+                "mode": "native-surfaces",
+                "instruction": (
+                    "Do not generate raster background images. Calibrate one continuous reading surface "
+                    "with Ardot-native fills, gradients and editable open vector accents; preserve at "
+                    "least 4.5:1 body-text contrast and do not introduce black/white surface jumps."
+                ),
+                "forbidden": (
+                    "No raster atmosphere master or companion assets, no baked text, and no opaque "
+                    "rectangles behind article micro cutouts."
+                ),
+            }
         directions.append(
             {
                 "route_id": route["id"],
@@ -129,25 +169,18 @@ def build_directions(org_dir: Path, article_type: str) -> dict[str, Any]:
                     {"role": "hero", "prompt": base + " Create one mobile hero with a real title-safe zone."},
                     {"role": "chapter", "prompt": base + " Create one open editorial chapter with one concrete subject."},
                     {"role": "photo-composition", "instruction": "Compose supplied real photos with route-specific crop, overlap, caption, and whitespace behavior."},
-                    {"role": "micro-visual", "prompt": base + " Create one unframed micro illustration grounded in a concrete organization object or action."},
+                    {
+                        "role": "micro-visual",
+                        "instruction": (
+                            "Compose one small Ardot-native editable ornament-language sample from open vectors and fills. "
+                            "It calibrates scale, edge behavior, and palette only: do not invoke provider image generation, "
+                            "do not register it as an article asset, and do not treat it as an RGBA route test. The first "
+                            "real selected article component, grounded in current copy after the storyboard, performs that test."
+                        ),
+                    },
                     {"role": "density-strip", "instruction": "Compose editable body text, one list/process, and one photo-to-text transition at compact-editorial density."},
                 ],
-                "background_family_trial": {
-                    "required": True,
-                    "master": "Generate one text-free atmosphere master with a near-solid copy-safe zone."
-                    + CALIBRATION_EXCLUSION,
-                    "companions": "Generate 1 to 3 variants with the same spatial logic, material, light direction, palette, and declared surface mode."
-                    + CALIBRATION_EXCLUSION,
-                    "approval_contract": {
-                        "surface_mode": "choose exactly one of light or dark for the whole family",
-                        "copy_safe_zone": "record normalized x/y/width/height",
-                        "body_text_color": "record one hex color used for the contrast preflight",
-                        "minimum_contrast_ratio": 4.5,
-                        "maximum_copy_safe_stddev": 0.10,
-                    },
-                    "preflight": "Export final opaque PNGs, register the master and companions, then run orgs.py validate. Do not begin an article root until pixel inspection passes.",
-                    "forbidden": "Do not mix light and dark chapter surfaces, accept a high-variance copy zone, generate unrelated chapter backgrounds, use generated scenes as documentary evidence, or reuse the neutral migration calibration mark/grayscale test treatment.",
-                },
+                "background_family_trial": background_trial,
                 "typography_trial": {
                     "recommended_strategy": typography_strategy,
                     "compare": ["hero-title", "chapter-title"],
@@ -172,6 +205,7 @@ def build_directions(org_dir: Path, article_type: str) -> dict[str, Any]:
         "kind": "org-wechat-visual-directions",
         "organization_id": organization["id"],
         "article_type": article_type,
+        "background_mode": background_mode,
         "source_isolation": state["source_isolation"],
         "input_basis": {
             "visual_input_source_ids": visual_input_source_ids,
@@ -191,7 +225,11 @@ def build_directions(org_dir: Path, article_type: str) -> dict[str, Any]:
         "directions": directions,
         "required_review": {
             "compare": ["hero", "chapter", "photo-composition", "micro-visual", "density-strip"],
-            "background_family": ["master", "1-3 companions", "one surface mode", "normalized copy-safe zone", "4.5:1 text contrast", "copy-zone variance <= 0.10", "pixel-checked continuity"],
+            "background_family": (
+                ["master", "1-3 companions", "one surface mode", "normalized copy-safe zone", "4.5:1 text contrast", "copy-zone variance <= 0.10", "pixel-checked continuity"]
+                if background_mode == "generated-family"
+                else ["native Ardot reading surface", "4.5:1 text contrast", "no raster background assets"]
+            ),
             "typography": ["strategy", "at least two approved construction recipes", "at least two non-font techniques", "editable text/accent layers", "body-copy fallback"],
             "approve_one_route_in": "organization.visual.calibration.approved_routes",
             "record_benchmark": ["file_url", "page_name", "article_node_id"],
@@ -209,6 +247,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("org", type=Path)
     parser.add_argument("article_type")
+    parser.add_argument(
+        "--background-mode",
+        choices=("generated-family", "native-surfaces"),
+        required=True,
+        help="calibrate a generated raster family or native Ardot surfaces only",
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     try:
@@ -218,7 +262,11 @@ def main() -> None:
             label="visual directions output",
             forbidden_root=RUNTIME_ROOT,
         )
-        plan = build_directions(organization, args.article_type)
+        plan = build_directions(
+            organization,
+            args.article_type,
+            background_mode=args.background_mode,
+        )
         write_text_create_once(
             output,
             json.dumps(plan, ensure_ascii=False, indent=2) + "\n",

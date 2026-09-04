@@ -66,6 +66,8 @@ OAuth，当前任务没有 `mcp__ardot_remote__*` 时也只能重载/新开任�
    `ready_to_read_source_material` 固定为 false。
 6. 由当前 Codex 会话运行 `runtime_preflight.py`，闭合报告中的 `host_setup_actions` 和 live probes。只有这一步可以确认当前 registry、页面登录、账号身份和精确 Ardot file/root。
 
+   `migration` 的默认报告不会发出合成 RGBA 探针动作，也不需要生成测试图。只有在排查旧版路线时，才显式向 `runtime_preflight.py` 加 `--include-legacy-rgba-probe`；此时才会发出 `blocking=false` 的 `run-migration-rgba-route-probe`，且它不能作为正式文章资产的注册授权。
+
 ## 登录与打开项
 
 ### ChatGPT / Codex with ChatGPT
