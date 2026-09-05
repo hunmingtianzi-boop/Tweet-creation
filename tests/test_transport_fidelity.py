@@ -424,6 +424,8 @@ class TransportFidelityTests(unittest.TestCase):
                 "digest": "Current digest",
                 "content_html": "wechat.html",
                 "cover_asset_id": "cover",
+                "route": "test-route",
+                "production_preferences": {"status": "confirmed", "confirmed_by": "editor", "micro_component_count": 1, "use_svg": True, "style_route": "test-route", "generate_backgrounds": True},
             },
             "ardot": {
                 "file_id": "file-1",
@@ -455,6 +457,7 @@ class TransportFidelityTests(unittest.TestCase):
                     "path": item["path"],
                     "sha256": item["sha256"],
                     "role": "cover" if item["asset_id"] == "cover" else "body-image",
+                    **({"origin": "generated-illustrative"} if item["asset_id"] == "chapter-1-background" else {}),
                     **(
                         {"wechat_thumb_media_id": "thumb-test-100001"}
                         if item["asset_id"] == "cover"
@@ -466,6 +469,8 @@ class TransportFidelityTests(unittest.TestCase):
             "transport_fidelity": {"source": TRANSPORT_SOURCE, "export": export},
         }
         manifest_path = root / "handoff.json"
+        from production_intent import freeze_intent
+        manifest["production_intent"] = freeze_intent(manifest["article"], export)
         manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
         return temporary, manifest_path, manifest
 
@@ -1595,7 +1600,7 @@ class TransportFidelityTests(unittest.TestCase):
         self.assertIn("transport.render_signature", invalid["error_codes"])
 
         hidden_section = original.replace(
-            'style="position:relative;width:100%;height:0;',
+            'style="position:relative;container-type:inline-size;width:100%;height:0;',
             'style="display:none;',
             1,
         )
@@ -2080,6 +2085,9 @@ class TransportFidelityTests(unittest.TestCase):
         root["transport_sections"] = snapshot["sections"]
         root["body_asset_ids"] = snapshot["body_asset_ids"]
         self.rewrite_root(path, manifest, root)
+        from production_intent import freeze_intent
+        manifest["production_intent"] = freeze_intent(manifest["article"], export)
+        path.write_text(json.dumps(manifest), encoding="utf-8")
 
         diagnostic = self.report(path)
         self.assertTrue(diagnostic["ok"], diagnostic)

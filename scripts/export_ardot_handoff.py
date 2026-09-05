@@ -206,7 +206,7 @@ def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 class Exporter:
-    def __init__(self, source_path: Path, output_dir: Path) -> None:
+    def __init__(self, source_path: Path, output_dir: Path, *, bindings_path: Path | None = None) -> None:
         # The programmatic exporter is a formal freeze entrypoint too.  Do not
         # let an ordinary import bypass the reviewed scripts/dependency census.
         from secure_runtime import require_secure_runtime
@@ -227,6 +227,12 @@ class Exporter:
         parent = self.final_output_dir.parent
         self.output_dir = parent / f".{self.final_output_dir.name}.{uuid.uuid4().hex}.staging"
         self.payload = _read_object(self.source_path, "normalized Ardot export")
+        self.semantic_bindings = None
+        if bindings_path is not None:
+            from ardot_capture_adapter import normalize_capture
+            bindings_path = existing_regular_file(bindings_path, label="Ardot semantic bindings")
+            self.semantic_bindings = _read_object(bindings_path, "Ardot semantic bindings")
+            self.payload = normalize_capture(self.payload, self.semantic_bindings)
         if (
             self.payload.get("schema_version") != 1
             or self.payload.get("source") != NORMALIZED_SOURCE
@@ -655,6 +661,15 @@ class Exporter:
             "assets": top_assets,
             "transport_fidelity": {"source": TRANSPORT_SOURCE, "export": export},
         }
+        if "capture_binding" in self.payload:
+            _atomic_json(self.output_dir / "qa" / "raw-ardot-capture.json", _read_object(self.source_path, "raw capture"))
+            _atomic_json(self.output_dir / "qa" / "semantic-bindings.json", self.semantic_bindings)
+            handoff["capture_binding"] = self.payload["capture_binding"]
+        from production_intent import freeze_intent, validate_delivery_intent
+        handoff["production_intent"] = freeze_intent(article, export)
+        intent_errors = validate_delivery_intent(handoff, export)
+        if intent_errors:
+            raise ValueError("; ".join(intent_errors))
         handoff_path = self.output_dir / "handoff.json"
         _atomic_json(handoff_path, handoff)
         skeleton = {
@@ -740,8 +755,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("normalized_export", type=Path)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--bindings", type=Path, help="Normalize the input raw resolved Ardot capture using semantic-only bindings")
     args = parser.parse_args()
-    report = Exporter(args.normalized_export, args.output).run()
+    report = Exporter(args.normalized_export, args.output, bindings_path=args.bindings).run()
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0
 

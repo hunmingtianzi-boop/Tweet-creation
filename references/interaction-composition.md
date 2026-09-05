@@ -4,7 +4,7 @@
 
 ## 两种计数单位
 
-- `interaction module`：一个连续版面区域、一个读者任务、一个静态等价区域，是每篇 2–3 个的计数单位。
+- `interaction module`：一个连续版面区域、一个读者任务、一个静态等价区域，是按实际读者任务选择数量的计数单位。
 - `transport instance`：投递层的一个实际触发实例，必须独立拥有 `fallback_key` 与 `sha256:<64 hex>` 语义哈希。
 
 四个并列部门各自点击展开，是 1 个 `tap-reveal-group` module、4 个 SVG transport instances；横向照片组整体是 1 个 module、1 个 swipe instance。模块数量只取 `modules.length`，绝不取 SVG 数、卡片数或 `instances.length`。
@@ -21,19 +21,19 @@
 
 不为凑数拆分同一语义区域，不重复正文，不把必要事实藏在点击后，不给普通段落加无意义触发。默认最多 3 个；第三个必须承担与前两个不同的读者任务。
 
-2 个 module 必须分布在 `early` 与 `middle`，3 个必须分布在 `early`、`middle`、`late`，并绑定不同 storyboard chapters。位置带由批准后的 chapter 顺序按三等分计算，不接受把晚段 chapter 手写成 `early`。交互区域仍受开放式构图与 20% 方框上限约束，不能连续堆成组件墙。
+2–3 个模块是长文建议，不是最低配额。模块可以同章；位置带仍按真实章节顺序计算，不接受把晚段手写为 early。容器与错落形式服从实际读者任务，不用数量替代审美判断。
 
 ## 启动选择与 `interaction_plan` 两阶段门槛
 
 工作流开始时与组件数量、风格路线、底图开关一起询问是否制作 SVG 交互，并把答案写进 `article.production_preferences.use_svg`。这是文章级选择，不由目标公众号的能力档案反推。
 
-- `use_svg: true`：使用 `authoring_mode: dynamic-default`，创作 2–3 个 semantic modules；
+- `use_svg: true`：使用 `authoring_mode: dynamic-default`，创作至少一个有用的 semantic module（2–3 个为长文建议）；
 - `use_svg: false`：使用 `authoring_mode: static-selected`，`target_module_count: 0` 且 `modules: []`。这是正常选项，不需要再写一份 exception reason。
 
 装配前校验创作计划：
 
-- `authoring_mode: dynamic-default` 时，`target_module_count` 与 `modules.length` 都必须是 2 或 3；
-- 每个 module 绑定一个不同的 storyboard chapter、该章内的 `source_block_indices`、具体 `purpose` 和位置带；
+- `authoring_mode: dynamic-default` 时，`target_module_count` 必须等于非空 `modules.length`；
+- 每个 module 绑定实际的 storyboard chapter、该章内的 `source_block_indices`、具体 `purpose` 和位置带；
 - 每个 transport instance 的 `source_texts` 必须来自这些 blocks；
 - 每个 instance 使用唯一 `id`、`fallback_key` 和由有序原文计算的 `sha256:<64 hex>`；
 - `candidate_modes` 只允许 `svg-smil-self` 与 `horizontal-swipe`。复合揭开横滑组可以同时声明两者。

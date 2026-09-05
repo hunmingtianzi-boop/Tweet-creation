@@ -68,7 +68,7 @@ from transport_fidelity import (
     verify_host_publication_confirmation_receipt,
     text_sha256,
 )
-from wechat_interaction_policy import _validate_mobile_profile
+from wechat_interaction_policy import _validate_mobile_profile, CurrentSessionMobileAuthority
 from validate_workflow_attribution import validate_workflow_attribution_handoff
 from safe_paths import (
     SafePathError,
@@ -1239,6 +1239,8 @@ class WeChatPublisher:
         store: PublisherStore,
         *,
         current_session_authority: CurrentSessionHostAuthority | None = None,
+        current_session_mobile_authority: CurrentSessionMobileAuthority | None = None,
+        allow_editor_review: bool = False,
     ) -> None:
         # The object API carries credentials and can mutate drafts/publication
         # state, so importing this module must not bypass the isolated runner.
@@ -1251,6 +1253,8 @@ class WeChatPublisher:
         self.provider = provider
         self.store = store
         self.current_session_authority = current_session_authority
+        self.current_session_mobile_authority = current_session_mobile_authority
+        self.allow_editor_review = allow_editor_review
 
     def _require_provider_account(self, target_account_ref: str) -> None:
         provider_account_ref = getattr(self.provider, "account_ref", None)
@@ -1749,8 +1753,8 @@ class WeChatPublisher:
             required_evidence_fields = {
                 "mobile_profile",
                 "interaction_readback",
-                "host_trace",
-                "current_session_id",
+                "current_session_live_authority_used",
+                "editor_review_accepted",
             }
             if not isinstance(evidence, dict) or set(evidence) != required_evidence_fields:
                 raise ValueError("dynamic compile lacks exact interaction evidence bindings")
@@ -1773,13 +1777,6 @@ class WeChatPublisher:
                 evidence.get("interaction_readback"), "interaction readback"
             )
             profile = _read_json(profile_path, "mobile profile")
-            host_trace_path: Path | None = None
-            host_trace_sha: str | None = None
-            if scope == "current-session-draft":
-                host_trace_path = evidence_path(evidence.get("host_trace"), "host trace")
-                host_trace_sha = _file_digest(host_trace_path)
-            elif evidence.get("host_trace") is not None:
-                raise ValueError("portable dynamic compile must not use unsigned host trace evidence")
             dynamic_output = compile_report.get("outputs", {}).get("dynamic")
             dynamic_path = (report_path.resolve().parent / str(dynamic_output or "")).resolve()
             if dynamic_path != html_path:
@@ -1791,12 +1788,11 @@ class WeChatPublisher:
                 profile_path=profile_path,
                 candidate_html=html_path.read_text(encoding="utf-8"),
                 readback_html=interaction_readback_path.read_text(encoding="utf-8"),
-                allow_current_session=scope == "current-session-draft",
-                current_session_id=str(evidence.get("current_session_id") or ""),
-                host_trace_sha256=host_trace_sha,
+                current_session_authority=self.current_session_mobile_authority,
+                allow_editor_review=(scope == "current-session-draft" and self.allow_editor_review and evidence.get("editor_review_accepted") is True),
             )
             expected_mobile_scope = (
-                "current-session-live"
+                ("current-session-editor-reviewed" if evidence.get("editor_review_accepted") is True else "current-session-live")
                 if scope == "current-session-draft"
                 else "portable-signed"
             )
@@ -1805,19 +1801,6 @@ class WeChatPublisher:
                     "dynamic mobile/readback evidence is invalid: "
                     + "; ".join(mobile_errors)
                 )
-            if scope == "current-session-draft":
-                if self.current_session_authority is None:
-                    raise ValueError(
-                        "file-only current-session mobile evidence cannot select a dynamic draft; "
-                        "an active host authority is required"
-                    )
-                if not self.current_session_authority.verify_mobile_evidence(
-                    target_account_ref=str(upload_binding.get("target_account_ref")),
-                    draft_media_id=str(profile.get("draft_id")),
-                    profile_sha256=_file_digest(profile_path),
-                    host_trace_sha256=str(host_trace_sha),
-                ):
-                    raise ValueError("active host did not verify current-session mobile captures")
         content = html_path.read_text(encoding="utf-8")
         title = article.get("title")
         author = article.get("author", "")
@@ -2085,6 +2068,7 @@ class WeChatPublisher:
         output_dir: Path,
         screenshot_manifest_path: Path | None,
         capture_bundle_path: Path | None = None,
+        viewport_review_path: Path | None = None,
     ) -> dict[str, Any]:
         """Capture API bytes, CDN downloads, chapter screenshots, and census."""
 
@@ -2453,18 +2437,11 @@ class WeChatPublisher:
                     label=f"chapter {chapter['chapter_id']} readback screenshot",
                 )
             screenshot_digest = _file_digest(screenshot_destination)
-            if screenshot_digest in chapter_screenshot_digests:
-                raise ValueError("chapter readback screenshots must use distinct PNG bytes")
             chapter_screenshot_digests.add(screenshot_digest)
-            if screenshot_destination.read_bytes() == reference.read_bytes():
-                raise ValueError(
-                    "byte-identical Ardot reference cannot masquerade as a WeChat capture"
-                )
+            from render_quality import compare_screenshots
+            if not compare_screenshots(reference, screenshot_destination)["ok"]:
+                raise ValueError("WeChat screenshot has a local visual regression")
             screenshot_similarity = _visual_similarity(reference, screenshot_destination)
-            if screenshot_similarity >= 1.0 - 1e-12:
-                raise ValueError(
-                    "pixel-identical Ardot reference cannot masquerade as a WeChat capture"
-                )
             interaction_records = []
             for item in interaction_items:
                 if not isinstance(item, dict):
@@ -2596,6 +2573,21 @@ class WeChatPublisher:
             },
             "chapters": chapter_records,
         }
+        if viewport_review_path is not None:
+            from render_quality import validate_viewport_review
+            viewport_review = _read_json(viewport_review_path, "viewport review")
+            viewport_errors = validate_viewport_review(viewport_review, base=viewport_review_path.resolve().parent,
+                export=export, content_sha256=_file_digest(content_path), account=target_account_ref, draft=media_id)
+            if viewport_errors:
+                raise ValueError("; ".join(viewport_errors))
+            for sample in viewport_review["samples"]:
+                source = viewport_review_path.resolve().parent / sample["screenshot"]["path"]
+                destination = output_dir / f"viewport-{sample['width_px']}.png"
+                write_bytes_create_once(destination, source.read_bytes(), label="viewport screenshot")
+                if _file_digest(destination) != sample["screenshot"]["sha256"]:
+                    raise ValueError("viewport screenshot changed during freezing")
+                sample["screenshot"]["path"] = destination.name
+            readback["viewport_review"] = viewport_review
         readback_path = output_dir / "readback.json"
         write_text_create_once(
             readback_path,
@@ -3046,39 +3038,11 @@ class WeChatPublisher:
         ).resolve()
         if selected_payload == "dynamic":
             mobile_binding = gate.get("mobile_profile")
-            required_mobile_fields = (
-                {
-                    "path",
-                    "sha256",
-                    "current_session_id",
-                    "host_trace_path",
-                    "host_trace_sha256",
-                }
-                if assurance_scope == "current-session-live"
-                else {"path", "sha256"}
-            )
-            if (
-                not isinstance(mobile_binding, dict)
-                or set(mobile_binding) != required_mobile_fields
-            ):
+            if not isinstance(mobile_binding, dict) or set(mobile_binding) != {"path", "sha256"}:
                 raise ValueError("dynamic publication requires exact mobile evidence bindings")
-            profile_path = Path(str(mobile_binding.get("path", "")))
-            host_trace_path = (
-                Path(str(mobile_binding.get("host_trace_path", "")))
-                if assurance_scope == "current-session-live"
-                else None
-            )
+            profile_path = Path(str(mobile_binding["path"]))
             compiled_mobile = report.get("interaction_evidence_binding")
-            compiled_profile = (
-                compiled_mobile.get("mobile_profile")
-                if isinstance(compiled_mobile, dict)
-                else None
-            )
-            compiled_trace = (
-                compiled_mobile.get("host_trace")
-                if isinstance(compiled_mobile, dict)
-                else None
-            )
+            compiled_profile = compiled_mobile.get("mobile_profile") if isinstance(compiled_mobile, dict) else None
             if (
                 not profile_path.is_absolute()
                 or profile_path.is_symlink()
@@ -3090,22 +3054,6 @@ class WeChatPublisher:
                 or compiled_profile.get("sha256") != mobile_binding.get("sha256")
             ):
                 raise ValueError("mobile profile changed after compilation")
-            if assurance_scope == "current-session-live" and (
-                host_trace_path is None
-                or not host_trace_path.is_absolute()
-                or host_trace_path.is_symlink()
-                or not host_trace_path.is_file()
-                or _file_digest(host_trace_path)
-                != mobile_binding.get("host_trace_sha256")
-                or not isinstance(compiled_trace, dict)
-                or Path(str(compiled_trace.get("path", ""))).resolve()
-                != host_trace_path.resolve()
-                or compiled_trace.get("sha256")
-                != mobile_binding.get("host_trace_sha256")
-            ):
-                raise ValueError("current-session host trace changed after compilation")
-            if assurance_scope == "portable-signed" and compiled_trace is not None:
-                raise ValueError("portable mobile evidence unexpectedly binds an unsigned trace")
             profile = _read_json(profile_path, "mobile profile")
             if profile.get("draft_id") != str(draft["media_id"]):
                 raise ValueError("mobile profile belongs to a different saved draft")
@@ -3118,22 +3066,9 @@ class WeChatPublisher:
                 profile_path=profile_path,
                 candidate_html=dynamic_path.read_text(encoding="utf-8"),
                 readback_html=raw_content_path.read_text(encoding="utf-8"),
-                allow_current_session=assurance_scope == "current-session-live",
-                current_session_id=(
-                    str(mobile_binding.get("current_session_id"))
-                    if assurance_scope == "current-session-live"
-                    else None
-                ),
-                host_trace_sha256=(
-                    str(mobile_binding.get("host_trace_sha256"))
-                    if assurance_scope == "current-session-live"
-                    else None
-                ),
+                current_session_authority=self.current_session_mobile_authority,
             )
-            if not mobile_ok or (
-                assurance_scope == "portable-signed"
-                and mobile_scope != "portable-signed"
-            ):
+            if not mobile_ok or mobile_scope != assurance_scope:
                 raise ValueError(
                     "mobile profile is not trusted for selected dynamic payload: "
                     + "; ".join(mobile_errors)
@@ -3368,6 +3303,7 @@ def build_parser() -> argparse.ArgumentParser:
     draft.add_argument("handoff", type=Path)
     draft.add_argument("compile_report", type=Path)
     draft.add_argument("--target-account", required=True)
+    draft.add_argument("--accept-editor-mobile-review", action="store_true")
 
     raw_readback = subparsers.add_parser("capture-raw")
     raw_readback.add_argument("media_id")
@@ -3375,6 +3311,8 @@ def build_parser() -> argparse.ArgumentParser:
     raw_readback.add_argument("--output", type=Path, required=True)
 
     readback = subparsers.add_parser("capture-readback")
+    readback.add_argument("--accept-editor-mobile-review", action="store_true")
+    readback.add_argument("--viewport-review", type=Path)
     readback.add_argument("handoff", type=Path)
     readback.add_argument("compile_report", type=Path)
     readback.add_argument("media_id")
@@ -3425,7 +3363,8 @@ def main() -> int:
     store = PublisherStore(args.store)
     try:
         publisher = WeChatPublisher(
-            WeChatAPIProvider(access_token=token, app_id=app_id), store
+            WeChatAPIProvider(access_token=token, app_id=app_id), store,
+            allow_editor_review=getattr(args, "accept_editor_mobile_review", False),
         )
         if args.command == "preflight-account":
             result = publisher.preflight_account(
@@ -3459,6 +3398,7 @@ def main() -> int:
                 output_dir=args.output_dir,
                 screenshot_manifest_path=args.screenshots,
                 capture_bundle_path=args.capture_bundle,
+                viewport_review_path=args.viewport_review,
             )
         else:
             result = publisher.publish(

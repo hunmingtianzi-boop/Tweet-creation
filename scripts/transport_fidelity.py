@@ -964,12 +964,12 @@ def text_layer_contract(node: dict[str, Any], *, chapter_height: float) -> dict[
         extra=(
             f"z-index:{int(node['z_index'])};margin:0;overflow:visible;"
             "background:transparent;border:0;border-radius:0;"
-            f"font-size:{float(source_style['font_size_px']):g}px;"
+            f"font-size:{float(source_style['font_size_px']) / 390 * 100:.6f}cqw;"
             f"line-height:{float(source_style['line_height_ratio']):g};"
             f"font-weight:{int(source_style['font_weight'])};"
             f"font-style:{source_style['font_style']};"
             f"text-decoration:{source_style['text_decoration']};"
-            f"letter-spacing:{float(source_style['letter_spacing_px']):g}px;"
+            f"letter-spacing:{float(source_style['letter_spacing_px']) / 390 * 100:.6f}cqw;"
             f"text-align:{source_style['text_align']};color:{source_style['color']};white-space:pre-wrap;"
             f"opacity:{float(source_style['opacity']):g};mix-blend-mode:{source_style['blend_mode']};"
             f"font-family:{font_stack};"
@@ -1102,7 +1102,7 @@ def section_render_contract(
     chapter_height = float(chapter["geometry"]["height"])
     ratio = chapter_height / 390.0 * 100.0
     style = (
-        f"position:relative;width:100%;height:0;padding-top:{ratio:.6f}%;"
+        f"position:relative;container-type:inline-size;width:100%;height:0;padding-top:{ratio:.6f}%;"
         "overflow:hidden;background:transparent;"
     )
     signature = _canonical_sha256(
@@ -4270,9 +4270,14 @@ class _Validator:
             "watermark_transport",
             "chapters",
         }
-        if set(payload) != required_fields:
+        if set(payload) - {"viewport_review"} != required_fields:
             self.fail("transport.readback", "v2 readback has missing or unsigned extra fields")
             return
+        from render_quality import validate_viewport_review
+        for message in validate_viewport_review(payload.get("viewport_review"), base=path.parent, export=export,
+                content_sha256=payload.get("raw_draft", {}).get("content_sha256"),
+                account=payload.get("target_account_ref"), draft=payload.get("draft_id")):
+            self.fail("transport.readback_viewports", message)
         if payload.get("schema_version") != 2 or payload.get("source") != READBACK_SOURCE:
             self.fail(
                 "transport.readback",
@@ -4709,18 +4714,10 @@ class _Validator:
                 ):
                     self.fail("transport.readback_visual", f"chapter {index} screenshot bytes/dimensions are invalid")
                 else:
-                    if screenshot_path.read_bytes() == reference_path.read_bytes():
-                        self.fail(
-                            "transport.readback_visual",
-                            f"chapter {index} reuses byte-identical Ardot reference as WeChat capture",
-                        )
+                    from render_quality import compare_screenshots
+                    comparison = compare_screenshots(reference_path, screenshot_path)
                     similarity = _visual_similarity(reference_path, screenshot_path)
-                    if similarity >= 1.0 - 1e-12:
-                        self.fail(
-                            "transport.readback_visual",
-                            f"chapter {index} is pixel-identical to the Ardot reference",
-                        )
-                    if similarity < 0.60 or not isinstance(screenshot.get("visual_similarity"), (int, float)) or abs(float(screenshot["visual_similarity"]) - similarity) > 0.001:
+                    if not comparison["ok"] or not isinstance(screenshot.get("visual_similarity"), (int, float)) or abs(float(screenshot["visual_similarity"]) - similarity) > 0.001:
                         self.fail("transport.readback_visual", f"chapter {index} screenshot differs from Ardot reference")
 
         watermark = payload.get("watermark_transport")
@@ -5020,6 +5017,9 @@ def _validate_transport_fidelity_contract(
         export = validator.export(fidelity.get("export"))
     if export is not None:
         validator.crosslink_handoff(handoff, export)
+        from production_intent import validate_delivery_intent
+        for message in validate_delivery_intent(handoff, export):
+            validator.fail("transport.production_intent", message)
     upload_map: dict[str, Any] | None = None
     if export is not None and upload_map_path is not None:
         try:

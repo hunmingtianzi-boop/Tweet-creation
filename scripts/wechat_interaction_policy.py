@@ -390,6 +390,7 @@ def _validate_mobile_profile(
     candidate_html: str | None = None,
     readback_html: str | None = None,
     current_session_authority: CurrentSessionMobileAuthority | None = None,
+    allow_editor_review: bool = False,
 ) -> tuple[bool, list[str], str | None]:
     if profile is None:
         return False, ["mobile compatibility profile is missing"], None
@@ -423,6 +424,8 @@ def _validate_mobile_profile(
         "host_trace_sha256",
         "signature",
     }
+    if profile.get("assurance_scope") == "current-session-editor-reviewed":
+        required_fields.add("editor_review")
     if set(profile) != required_fields:
         errors.append("mobile profile has missing or unsigned extra fields")
     if profile.get("schema_version") != 2:
@@ -430,7 +433,7 @@ def _validate_mobile_profile(
     if profile.get("source") != MOBILE_PROFILE_SOURCE:
         errors.append(f"mobile profile source must be {MOBILE_PROFILE_SOURCE}")
     assurance_scope = profile.get("assurance_scope")
-    if assurance_scope not in {"portable-signed", "current-session-live"}:
+    if assurance_scope not in {"portable-signed", "current-session-live", "current-session-editor-reviewed"}:
         errors.append("mobile profile assurance_scope is invalid")
     if profile.get("policy_version") != POLICY_VERSION:
         errors.append(f"mobile profile policy_version must be {POLICY_VERSION}")
@@ -630,6 +633,14 @@ def _validate_mobile_profile(
                 public_key.verify(signature, message)
         except Exception as exc:  # cryptographic verification is fail-closed
             errors.append(f"mobile profile host signature is invalid: {exc}")
+    elif assurance_scope == "current-session-editor-reviewed":
+        review = profile.get("editor_review")
+        if not allow_editor_review:
+            errors.append("editor mobile review requires explicit acceptance for this current-session draft")
+        if not isinstance(review, dict) or set(review) != {"reviewed_by", "review_event_id", "scope"} or any(not isinstance(v, str) or not v.strip() for v in review.values()) or review.get("scope") != "exact-draft-and-both-mobile-interactions":
+            errors.append("editor review must identify the real reviewer and grouped confirmation event")
+        if any(profile.get(k) is not None for k in ("signature_algorithm", "signature", "key_id")):
+            errors.append("editor review is not host-attested or portable-signed")
     elif assurance_scope == "current-session-live":
         if profile.get("signature_algorithm") is not None or profile.get("signature") is not None or profile.get("key_id") is not None:
             errors.append("current-session mobile evidence must not claim a portable signature")
@@ -703,6 +714,7 @@ def audit_transport(
     allow_upload_placeholders: bool = False,
     mobile_profile_path: Path | None = None,
     current_session_mobile_authority: CurrentSessionMobileAuthority | None = None,
+    allow_editor_review: bool = False,
 ) -> dict[str, Any]:
     candidate = inspect_html(
         candidate_html,
@@ -798,6 +810,7 @@ def audit_transport(
             candidate_html=candidate_html,
             readback_html=readback_html,
             current_session_authority=current_session_mobile_authority,
+            allow_editor_review=allow_editor_review,
         )
         certification_errors.extend(mobile_errors)
 
@@ -839,6 +852,7 @@ def audit_transport(
         "mobile_certified": mobile_certified,
         "mobile_assurance_scope": mobile_assurance_scope,
         "mobile_portable_verified": mobile_assurance_scope == "portable-signed",
+        "mobile_host_attested": mobile_assurance_scope == "portable-signed",
         "target_account_id": target_account_id,
         "errors": fatal_errors,
         "certification_errors": certification_errors,

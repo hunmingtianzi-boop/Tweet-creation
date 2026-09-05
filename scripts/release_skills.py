@@ -987,6 +987,7 @@ def clone_readiness(
     workspace_root: Path = WORKSPACE_ROOT,
     visible_tool_ids: Sequence[str] | None = None,
     mcp_inventory: dict[str, object] | None = None,
+    generation: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Declare clone-time requirements without pretending to prove live login.
 
@@ -1185,7 +1186,12 @@ def clone_readiness(
         ),
     )
 
-    c2c_required = phase in {"migration", "authoring", "full"}
+    # This bootstrap CLI runs under -I -S before repository imports are trusted.
+    if generation is not None and (not isinstance(generation, dict) or set(generation) != {"micro_component_count", "generate_backgrounds", "generate_cover"}
+            or type(generation.get("micro_component_count")) is not int or not 0 <= generation["micro_component_count"] <= 4
+            or any(type(generation.get(k)) is not bool for k in ("generate_backgrounds", "generate_cover"))):
+        raise ReleaseError("invalid explicit generation plan")
+    c2c_required = phase in {"migration", "authoring", "full"} and (generation is None or generation["micro_component_count"] > 0)
     node_path, node_version = _command_version("node")
     node_ok = bool(node_path and (_major_version(node_version) or 0) >= 20)
     add_check(
@@ -1446,6 +1452,7 @@ def _parser() -> argparse.ArgumentParser:
     clone_check.add_argument("--skills-root", type=Path, required=True)
     clone_check.add_argument("--phase", choices=SUPPORTED_PHASES, default="full")
     clone_check.add_argument("--visible-tool-id", action="append", default=None)
+    clone_check.add_argument("--generation-plan", type=Path, help="JSON with explicit generation selections; omitted means undecided/all required")
     subparsers.add_parser("validate-structure")
     return parser
 
@@ -1466,6 +1473,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.skills_root,
                 phase=args.phase,
                 visible_tool_ids=args.visible_tool_id,
+                generation=json.loads(args.generation_plan.read_text(encoding="utf-8")) if args.generation_plan else None,
             )
         elif args.command == "validate-structure":
             result = validate_skill_structures()

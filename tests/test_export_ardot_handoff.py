@@ -163,6 +163,41 @@ class ArdotHandoffExporterTests(unittest.TestCase):
         )
         return temporary, normalized_path
 
+    def test_resolved_raw_capture_freezes_through_actual_exporter(self) -> None:
+        temporary, source = self.normalized_fixture()
+        self.addCleanup(temporary.cleanup)
+        bindings = json.loads(source.read_text())
+        bindings["article"]["production_preferences"].update(micro_component_count=0, use_svg=False)
+        bindings["font_mapping"] = {"Synthetic Sans": "system-sans-cn", "Synthetic Serif": "system-serif-cn"}
+        sections = []
+        for chapter in bindings["chapters"]:
+            chapter["interaction"], chapter["decorations"] = [], []
+            children = []
+            for layer in [chapter["background_layer"], *chapter["photos"]]:
+                geometry = layer.get("geometry", {"x": 0, "y": 0, "width": 390, "height": chapter["geometry"]["height"]})
+                children.append({"id": layer["source_node_id"], "name": "Synthetic asset", "type": "frame", **geometry})
+            for text in chapter["visible_text_nodes"]:
+                style = text["style"]
+                children.append({"id": text["node_id"], "name": text["component_name"], "type": "text", **text["geometry"],
+                    "content": text["text"], "fontSize": style["font_size_px"], "fontWeight": style["font_weight"],
+                    "fontName": {"family": "Synthetic Serif" if style["font_family"] == "system-serif-cn" else "Synthetic Sans", "style": "Regular"},
+                    "lineHeight": {"unit": "PERCENT", "value": style["line_height_ratio"] * 100},
+                    "letterSpacing": {"unit": "PIXELS", "value": style["letter_spacing_px"]}, "fill": style["color"]})
+            sections.append({"id": chapter["section_node_id"], "type": "frame", **chapter["geometry"], "children": children})
+        capture = {"source": "ardot-batch-read-capture-v1", **bindings["ardot"],
+            "root": {"id": bindings["ardot"]["root_node_id"], "type": "frame", "x": 0, "y": 0, "width": 390,
+                     "height": sum(s["height"] for s in sections), "children": sections}}
+        raw = source.parent / "synthetic-raw.json"
+        raw.write_text(json.dumps(capture))
+        source.write_text(json.dumps(bindings))
+        output = source.parent / "raw-freeze"
+        Exporter(raw, output, bindings_path=source).run()
+        handoff = json.loads((output / "handoff.json").read_text())
+        self.assertFalse(handoff["capture_binding"]["host_attested"])
+        self.assertTrue((output / "qa/semantic-bindings.json").is_file())
+        result = validate_transport_fidelity_diagnostic(output / "handoff.json")
+        self.assertTrue(result["ok"], result)
+
     def test_programmatic_exporter_requires_locked_runtime(self) -> None:
         temporary, source = self.normalized_fixture()
         self.addCleanup(temporary.cleanup)

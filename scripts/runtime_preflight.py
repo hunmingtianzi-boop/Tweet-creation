@@ -224,6 +224,14 @@ PHASE_LOADED_SKILL = {
     "full": "org-wechat-studio",
 }
 
+def phase_capabilities(phase, document):
+    from production_intent import generation_selection
+    selection = generation_selection(document)
+    return tuple(name for name in PHASE_CAPABILITIES[phase]
+                 if not (name == "opaque_image_generation" and not selection["opaque"])
+                 and not (name == "rgba_cutout_generation" and not selection["rgba"]))
+
+
 PHASE_CAPABILITIES = {
     "migration": (
         "opaque_image_generation",
@@ -361,6 +369,9 @@ GENERATION_ROUTE_ID = re.compile(r"^[a-z0-9][a-z0-9._:/-]{1,127}$")
 BINDING_NONCE = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
 
 TRUSTED_BUNDLE_PATHS = (
+    "scripts/ardot_capture_adapter.py",
+    "scripts/production_intent.py",
+    "scripts/render_quality.py",
     "SKILL.md",
     "requirements.txt",
     "agents/openai.yaml",
@@ -3640,10 +3651,11 @@ def build_runtime_profile_from_census(
         for item in census.get("skills", [])
         if isinstance(item, dict) and isinstance(item.get("id"), str)
     }
+    required_capabilities = phase_capabilities(phase, target)
     selected_skill_ids = {"org-wechat-studio", "ardot-wechat-publisher"}
     rgba_route = adapter_capabilities.get("image.generate.rgba")
     if (
-        phase in {"migration", "authoring", "full"}
+        "rgba_cutout_generation" in required_capabilities
         and isinstance(rgba_route, dict)
         and rgba_route.get("route") == "chatgpt-web"
     ):
@@ -3708,13 +3720,13 @@ def build_runtime_profile_from_census(
         return resolved
 
     capabilities: dict[str, Any] = {}
-    if "opaque_image_generation" in PHASE_CAPABILITIES[phase]:
+    if "opaque_image_generation" in required_capabilities:
         capabilities["opaque_image_generation"] = {
             "mode": "tool",
             "status": "bound_unprobed",
             "tool_ids": route_ids("image.generate.opaque"),
         }
-    if "rgba_cutout_generation" in PHASE_CAPABILITIES[phase]:
+    if "rgba_cutout_generation" in required_capabilities:
         if not isinstance(rgba_route, dict):
             raise ValueError("adapter has no RGBA route")
         rgba_mode = rgba_route.get("route")
@@ -4010,6 +4022,8 @@ def build_runtime_profile_from_census(
     }
     if isinstance(artifact_inventory, dict):
         profile["artifact_inventory"] = artifact_inventory
+    if "generation" in target:
+        profile["generation"] = target["generation"]
     return profile
 
 
@@ -4409,7 +4423,7 @@ def _validate_capabilities(
         )
         return {}
     resolved: dict[str, Any] = {}
-    required = PHASE_CAPABILITIES[phase]
+    required = phase_capabilities(phase, profile)
     selected = list(required)
     carrier_ids = _watermark_carrier_ids(profile, errors)
     inventory_present = isinstance(profile.get("artifact_inventory"), dict)
@@ -5829,7 +5843,7 @@ def _build_host_setup_actions(
     )
     rgba_capability = capabilities.get("rgba_cutout_generation")
     rgba_mode = rgba_capability.get("mode") if isinstance(rgba_capability, dict) else None
-    if "rgba_cutout_generation" in PHASE_CAPABILITIES[phase] and rgba_mode == "chatgpt-web":
+    if "rgba_cutout_generation" in phase_capabilities(phase, profile) and rgba_mode == "chatgpt-web":
         actions.extend(
             [
                 {
@@ -5914,7 +5928,7 @@ def _build_host_setup_actions(
                 },
             ]
         )
-    if phase in {"authoring", "full"}:
+    if phase in {"authoring", "full"} and "rgba_cutout_generation" in phase_capabilities(phase, profile):
         provider_authority = capabilities.get("provider_acquisition_authority")
         actions.append(
             {
@@ -6232,7 +6246,7 @@ def _build_host_setup_actions(
                 "expected_result": "inspection-callable-visible-neutral-read-required",
             }
         )
-    if "opaque_image_generation" in PHASE_CAPABILITIES[phase]:
+    if "opaque_image_generation" in phase_capabilities(phase, profile):
         actions.append(
             {
                 "id": "bind-opaque-image-generation",
@@ -6242,7 +6256,7 @@ def _build_host_setup_actions(
                 "expected_result": "opaque-callable-visible-first-real-asset-is-live-proof",
             }
         )
-    if "rgba_cutout_generation" in PHASE_CAPABILITIES[phase] and rgba_mode == "tool":
+    if "rgba_cutout_generation" in phase_capabilities(phase, profile) and rgba_mode == "tool":
         actions.append(
             {
                 "id": "bind-rgba-cutout-generation",
@@ -6663,7 +6677,7 @@ def validate_runtime_profile(
                 "stronger protected portable double-signature route"
             ),
         }
-        if phase in {"authoring", "full"}
+        if phase in {"authoring", "full"} and "rgba_cutout_generation" in phase_capabilities(phase, profile)
         else {
             "required_for_formal_micro_assets": False,
             "reason": "selected phase does not create formal generated micro assets",
@@ -6694,7 +6708,7 @@ def validate_runtime_profile(
             if binding_only
             else "host-trace-required"
         ),
-        "external_probe_required": list(PHASE_CAPABILITIES[phase])
+        "external_probe_required": list(phase_capabilities(phase, profile))
         + [
             name
             for name in OPTIONAL_PHASE_CAPABILITIES[phase]

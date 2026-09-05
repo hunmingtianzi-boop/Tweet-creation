@@ -1,7 +1,7 @@
 # Tweet Creation / Organization WeChat Studio
 
 > [!IMPORTANT]
-> **当前可执行版本只能运行在 Codex Desktop。** 拉取仓库并不等于环境已经可用。开始前必须安装同一 release 的三个仓库 Skill，另行安装并绑定当前 workspace 的 [Codex with ChatGPT](https://github.com/XiaoDuoYa/codex-with-chatgpt)，在 Codex 内置 Browser 登录 ChatGPT，连接并登录 Ardot Remote，取得精确 Ardot file/root 权限；涉及投递时还要准备目标微信公众号登录或 API 凭据。当前发布锁只支持 Apple Silicon macOS + CPython 3.9。其他 LLM、harness、Linux、Windows 或 Intel Mac 目前只能阅读契约，不能声称可执行兼容。
+> **当前可执行版本只能运行在 Codex Desktop。** 拉取仓库并不等于环境已经可用。开始前必须安装同一 release 的三个仓库 Skill。仅制作透明组件时，另行安装并绑定当前 workspace 的 [Codex with ChatGPT](https://github.com/XiaoDuoYa/codex-with-chatgpt)，并在 Codex 内置 Browser 登录 ChatGPT；仅生成不透明底图/封面时需要 ImageGen。设计阶段连接并登录 Ardot Remote，取得精确 file/root 权限；投递阶段另行准备目标微信公众号登录或 API 凭据。当前发布锁只支持 Apple Silicon macOS + CPython 3.9。其他 LLM、harness、Linux、Windows 或 Intel Mac 目前不能声称可执行兼容。
 
 克隆后先读[克隆、安装与登录前置条件](references/host-prerequisites.md)，并在读取任何组织材料前运行：
 
@@ -17,7 +17,9 @@ python3 -I -S "$ORG_WECHAT_SOURCE_ROOT/scripts/release_skills.py" clone-check \
 `--visible-tool-id ID`。`current_task_reload_required: true` 必须先重载/新开任务。
 ChatGPT、Ardot、微信登录和当前文件/账号权限仍必须由本次 Codex 会话的 live probes 证明。
 
-宿主声明之后、读取组织材料之前，工作流必须一次性询问并记录四项文章选择：小组件数量 `0–4`、是否制作 SVG 交互、视觉风格 route、是否生成 raster 背景底图。不得默认代选。确认值写入 `article.production_preferences`，其中 `style_route` 与 `article.route` 必须一致。
+启动时一次询问小组件数量 `0–4`、是否 SVG、风格和是否生成底图；用户可以先提供材料，待共同理解后随分镜一次确认，不要求新用户先懂 route 名称。确认值写入 `article.production_preferences`，其中 `style_route` 与 `article.route` 一致。结合封面计划把三项生图选择保存到 `generation-plan.json`，给上述命令追加 `--generation-plan ABSOLUTE_FILE`，并原样带入各阶段 `target.generation`。全部关闭时不要求生图服务；未传选择时保守检查全部依赖。
+
+本次审计修复的入口、原始节点转换、真实多宽度回读与人工验收动态草稿路线见 [集成说明](references/audit-repair-integration.md)。短通知不再为凑章节/交互/艺术字配额扩写；密度和构图比例是建议，内容完整性、透明资产、对比度和发布授权仍是硬门槛。新增传输方案必须经真实 Ardot/微信账号验收；本地测试不等于平台验证完成。
 
 一套可迁移到不同组织和公众号的 **Codex Desktop + Ardot** 工作流。它把可编辑视觉组件、每个组织的品牌资料、单篇文章事实和最终微信投递适配分开管理。这里的“可迁移”指不同组织与公众号之间的内容/品牌迁移，不代表已经支持任意 LLM 或运行宿主。
 

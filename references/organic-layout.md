@@ -91,13 +91,11 @@ WeChat/Ornament/ClosingMotif/<Mode>
 
 只有内容确实需要独立比较、点击或明确边界时才使用卡片。`generate_backgrounds: false` 不等于无视觉底层；可用同一风格 route 的 Ardot 原生 surface、渐变和可编辑矢量层建立连续画布，仍需避免黑/白大色块跳变并保证文字对比。
 
-## 量化检查
+## 量化检查与审美建议
 
 视觉交付前同时检查截图和 Ardot 层级：
 
-- 闭合方框区块不超过正文区块的 20%。
-- 不允许两个闭合方框连续出现。
-- 至少出现三次非对称、越界或边缘切入的视觉时刻。
+- 20% 方框、避免连续方框、三次非对称是长文风格建议，报告为 composition_advice；不阻断明确需要容器或对称构图的内容。
 - `selected_roles` 数量与 `micro_component_count` 一致，每个已选角色由不同的文章专属 derivative 承担，并有原生 Ardot component node；数量为零时不伪造组件或布局证据。
 - 所有实际微组件实例均由哈希绑定的 Ardot 节点属性快照覆盖；校验器从 instance/image bounds、文字 font size 与闭合 shape 节点计算 72%/82% 上限、左右错落、字号层级与无框结果，不接受手填比例或 `pass` 自证。
 - 不能让每个语义区块都拥有自己的背景、边框或圆角容器。

@@ -785,7 +785,7 @@ def validate_pack(
             "organization.visual.calibration.typography.approved_treatments",
             errors,
         )
-        if not treatments:
+        if typography.get("strategy") == "expressive-native" and not treatments:
             errors.append("approved typography requires at least one treatment")
         for treatment in treatments:
             if treatment not in ALLOWED_ART_TYPE_TREATMENTS:
@@ -794,16 +794,16 @@ def validate_pack(
         if (
             not isinstance(maximum_moments, int)
             or isinstance(maximum_moments, bool)
-            or not 2 <= maximum_moments <= 4
+            or not (1 if typography.get("strategy") == "expressive-native" else 0) <= maximum_moments <= 4
         ):
-            errors.append("approved typography maximum_moments_per_article must be 2 to 4")
+            errors.append("approved typography maximum_moments_per_article must be 1 to 4 for expressive or 0 to 4 for restrained")
         recipes = require_list(
             typography.get("approved_recipes"),
             "organization.visual.calibration.typography.approved_recipes",
             errors,
         )
-        if typography.get("strategy") == "expressive-native" and len(recipes) < 2:
-            errors.append("expressive typography requires at least 2 approved construction recipes")
+        if typography.get("strategy") == "expressive-native" and not recipes:
+            errors.append("expressive typography requires an approved construction recipe")
         recipe_ids: set[str] = set()
         for index, recipe_raw in enumerate(recipes):
             recipe = require_dict(recipe_raw, f"approved typography recipe {index}", errors)

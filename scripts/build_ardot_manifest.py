@@ -479,7 +479,7 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
                 else f"generate the {requested_micro_component_count} selected distinct micro illustrations, verify final RGBA pixels and lineage, register them, and record native Ardot component evidence before article layout"
             ),
             (
-                "author 2–3 semantic dynamic modules; a repeated card group counts as one module"
+                "author the approved semantic dynamic modules; one useful module is valid and a repeated card group counts as one module"
                 if production_preferences.get("use_svg") is True
                 else "author no SVG modules; keep the confirmed static-selected interaction plan"
             ),
@@ -493,7 +493,11 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
                 if production_preferences.get("generate_backgrounds") is True
                 else "use only continuous Ardot-native surfaces, gradients, and open vectors; do not create raster atmosphere backgrounds"
             ),
-            "apply 2–4 approved expressive typography recipes with at least two non-font construction techniques and native editable text/accent layers; keep body copy standard and never bake Chinese display text into images",
+            (
+                "apply approved expressive moments without a quota, using the selected native recipes; keep body copy standard and never bake Chinese display text into images"
+                if typography.get("strategy") == "expressive-native"
+                else "keep restrained native typography; no expressive moments are required"
+            ),
             "apply or update the organization variable mode",
             "fetch reusable components by exact ardot_component name",
             "create missing semantic component variants before article assembly",
@@ -545,8 +549,6 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
                 "missing component variant",
                 "unresolved asset",
                 "clipped or overflowed text",
-                "more than 20 percent of content sections use a closed box",
-                "two boxed sections appear consecutively",
                 "every semantic block has its own background, border, or rounded container",
                 "micro illustration is rectangular, framed, generic, or used as a panel background",
                 "micro-component copy is enclosed by a frame, chip, badge, filled rectangle, or enclosing shape node",
@@ -556,13 +558,13 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
                 "terminal workflow attribution is missing, changed, hidden, rasterized, or not the final visible text",
             ],
             "layout_policy": {
-                "maximum_boxed_section_ratio": 0.2,
-                "maximum_consecutive_boxed_sections": 1,
+                "suggested_boxed_section_ratio": 0.2,
+                "suggested_consecutive_boxed_sections": 1,
                 "requested_micro_component_count": requested_micro_component_count,
                 "selected_micro_component_roles": selected_micro_roles,
                 "minimum_micro_illustration_roles": requested_micro_component_count,
                 "minimum_unique_generated_micro_assets": requested_micro_component_count,
-                "minimum_asymmetric_or_edge_breaking_moments": 3,
+                "suggested_asymmetric_or_edge_breaking_moments": 3,
                 "maximum_micro_image_width_ratio": 0.72,
                 "maximum_micro_component_width_ratio": 0.82,
                 "minimum_micro_copy_font_px": 22,
@@ -571,11 +573,11 @@ def build_manifest(article_path: Path, org_dir: Path) -> dict[str, Any]:
                 "minimum_micro_component_screenshot_sections": minimum_micro_screenshot_sections,
                 "minimum_micro_composition_relations": minimum_micro_composition_relations,
                 "default_container": "none",
-                "expressive_typography_moments": "2-4 when strategy is expressive-native",
+                "expressive_typography_moments": "one or more when selected expressive-native; zero is valid for restrained-native",
                 "expressive_typography_recipe": "at least 2 non-font techniques and 2 editable construction layers",
                 "use_svg": production_preferences.get("use_svg"),
                 "dynamic_modules_per_article": (
-                    "2-3 semantic modules"
+                    "approved semantic module count; one is valid, 2-3 is long-article advice"
                     if production_preferences.get("use_svg") is True
                     else "0; static-selected"
                 ),

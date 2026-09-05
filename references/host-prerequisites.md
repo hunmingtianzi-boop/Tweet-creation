@@ -19,10 +19,11 @@ ChatGPT 在这里是由 Codex 调用的规划、审阅和透明图来源，不�
 |---|---:|---:|---:|---:|---:|
 | Codex Desktop + 锁定平台 | 必须 | 必须 | 必须 | 必须 | 必须 |
 | 同一 release 的三个仓库 Skill | 必须 | 必须 | 必须 | 必须 | 必须 |
-| `codex-with-chatgpt` Skill、构建产物与当前 workspace 连接 | 必须 | — | 必须 | — | 必须 |
-| Node.js ≥ 20 与 `cloudflared` | 必须 | — | 必须 | — | 必须 |
-| 内置 Browser 中的 ChatGPT 登录 | 必须 | — | 必须 | — | 必须 |
-| Codex ImageGen、`view_image` 与内置 Browser 完整路线 | 必须 | — | 必须 | — | 必须 |
+| `codex-with-chatgpt` Skill、构建产物与当前 workspace 连接 | 选 RGBA 时 | — | 选 RGBA 时 | — | 选 RGBA 时 |
+| Node.js ≥ 20 与 `cloudflared` | 选 RGBA 时 | — | 选 RGBA 时 | — | 选 RGBA 时 |
+| 内置 Browser 中的 ChatGPT 登录 | 选 RGBA 时 | — | 选 RGBA 时 | — | 选 RGBA 时 |
+| Codex ImageGen | 选不透明生图时 | — | 选不透明生图时 | — | 选不透明生图时 |
+| `view_image` 验图 | 必须 | — | 必须 | 必须 | 必须 |
 | Ardot Remote 连接、登录与精确 file/root 权限 | — | 必须 | 必须 | 必须 | 必须 |
 | 微信目标账号登录或运行时 API 凭据 | — | — | — | 必须 | 必须 |
 
@@ -37,7 +38,7 @@ OAuth，当前任务没有 `mcp__ardot_remote__*` 时也只能重载/新开任�
 ## 第一次拉取的顺序
 
 1. 在 **Codex Desktop** 中把这个 clone 打开为本地任务；不要先把材料交给另一个 LLM 执行。
-2. 安装并配置 [`Codex with ChatGPT`](https://github.com/XiaoDuoYa/codex-with-chatgpt)。它是仓库外部依赖，本仓库不会把它打包进 release。必须把连接绑定到当前 clone 的精确 workspace，而不是同名旧 checkout。
+2. 只有选中真实小组件生图时，才安装并配置 [`Codex with ChatGPT`](https://github.com/XiaoDuoYa/codex-with-chatgpt)。它是仓库外部依赖，本仓库不会把它打包进 release。必须把连接绑定到当前 clone 的精确 workspace，而不是同名旧 checkout。
 3. 从本仓库发布清单原子安装三个同版本 Skill：
 
    ```bash
@@ -48,12 +49,12 @@ OAuth，当前任务没有 `mcp__ardot_remote__*` 时也只能重载/新开任�
    ```
 
 4. 新开或重新加载 Codex 任务，让本次 release 的 Skill registry 生效。
-5. 在读取组织材料前，运行克隆条件声明：
+5. 先记录用户的生产偏好（允许理解材料后再确认），用 generation-plan.json 声明组件/底图/封面生成选择，再运行克隆条件声明：
 
    ```bash
    python3 -I -S "$ORG_WECHAT_SOURCE_ROOT/scripts/release_skills.py" clone-check \
      --skills-root /ABSOLUTE/CODEX/SKILLS/ROOT \
-     --phase full
+     --phase full --generation-plan /ABSOLUTE/generation-plan.json
    ```
 
    可把 `full` 换成 `migration`、`bootstrap`、`authoring` 或 `delivery`。命令会真实
@@ -106,6 +107,6 @@ current-session census + runtime live probe 覆盖当前视图；旧日志不参
 
 ## 停止条件
 
-遇到以下任一项时，在读取材料或写入外部系统前停止：不是 Codex Desktop、平台不在发布锁、三个仓库 Skill 不是同一 release、`codex-with-chatgpt` 未配置到当前 workspace、ChatGPT/Ardot/微信需要登录、Ardot file/root 不匹配，或当前 Codex registry 缺少该阶段要求的完整路线。
+遇到以下任一项时，在读取材料或写入外部系统前停止：不是 Codex Desktop、平台不在发布锁、三个仓库 Skill 不是同一 release、本次确实需要的 `codex-with-chatgpt` 未配置到当前 workspace、当前阶段需要的 ChatGPT/Ardot/微信需要登录、Ardot file/root 不匹配，或当前 Codex registry 缺少该阶段要求的完整路线。
 
 不要通过手写 `loaded=true`、复制旧 profile、复用 Cookie、把 shell 冒充 Browser，或把 schema 可移植性解释为其他 harness 已受支持来绕过这些条件。

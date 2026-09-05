@@ -152,12 +152,17 @@ python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
 
 ## 3. 生成 profile
 
-操作者只写 `org-wechat-runtime-target-v1`：`links`、Ardot/WeChat 精确目标、当前资产清单，以及真实可用时才请求的高等级 assurance。`artifact_inventory.census_complete` 为 true 且没有 eligible carriers 时，水印 secret 不是前置条件；只有确实存在可嵌入载体时才需要 `PROVENANCE_WATERMARK_KEY` 和 Git 外 private root。一个无载体的 authoring target 例子：
+操作者只写 `org-wechat-runtime-target-v1`：`generation`、`links`、Ardot/WeChat 精确目标、当前资产清单，以及真实可用时才请求的高等级 assurance。`artifact_inventory.census_complete` 为 true 且没有 eligible carriers 时，水印 secret 不是前置条件；只有确实存在可嵌入载体时才需要 `PROVENANCE_WATERMARK_KEY` 和 Git 外 private root。一个无载体的 authoring target 例子：
 
 ```json
 {
   "schema_version": 1,
   "kind": "org-wechat-runtime-target-v1",
+  "generation": {
+    "micro_component_count": 0,
+    "generate_backgrounds": false,
+    "generate_cover": false
+  },
   "links": {
     "ardot_current_workspace": {
       "url": "https://ardot.tencent.com/file/123456789?web_only=1&node_id=1%3A2",
@@ -178,6 +183,8 @@ python3 -I -S "$ORG_WECHAT_RUNTIME_ROOT/scripts/secure_runner.py" \
   }
 }
 ```
+
+`generation` 必须沿用启动确认的三项选择（含封面是否生图），不可在阶段切换中丢弃。缺失字段按未决/旧版保守启用全部生图依赖；这不是零生成路线。零生成时不建立 provider session binding、不调用 RGBA migration finalizer；仍检查当前阶段实际需要的 Ardot/微信身份。完整衔接见 [修复集成说明](audit-repair-integration.md)。
 
 `migration` target 的 `links`/`targets` 为空且可不带资产清单。当前会话 census intent 是 phase-bound：切换到 `bootstrap/authoring/delivery/full` 时必须先重跑 `init-current-session-census --phase <目标阶段>`，不可复用 migration census。`delivery/full` 再增加 `targets.wechat.mode` (`api` 或 `ui`)、`terminal_state` (`draft` 或 `publish`，缺省为 `draft`)、`account_link` 和 exact `target_account_ref`。当选择 `api + draft` 且未选 portable `host_receipt_attestation` 时，profile 必须单独选中同 account 的 `wechat_current_session_readback`，且 census 中必须有完整 `wechat.current-session-readback` Browser/Computer Use 路由；缺路由直接失败。Portable signed API draft 保留自己的 screenshot/receipt 路线，不要求或注入 current-session bundle route。`wechat.draft` 只能证明 API 草稿路径，绝不推导发布权限：`publish+api` 还必须有独立 `wechat.current-session-authority` 或已选 portable receipt；否则 binding 提前失败并列出 UI live route。`publish+ui` 必须使用已声明的 Browser/Computer Use live route，并在点击前消费当次确认、点击后权威回读状态。不要在 adapter 无 callable 时填 `assurance.filesystem_access_lease` 或 `assurance.migration_probe_finalization`。
 

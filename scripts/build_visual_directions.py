@@ -83,6 +83,9 @@ def build_directions(
         if personality.get("experimental", 0) >= 60 or personality.get("action", 0) >= 65
         else "restrained-native"
     )
+    approved_strategy = organization.get("visual", {}).get("calibration", {}).get("typography", {}).get("strategy")
+    if approved_strategy in {"expressive-native", "restrained-native"}:
+        typography_strategy = approved_strategy
     directions: list[dict[str, Any]] = []
     for route in route_candidates:
         route_grammar = route.get("style_grammar")
@@ -184,8 +187,8 @@ def build_directions(
                 "typography_trial": {
                     "recommended_strategy": typography_strategy,
                     "compare": ["hero-title", "chapter-title"],
-                    "candidate_treatments": ["stacked-title", "mixed-weight", "stroke-offset"],
-                    "approve_as_recipes": True,
+                    "candidate_treatments": ["stacked-title", "mixed-weight", "stroke-offset"] if typography_strategy == "expressive-native" else [],
+                    "approve_as_recipes": typography_strategy == "expressive-native",
                     "requirements": [
                         "native editable Ardot text nodes",
                         "licensed or system fonts only",
@@ -230,7 +233,11 @@ def build_directions(
                 if background_mode == "generated-family"
                 else ["native Ardot reading surface", "4.5:1 text contrast", "no raster background assets"]
             ),
-            "typography": ["strategy", "at least two approved construction recipes", "at least two non-font techniques", "editable text/accent layers", "body-copy fallback"],
+            "typography": (
+                ["strategy", "at least one approved construction recipe", "at least two non-font techniques per chosen recipe", "editable text/accent layers", "body-copy fallback"]
+                if typography_strategy == "expressive-native"
+                else ["restrained-native strategy", "standard readable native text", "no expressive recipe required"]
+            ),
             "approve_one_route_in": "organization.visual.calibration.approved_routes",
             "record_benchmark": ["file_url", "page_name", "article_node_id"],
             "style_reference": (

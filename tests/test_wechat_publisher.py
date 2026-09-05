@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import io
 import base64
 import os
@@ -101,6 +102,29 @@ class FakeHostAuthority:
             confirmation_event_id="user-confirmation-event-test",
             confirmed_at=datetime.now(timezone.utc).isoformat(),
         )
+
+
+def synthetic_viewport_review(handoff, provider, media_id):
+    """Synthetic measurements for contract tests, never live browser evidence."""
+    export = json.loads(handoff.read_text())["transport_fidelity"]["export"]
+    review = {"source": "wechat-render-viewport-review-v1", "target_account_ref": provider.account_ref,
+              "draft_id": media_id, "content_sha256": "sha256:" + hashlib.sha256(provider.saved_article["content"].encode()).hexdigest(), "samples": []}
+    for width in (320, 390, 430):
+        path = handoff.parent / f"synthetic-viewport-{width}.png"
+        Image.new("RGB", (width, round(export["artboard"]["height_px"] * width / 390)), "white").save(path)
+        layers = []
+        for chapter in export["chapters"]:
+            for node in chapter["visible_text_nodes"]:
+                scale = width / 390
+                layers.append({"node_id": node["node_id"], "font_size_px": node["style"]["font_size_px"] * scale,
+                    "letter_spacing_px": node["style"]["letter_spacing_px"] * scale,
+                    "width_px": node["geometry"]["width"] * scale, "height_px": node["geometry"]["height"] * scale,
+                    "scroll_width_px": node["geometry"]["width"] * scale, "scroll_height_px": node["geometry"]["height"] * scale})
+        review["samples"].append({"width_px": width, "captured_at": datetime.now(timezone.utc).isoformat(),
+            "capture_event_id": f"synthetic-{width}", "screenshot": {"path": path.name, "sha256": _file_digest(path)}, "text_layers": layers})
+    path = handoff.parent / "synthetic-viewport-review.json"
+    path.write_text(json.dumps(review))
+    return path
 
 
 class FakeProvider:
@@ -654,6 +678,7 @@ class WeChatPublisherTests(unittest.TestCase):
                 media_id=saved["media_id"],
                 target_account_ref="test-visible-account",
                 output_dir=handoff.parent / "portable-readback",
+                viewport_review_path=synthetic_viewport_review(handoff, provider, saved["media_id"]),
                 screenshot_manifest_path=screenshot_manifest,
             )
             readback = Path(captured["readback"])
@@ -1078,6 +1103,7 @@ class WeChatPublisherTests(unittest.TestCase):
             media_id=saved["media_id"],
             target_account_ref="test-visible-account",
             output_dir=handoff.parent / "interaction-probe-readback",
+            viewport_review_path=synthetic_viewport_review(handoff, provider, saved["media_id"]),
             screenshot_manifest_path=None,
         )
         validation = validate_transport_fidelity_diagnostic(
@@ -1098,6 +1124,43 @@ class WeChatPublisherTests(unittest.TestCase):
             validation["assurance_scope"], "current-session-interaction-probe"
         )
         self.assertFalse(validation["current_session_publication_preflight_eligible"])
+
+        # Synthetic two-device review exercises the real compiler -> publisher
+        # interface. It is not evidence of a live WeChat interaction.
+        from scripts.wechat_interaction_policy import MOBILE_PROFILE_SOURCE, POLICY_VERSION
+        raw_content = handoff.parent / "synthetic-interaction-readback.html"
+        raw_content.write_text(provider.saved_article["content"])
+        now = datetime.now(timezone.utc)
+        profile = {"schema_version": 2, "source": MOBILE_PROFILE_SOURCE, "signature_algorithm": None,
+            "assurance_scope": "current-session-editor-reviewed", "key_id": None, "signature": None,
+            "nonce": "12" * 16, "policy_version": POLICY_VERSION, "status": "passed", "target_account_id": provider.account_ref,
+            "draft_id": saved["media_id"], "verified_at": now.isoformat(), "valid_until": (now + timedelta(hours=1)).isoformat(),
+            "probe_sha256": _file_digest(raw_content), "readback_sha256": _file_digest(raw_content),
+            "host_session_id": "synthetic-test", "host_trace_sha256": "sha256:" + "1" * 64,
+            "editor_review": {"reviewed_by": "synthetic-editor", "review_event_id": "synthetic-review", "scope": "exact-draft-and-both-mobile-interactions"}, "clients": []}
+        for platform in ("ios", "android"):
+            screenshot = handoff.parent / f"synthetic-{platform}.png"
+            Image.new("RGB", (390, 844), "white" if platform == "ios" else "ivory").save(screenshot)
+            profile["clients"].append({"platform": platform, "wechat_version": "synthetic", "result": "passed",
+                "preview_evidence": {"path": screenshot.name, "sha256": _file_digest(screenshot), "byte_length": screenshot.stat().st_size,
+                    "captured_at": now.isoformat(), "device_session_id": platform}})
+        profile_path = handoff.parent / "synthetic-mobile-review.json"
+        profile_path.write_text(json.dumps(profile))
+        reviewed_output = handoff.parent / "editor-reviewed"
+        reviewed_live_root = case.live_root(handoff, reviewed_output / "wechat-candidate.html")
+        with patch("secure_runtime.require_secure_runtime"):
+            reviewed = compile_frozen_session_draft(handoff, reviewed_output, live_root_path=reviewed_live_root,
+                upload_map_path=upload_map, mobile_profile_path=profile_path, interaction_readback_path=raw_content,
+                allow_editor_review=True, check=True)
+        self.assertTrue(reviewed["ok"], reviewed)
+        self.assertEqual(reviewed["selected_payload"], "dynamic", reviewed)
+        with self.assertRaisesRegex(ValueError, "mobile/readback evidence is invalid"):
+            publisher.save_draft(handoff, reviewed_output / "candidate-report.json", target_account_ref=provider.account_ref)
+        publisher.allow_editor_review = True
+        reviewed_saved = publisher.save_draft(handoff, reviewed_output / "candidate-report.json", target_account_ref=provider.account_ref)
+        self.assertEqual(reviewed_saved["media_id"], saved["media_id"])
+        self.assertEqual(provider.draft_add_calls, 1)
+        self.assertEqual(provider.submit_calls, 0)
 
         store.connection.execute(
             "DELETE FROM drafts WHERE target_account_ref=? AND article_revision=?",
@@ -1430,6 +1493,7 @@ class WeChatPublisherTests(unittest.TestCase):
             media_id=saved["media_id"],
             target_account_ref="test-visible-account",
             output_dir=handoff.parent / "browser-bundle-readback",
+            viewport_review_path=synthetic_viewport_review(handoff, provider, saved["media_id"]),
             screenshot_manifest_path=None,
             capture_bundle_path=bundle_path,
         )
@@ -1559,15 +1623,16 @@ class WeChatPublisherTests(unittest.TestCase):
         publisher.current_session_authority = FakeHostAuthority(
             handoff.parent / "ardot-chapter-1.png", mutate_capture=False
         )
-        with self.assertRaisesRegex(ValueError, "identical Ardot reference"):
-            publisher.capture_readback(
-                handoff,
-                output / "candidate-report.json",
-                media_id=saved["media_id"],
-                target_account_ref="test-visible-account",
-                output_dir=handoff.parent / "copied-reference-readback",
-                screenshot_manifest_path=None,
-            )
+        # An independent capture may legitimately render identical pixels.
+        identical = publisher.capture_readback(
+            handoff,
+            output / "candidate-report.json",
+            media_id=saved["media_id"],
+            target_account_ref="test-visible-account",
+            output_dir=handoff.parent / "identical-pixels-readback",
+            screenshot_manifest_path=None,
+        )
+        self.assertEqual(identical["state"], "readback-captured")
         publisher.current_session_authority = good_authority
 
         captured = publisher.capture_readback(
@@ -1576,6 +1641,7 @@ class WeChatPublisherTests(unittest.TestCase):
             media_id=saved["media_id"],
             target_account_ref="test-visible-account",
             output_dir=handoff.parent / "readback-v2",
+            viewport_review_path=synthetic_viewport_review(handoff, provider, saved["media_id"]),
             screenshot_manifest_path=None,
         )
         readback = Path(captured["readback"])

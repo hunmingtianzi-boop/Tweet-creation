@@ -38,6 +38,7 @@
   "scripts_importable_census": {
     "algorithm": "top-level-python-importables-v1",
     "entries": [
+      {"kind": "source", "path": "ardot_capture_adapter.py"},
       {
         "kind": "source",
         "path": "asset_quality.py"
@@ -104,7 +105,9 @@
       },
     {
       "kind": "source",
-        "path": "provenance_watermark.py"
+        "path": "production_intent.py"
+    },
+    {"kind": "source", "path": "provenance_watermark.py"
     },
     {
         "kind": "source",
@@ -116,7 +119,9 @@
       },
       {
         "kind": "source",
-        "path": "runtime_preflight.py"
+        "path": "render_quality.py"
+      },
+      {"kind": "source", "path": "runtime_preflight.py"
       },
       {
         "kind": "source",

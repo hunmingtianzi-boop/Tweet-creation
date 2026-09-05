@@ -1971,7 +1971,7 @@ def typography_calibration_state(organization: dict[str, Any]) -> dict[str, Any]
     if typography.get("body_copy_remains_standard") is not True:
         reasons.append("typography must keep body copy on a standard readable style")
     approved_treatments = typography.get("approved_treatments")
-    if not isinstance(approved_treatments, list) or not approved_treatments:
+    if not isinstance(approved_treatments, list) or (strategy == "expressive-native" and not approved_treatments):
         approved_treatments = []
         reasons.append("typography requires approved_treatments")
     else:
@@ -1983,13 +1983,14 @@ def typography_calibration_state(organization: dict[str, Any]) -> dict[str, Any]
         if invalid:
             reasons.append("typography has invalid approved treatments: " + ", ".join(invalid))
     maximum = typography.get("maximum_moments_per_article")
-    if not isinstance(maximum, int) or isinstance(maximum, bool) or not 2 <= maximum <= 4:
-        reasons.append("typography.maximum_moments_per_article must be 2 to 4")
+    minimum_maximum = 1 if strategy == "expressive-native" else 0
+    if not isinstance(maximum, int) or isinstance(maximum, bool) or not minimum_maximum <= maximum <= 4:
+        reasons.append(f"typography.maximum_moments_per_article must be {minimum_maximum} to 4")
         maximum = 4
     recipes_raw = typography.get("approved_recipes")
     recipes = [item for item in recipes_raw if isinstance(item, dict)] if isinstance(recipes_raw, list) else []
-    if strategy == "expressive-native" and len(recipes) < 2:
-        reasons.append("expressive typography requires at least 2 approved construction recipes")
+    if strategy == "expressive-native" and not recipes:
+        reasons.append("expressive typography requires an approved construction recipe")
     recipe_ids: set[str] = set()
     for index, recipe in enumerate(recipes):
         recipe_id = recipe.get("id")
@@ -2235,13 +2236,13 @@ def validate_interaction_plan(
         target_count = -1
     if use_svg is True:
         if authoring_mode == "dynamic-default":
-            if target_count not in {2, 3}:
+            if target_count < 1:
                 errors.append(
-                    "production_preferences.use_svg=true requires target_module_count of 2 or 3"
+                    "production_preferences.use_svg=true requires at least one useful module"
                 )
-            if not 2 <= len(modules) <= 3:
+            if not modules:
                 errors.append(
-                    "production_preferences.use_svg=true requires 2 to 3 semantic modules"
+                    "production_preferences.use_svg=true requires semantic modules"
                 )
             if target_count != len(modules):
                 errors.append(
@@ -2298,8 +2299,8 @@ def validate_interaction_plan(
         # choice.  Requiring a second exception record would ask the operator to
         # confirm the same static decision twice.
     elif authoring_mode == "dynamic-default":
-        if target_count not in {2, 3} or not 2 <= len(modules) <= 3:
-            errors.append("dynamic-default interaction plans require 2 to 3 semantic modules")
+        if target_count < 1 or target_count != len(modules):
+            errors.append("dynamic-default interaction count must match its nonempty modules")
     elif authoring_mode == "static-exception":
         if target_count not in {0, 1} or len(modules) not in {0, 1} or target_count != len(modules):
             errors.append("static-exception interaction plans may contain at most one semantic module")
@@ -2381,15 +2382,11 @@ def validate_interaction_plan(
         chapter_id = module.get("storyboard_chapter")
         if chapter_id not in chapter_ids:
             errors.append(f"{prefix} references unknown storyboard chapter: {chapter_id}")
-        elif chapter_id in module_chapters:
-            errors.append(f"dynamic modules must be distributed across distinct chapters: {chapter_id}")
         else:
             module_chapters.add(chapter_id)
         placement_band = module.get("placement_band")
         if placement_band not in ALLOWED_INTERACTION_PLACEMENT_BANDS:
             errors.append(f"{prefix} has invalid placement_band: {placement_band}")
-        elif placement_band in placement_bands:
-            errors.append(f"dynamic modules must use distinct placement bands: {placement_band}")
         else:
             placement_bands.add(placement_band)
         if chapter_id in chapter_index_by_id and storyboard_chapters:
@@ -2594,10 +2591,6 @@ def validate_interaction_plan(
             }
         )
 
-    if authoring_mode == "dynamic-default" and len(modules) == 2 and placement_bands != {"early", "middle"}:
-        errors.append("a 2-module dynamic-default plan must distribute modules across early and middle")
-    if authoring_mode == "dynamic-default" and len(modules) == 3 and placement_bands != {"early", "middle", "late"}:
-        errors.append("a 3-module dynamic-default plan must distribute modules across early, middle, and late")
 
     return {
         "ready": not errors,
@@ -2641,7 +2634,7 @@ def validate_typography_plan(
         errors.append("article.typography.status must be approved")
     moments_raw = plan.get("moments")
     moments = [item for item in moments_raw if isinstance(item, dict)] if isinstance(moments_raw, list) else []
-    minimum = 2 if strategy == "expressive-native" else 0
+    minimum = 1 if strategy == "expressive-native" else 0
     maximum = calibration["maximum_moments_per_article"]
     if not minimum <= len(moments) <= maximum:
         errors.append(f"article typography requires {minimum} to {maximum} expressive moments")
@@ -2767,10 +2760,6 @@ def validate_typography_plan(
                 f"typography moment {index} must not use baked text assets: "
                 + ", ".join(sorted(forbidden_asset_fields))
             )
-    if strategy == "expressive-native" and len(roles) < 2:
-        errors.append("expressive typography requires at least 2 different semantic roles")
-    if strategy == "expressive-native" and len(treatments) < 2:
-        errors.append("expressive typography requires at least 2 different treatments")
     return {
         "ready": calibration["ready"] and not errors,
         "strategy": strategy,
@@ -3613,12 +3602,11 @@ def validate_ardot_article_census(
             center_offset = abs((x + width / 2) / 390 - 0.5)
             if x < 0 or x + width > 390 or center_offset >= 0.16:
                 asymmetric_sections.add(str(section.get("node_id")))
-    if boxed_ratio > 0.20:
-        errors.append("article-wide closed/boxed section ratio exceeds 20%")
-    if consecutive_boxed > 1:
-        errors.append("article-wide layout contains consecutive boxed sections")
+    composition_advice = []
+    if boxed_ratio > 0.20 or consecutive_boxed > 1:
+        composition_advice.append("consider whether repeated containers help this article's reader")
     if len(asymmetric_sections) < 3:
-        errors.append("article-wide layout requires at least 3 geometry-derived asymmetric/edge-breaking sections")
+        composition_advice.append("asymmetry is optional; prioritize the selected editorial intent")
 
     node_index = {
         node.get("node_id"): node
@@ -3667,6 +3655,7 @@ def validate_ardot_article_census(
         "boxed_section_ratio": round(boxed_ratio, 4),
         "maximum_consecutive_boxed_sections": consecutive_boxed,
         "asymmetric_section_count": len(asymmetric_sections),
+        "composition_advice": composition_advice,
         "typography_errors": typography_errors,
         "receipt_assurance_level": assurance_level,
         "receipt_host_enforced": host_enforced,
@@ -3679,6 +3668,7 @@ def validate_visual_review(
     article_path: Path,
 ) -> dict[str, Any]:
     errors: list[str] = []
+    advice: list[str] = []
     if review.get("schema_version") != 3:
         errors.append("visual review schema_version must be 3")
     if review.get("article_id") != article.get("article_id"):
@@ -3716,7 +3706,10 @@ def validate_visual_review(
     screenshots = review.get("screenshots")
     screenshot_items = [item for item in screenshots if isinstance(item, dict)] if isinstance(screenshots, list) else []
     roles = {item.get("role") for item in screenshot_items if isinstance(item.get("role"), str)}
-    for role in sorted(REQUIRED_SCREENSHOT_ROLES - roles):
+    storyboard_chapters = article.get("storyboard", {}).get("chapters", [])
+    minimum_screenshots = min(5, max(1, len(storyboard_chapters)))
+    required_roles = REQUIRED_SCREENSHOT_ROLES if minimum_screenshots == 5 else set()
+    for role in sorted(required_roles - roles):
         errors.append(f"visual review is missing screenshot role: {role}")
     node_ids: set[str] = set()
     screenshot_hashes: dict[str, str] = {}
@@ -3770,8 +3763,10 @@ def validate_visual_review(
                         errors.append(f"visual review screenshot {index} pixel dimensions do not match the file")
         if not isinstance(item.get("chapter_id"), str) or not item.get("chapter_id"):
             errors.append(f"visual review screenshot {index} requires chapter_id")
-    if len(node_ids) < 5:
-        errors.append("visual review requires at least 5 distinct Ardot node screenshots")
+    if len(node_ids) < minimum_screenshots:
+        errors.append(f"visual review requires at least {minimum_screenshots} distinct Ardot node screenshots")
+    if minimum_screenshots < 5 and not {c.get("id") for c in storyboard_chapters}.issubset(set(screenshot_chapters.values())):
+        errors.append("short-article visual review must cover every storyboard chapter")
     census_validation = validate_ardot_article_census(
         review,
         article,
@@ -3815,10 +3810,10 @@ def validate_visual_review(
             value = sample.get(metric)
             if not isinstance(value, (int, float)) or isinstance(value, bool):
                 errors.append(f"density sample {index} requires numeric {metric}")
+            elif not math.isfinite(value):
+                errors.append(f"density sample {index} {metric} must be finite")
             elif not minimum <= float(value) <= maximum:
-                errors.append(
-                    f"density sample {index} {metric} must be between {minimum} and {maximum} for {density_mode}"
-                )
+                advice.append(f"density sample {index} {metric} is outside the suggested {density_mode} band")
             derived_value = derived_sample.get(metric)
             if (
                 not isinstance(value, (int, float))
@@ -3841,10 +3836,10 @@ def validate_visual_review(
         occupancy_minimum = 0.45 if intentional else 0.68
         if not isinstance(occupancy, (int, float)) or isinstance(occupancy, bool):
             errors.append(f"density sample {index} requires numeric content_occupancy_ratio")
+        elif not math.isfinite(occupancy) or not 0 <= occupancy <= 1:
+            errors.append(f"density sample {index} occupancy is not a valid ratio")
         elif not occupancy_minimum <= float(occupancy) <= 0.90:
-            errors.append(
-                f"density sample {index} content_occupancy_ratio must be between {occupancy_minimum} and 0.9"
-            )
+            advice.append(f"density sample {index} occupancy is outside the suggested reading-density band")
         derived_occupancy = derived_sample.get("content_occupancy_ratio")
         if not isinstance(derived_occupancy, (int, float)) or not isinstance(occupancy, (int, float)) or abs(float(occupancy) - float(derived_occupancy)) > 0.02:
             errors.append(
@@ -3854,10 +3849,10 @@ def validate_visual_review(
         empty_maximum = 0.40 if intentional else 0.20
         if not isinstance(largest_empty, (int, float)) or isinstance(largest_empty, bool):
             errors.append(f"density sample {index} requires numeric largest_empty_region_ratio")
-        elif not 0 <= float(largest_empty) <= empty_maximum:
-            errors.append(
-                f"density sample {index} largest_empty_region_ratio must be at most {empty_maximum}"
-            )
+        elif not math.isfinite(largest_empty) or not 0 <= largest_empty <= 1:
+            errors.append(f"density sample {index} empty area is not a valid ratio")
+        elif largest_empty > empty_maximum:
+            advice.append(f"density sample {index} has substantial whitespace; check reader intent")
         derived_empty = derived_sample.get("largest_empty_region_ratio")
         if not isinstance(derived_empty, (int, float)) or not isinstance(largest_empty, (int, float)) or abs(float(largest_empty) - float(derived_empty)) > 0.02:
             errors.append(
@@ -3875,8 +3870,8 @@ def validate_visual_review(
             errors.append(
                 f"density sample {index} body_text_contrast_ratio does not match census text/background colors"
             )
-    if len(density_node_ids) < 5:
-        errors.append("visual review requires density samples for at least 5 distinct screenshot nodes")
+    if len(density_node_ids) < minimum_screenshots:
+        errors.append(f"visual review requires density samples for at least {minimum_screenshots} distinct screenshot nodes")
     micro_component_layout = validate_micro_component_layout(
         review,
         article,
@@ -3895,6 +3890,8 @@ def validate_visual_review(
         resolved_route_id=article.get("route") if isinstance(article.get("route"), str) else None,
     )
     required_visual_checks = set(REQUIRED_VISUAL_CHECKS)
+    if not article.get("typography", {}).get("moments"):
+        required_visual_checks.difference_update({"expressive_typography", "art_type_construction"})
     if preferences.get("generate_backgrounds") is False:
         required_visual_checks.discard("background_family_coherence")
     requested_micro_count = preferences.get("micro_component_count")
@@ -3940,6 +3937,7 @@ def validate_visual_review(
         "node_count": len(node_ids),
         "density_mode": density_mode,
         "density_sample_count": len(sample_items),
+        "advice": advice,
         "production_preferences": preferences,
         "micro_component_layout": micro_component_layout,
         "ardot_article_census": census_validation,

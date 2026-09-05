@@ -651,8 +651,11 @@ def _compile_frozen_transport_contract(
     mobile_profile_path: Path | None = None,
     interaction_readback_path: Path | None = None,
     current_session_mobile_authority: CurrentSessionMobileAuthority | None = None,
+    allow_editor_review: bool = False,
 ) -> dict[str, Any]:
     """Compile a frozen layer export after the caller selects its trust scope."""
+    if allow_editor_review and not session_draft:
+        raise ValueError("editor mobile review is current-session draft only, never portable finalization")
     if finalization and session_draft:
         raise ValueError("finalization and session_draft modes are mutually exclusive")
     if interaction_probe and not session_draft:
@@ -1007,6 +1010,7 @@ def _compile_frozen_transport_contract(
             allow_upload_placeholders=upload_map is None,
             mobile_profile_path=mobile_profile_path,
             current_session_mobile_authority=current_session_mobile_authority,
+            allow_editor_review=allow_editor_review,
         )
         selected_payload = (
             "dynamic"
@@ -1132,6 +1136,7 @@ def _compile_frozen_transport_contract(
                 if resolved_interaction_readback is not None
                 else None
             ),
+            "editor_review_accepted": bool(allow_editor_review),
             "current_session_live_authority_used": (
                 current_session_mobile_authority is not None
             ),
@@ -1223,6 +1228,7 @@ def compile_frozen_transport_candidate(
     mobile_profile_path: Path | None = None,
     interaction_readback_path: Path | None = None,
     current_session_mobile_authority: CurrentSessionMobileAuthority | None = None,
+    allow_editor_review: bool = False,
 ) -> dict[str, Any]:
     """Build a diagnostic candidate that is never write-eligible.
 
@@ -1243,6 +1249,7 @@ def compile_frozen_transport_candidate(
         mobile_profile_path=mobile_profile_path,
         interaction_readback_path=interaction_readback_path,
         current_session_mobile_authority=current_session_mobile_authority,
+        allow_editor_review=allow_editor_review,
     )
 
 
@@ -1257,6 +1264,7 @@ def compile_frozen_session_draft(
     mobile_profile_path: Path | None = None,
     interaction_readback_path: Path | None = None,
     current_session_mobile_authority: CurrentSessionMobileAuthority | None = None,
+    allow_editor_review: bool = False,
     interaction_probe: bool = False,
 ) -> dict[str, Any]:
     """Build a current-session structural candidate in the isolated runner.
@@ -1278,6 +1286,7 @@ def compile_frozen_session_draft(
         mobile_profile_path=mobile_profile_path,
         interaction_readback_path=interaction_readback_path,
         current_session_mobile_authority=current_session_mobile_authority,
+        allow_editor_review=allow_editor_review,
     )
 
 
@@ -1292,6 +1301,7 @@ def compile_frozen_transport(
     mobile_profile_path: Path | None = None,
     interaction_readback_path: Path | None = None,
     current_session_mobile_authority: CurrentSessionMobileAuthority | None = None,
+    allow_editor_review: bool = False,
     interaction_probe: bool = False,
 ) -> dict[str, Any]:
     """Compile final ``wechat.html`` only inside the isolated runner."""
@@ -1311,6 +1321,7 @@ def compile_frozen_transport(
         mobile_profile_path=mobile_profile_path,
         interaction_readback_path=interaction_readback_path,
         current_session_mobile_authority=current_session_mobile_authority,
+        allow_editor_review=allow_editor_review,
     )
 
 
@@ -2062,6 +2073,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="saved probe-draft HTML used to certify the dynamic payload",
     )
+    parser.add_argument("--accept-editor-mobile-review", action="store_true", help="Accept real grouped iOS/Android editor review for this draft only; not host attestation or publication authority")
     parser.add_argument("--org", type=Path, help="Organization pack directory for authoring preview")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--check", action="store_true", help="Exit non-zero when final QA fails")
@@ -2090,6 +2102,7 @@ def main() -> None:
             mobile_profile_path=args.mobile_profile,
             interaction_readback_path=args.interaction_readback,
             interaction_probe=args.interaction_probe,
+            allow_editor_review=args.accept_editor_mobile_review,
         )
         print(json.dumps(report, ensure_ascii=False, indent=2))
         if args.check and not report["ok"]:

@@ -3211,6 +3211,15 @@ class InteractionPlanTests(FreshWorkflowTestCase):
             "static-fallback-until-account-runtime-certification",
         )
 
+    def test_one_meaningful_module_needs_no_padding_module(self) -> None:
+        article = json.loads(self.article.read_text(encoding="utf-8"))
+        article["interaction_plan"]["modules"] = article["interaction_plan"]["modules"][:1]
+        article["interaction_plan"]["target_module_count"] = 1
+        write_json(self.article, article)
+        report = self._report()
+        self.assertTrue(report["ready"], report["errors"])
+        self.assertEqual(report["module_count"], 1)
+
     def test_four_reveal_cards_count_as_one_module_and_four_instances(self) -> None:
         article = json.loads(self.article.read_text(encoding="utf-8"))
         card_copy = [
@@ -3240,7 +3249,7 @@ class InteractionPlanTests(FreshWorkflowTestCase):
         self.assertEqual(report["instance_count"], 5)
         self.assertEqual(report["modules"][0]["instance_count"], 4)
 
-    def test_default_plan_rejects_more_than_three_modules(self) -> None:
+    def test_extra_modules_still_reject_duplicated_semantics(self) -> None:
         article = json.loads(self.article.read_text(encoding="utf-8"))
         article["interaction_plan"]["target_module_count"] = 4
         article["interaction_plan"]["modules"].extend(
@@ -3258,7 +3267,7 @@ class InteractionPlanTests(FreshWorkflowTestCase):
         write_json(self.article, article)
         report = self._report(require_evidence=False)
         self.assertFalse(report["ready"])
-        self.assertTrue(any("2 to 3 semantic modules" in item for item in report["errors"]))
+        self.assertTrue(any("duplicate" in item or "unique" in item or "reused" in item for item in report["errors"]), report["errors"])
 
     def test_confirmed_no_svg_choice_uses_zero_module_static_plan(self) -> None:
         article = json.loads(self.article.read_text(encoding="utf-8"))
@@ -3339,13 +3348,13 @@ class InteractionPlanTests(FreshWorkflowTestCase):
             report["errors"],
         )
 
-    def test_modules_must_be_distributed_across_early_and_middle(self) -> None:
+    def test_placement_metadata_must_describe_the_actual_chapter(self) -> None:
         article = json.loads(self.article.read_text(encoding="utf-8"))
         article["interaction_plan"]["modules"][1]["placement_band"] = "early"
         write_json(self.article, article)
         report = self._report(require_evidence=False)
         self.assertFalse(report["ready"])
-        self.assertTrue(any("early and middle" in item for item in report["errors"]))
+        self.assertTrue(any("belongs to" in item for item in report["errors"]))
 
     def test_placement_band_must_match_actual_storyboard_position(self) -> None:
         article = json.loads(self.article.read_text(encoding="utf-8"))
@@ -3583,9 +3592,11 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
         organization_path = self.pack / "organization.json"
         organization = json.loads(organization_path.read_text(encoding="utf-8"))
         organization["visual"]["calibration"]["background_family"] = None
+        organization["visual"]["calibration"]["typography"].update(strategy="restrained-native", approved_recipes=[], approved_treatments=[], maximum_moments_per_article=0)
         write_json(organization_path, organization)
 
         article = json.loads(self.article.read_text(encoding="utf-8"))
+        article.pop("typography", None)
         article["production_preferences"]["use_svg"] = False
         article["production_preferences"]["generate_backgrounds"] = False
         article["interaction_plan"] = {
@@ -3606,6 +3617,10 @@ class ArdotAndCompilerTests(FreshWorkflowTestCase):
         self.assertEqual(policy["dynamic_modules_per_article"], "0; static-selected")
         self.assertFalse(policy["generate_backgrounds"])
         self.assertEqual(manifest["qa"]["forbidden_generated_backgrounds"], [])
+        self.assertEqual(manifest["typography"]["moment_count"], 0)
+        self.assertIn("no expressive moments are required", json.dumps(manifest))
+        directions = build_directions(self.pack, "introduction", background_mode="native-surfaces")
+        self.assertIn("no expressive recipe required", directions["required_review"]["typography"])
 
         review_path = add_visual_review(self.article)
         review = json.loads(review_path.read_text(encoding="utf-8"))

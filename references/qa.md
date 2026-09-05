@@ -25,7 +25,7 @@
 - 每个 slot 可在生成前选择 native-alpha 原图或可安全分离的计划内 controlled-key 原图；两者都不是终稿通行证。最终透明 derivative 仍不得存在全画布 low-Alpha 色污、脱离碎片、中性/彩色/key-color halo 或纹理化不规则底板；受控 key 背景不均、主体碰边或复杂透明材质无法安全分离时，必须换源或重生成，不放宽终稿门槛。
 - Inspect the native Ardot article and its high-impact component screenshots at 390 px before creating transport files.
 - Body type remains readable and paragraphs are not dense walls of text.
-- Expressive typography appears only in 2–4 approved high-impact moments, uses grounded article copy, licensed/system fonts, native editable Ardot text nodes, and a standard fallback; no generated or flattened Chinese title image replaces the source text.
+- When selected, expressive typography appears in approved high-impact moments (2–4 is advice, not a quota), uses grounded article copy, licensed/system fonts, native editable Ardot text nodes, and a standard fallback; no generated or flattened Chinese title image replaces the source text.
 - Default body typography is checked against the selected density mode; `compact-editorial` uses 15–17 px type, 1.45–1.62 line-height, -0.2–0 px Chinese tracking, 8–14 px paragraph spacing, and 24–40 px major intra-section gaps.
 - Five screenshot-backed density samples record content occupancy and largest empty region; ordinary sections target 68%–90% occupancy and at most 20% accidental empty space.
 - `generate_backgrounds: true` 时，AI 底图属于同一个已登记 family，含 master 和 companion 变体；文字位于近纯色安全区，不逐章切换无关风格。`generate_backgrounds: false` 时使用 Ardot 原生 surface/渐变/可编辑矢量层，不要为满足旧门槛生成伪底图；两种模式都必须验证全文明暗连续与正文对比度。
@@ -40,7 +40,7 @@
 - Copy-bearing micro components contain native text nodes and no enclosing closed shape. Primary copy is at least 22 px and 1.35× its screenshot-bound body text, with scale contrast plus another non-frame technique; glyph outlines never become a rectangular text frame.
 - Long articles vary section rhythm through open text, micro illustrations, continuous paths, image breaks, full-width transitions, and quiet whitespace.
 - Every semantic block does not own a background, border, radius, or shadow.
-- `production_preferences.use_svg: true` 时使用 `dynamic-default` 并规划 2–3 个 semantic interaction modules，而不是 2–3 张子卡或 SVG 节点；2 个占据实际 early + middle 章节，3 个再增加 late。`use_svg: false` 时使用 `static-selected`、`target_module_count: 0` 和空 modules，不再要求重复的静态例外理由。
+- `production_preferences.use_svg: true` 时使用 `dynamic-default` 并按真实读者任务规划一个或多个 semantic interaction modules（2–3 仅长文建议），而不是子卡或 SVG 节点数量；记录真实章节位置，不强制 early/middle/late 分布。`use_svg: false` 时使用 `static-selected`、`target_module_count: 0` 和空 modules，不再要求重复的静态例外理由。
 - 动态模式下，重复卡组只算一个 module。每个子 transport instance 仍使用唯一、有原文依据的 fallback key 和 `sha256:<64 hex>`；装饰动效、已选微插图和表现型字体不计数。目标账号能力证据缺失仍会在投递层选择静态 payload，不改写已确认的创作偏好。
 - A separate visual review v3 records five distinct local 390 px Ardot node exports, hashes, dimensions, capture metadata, density-to-screenshot bindings, a complete micro-component instance inventory, hashed node-property exports, and every required visual check; article JSON cannot self-certify the design.
 - Images have useful alt text and important subjects remain legible on a phone.

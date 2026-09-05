@@ -52,10 +52,13 @@ def build_storyboard_plan(article_path: Path) -> dict[str, Any]:
     chapters_raw = storyboard.get("chapters")
     chapters = [item for item in chapters_raw if isinstance(item, dict)] if isinstance(chapters_raw, list) else []
     errors: list[str] = []
+    warnings: list[str] = []
     if storyboard.get("status") != "approved":
         errors.append("article.storyboard.status must be approved")
-    if not 4 <= len(chapters) <= 10:
-        errors.append("article storyboard requires 4 to 10 narrative chapters")
+    if not chapters:
+        errors.append("article storyboard requires at least one narrative chapter")
+    elif not 4 <= len(chapters) <= 10:
+        warnings.append("4 to 10 chapters is a long-form suggestion, not a delivery gate")
     covered: list[int] = []
     compositions: set[str] = set()
     chapter_ids: set[str] = set()
@@ -142,13 +145,14 @@ def build_storyboard_plan(article_path: Path) -> dict[str, Any]:
     if missing:
         errors.append(f"storyboard does not cover narrative block indices: {missing}")
     if len(compositions) < 3:
-        errors.append("storyboard requires at least 3 different composition modes")
+        warnings.append("consider varied composition only where it helps the reader")
     return {
         "schema_version": 1,
         "kind": "org-wechat-storyboard-plan",
         "article_id": article.get("article_id"),
         "ready_for_visual_kit": not errors,
         "errors": errors,
+        "warnings": warnings,
         "chapter_count": len(chapters),
         "composition_count": len(compositions),
         "chapters": chapters,
